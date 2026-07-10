@@ -65,12 +65,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
     "true",
   );
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
-  await expect(page.locator(".cm-line")).toHaveText([
-    "int main(void) {",
-    "  return 0;",
-    "}",
-    "",
-  ]);
+  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 0;", "}", ""]);
 
   const projectIds = await readdir(join(workspaceRoot, "Projects"));
   expect(projectIds).toHaveLength(1);
@@ -79,6 +74,15 @@ test("creates a real project folder, enters the workbench and reopens it after r
   expect(await readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8")).toBe(
     "int main(void) {\n  return 0;\n}\n",
   );
+
+  const editedSource = "int main(void) {\n  return 42;\n}\n";
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(editedSource);
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
+  await expect
+    .poll(() => readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8"))
+    .toBe(editedSource);
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
@@ -89,6 +93,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   );
   await page.getByRole("button", { name: "二分搜索", exact: true }).click();
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
+  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 42;", "}", ""]);
   await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",

@@ -16,6 +16,7 @@ export interface WorkbenchElements {
   readonly fileName: HTMLElement;
   readonly sourceMeta: HTMLElement;
   readonly parserStatus: HTMLOutputElement;
+  readonly workspaceSaveStatus: HTMLOutputElement;
   readonly importStatus: HTMLOutputElement;
   readonly blockPalette: HTMLElement;
   readonly blockTree: HTMLElement;
@@ -138,6 +139,12 @@ export function mountWorkbench(
         <output id="parser-status" class="status-pill" aria-live="polite" data-state="loading">
           正在加载 C 解析器…
         </output>
+        <output
+          id="workspace-save-status"
+          class="workspace-save-status"
+          aria-live="polite"
+          data-state="unmanaged"
+        >本地工作区未打开</output>
         <output id="import-status" class="status-message" aria-live="polite">
           解析器就绪后可打开、拖入或粘贴 .c 文件
         </output>
@@ -286,6 +293,7 @@ export function mountWorkbench(
     fileName: required(app, "#file-name", HTMLElement),
     sourceMeta: required(app, "#source-meta", HTMLElement),
     parserStatus: required(app, "#parser-status", HTMLOutputElement),
+    workspaceSaveStatus: required(app, "#workspace-save-status", HTMLOutputElement),
     importStatus: required(app, "#import-status", HTMLOutputElement),
     blockPalette: required(app, "#block-palette", HTMLElement),
     blockTree: required(app, "#block-tree", HTMLElement),

@@ -104,6 +104,7 @@ const runPanel = createCurrentRunPanel();
 const workspaceController: WorkspaceController = createWorkspaceController({
   host: elements.getPageHost("dashboard"),
   api: window.panelApi,
+  saveStatus: elements.workspaceSaveStatus,
   load: loadSource,
   enterWorkbench: () => elements.showPage("build"),
 });
@@ -323,7 +324,6 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
     throw new Error("候选分析快照无效；源码未修改");
   }
 
-  // Build derived structures before CodeMirror so rejected plans stay atomic.
   core.createBlockIndex(plan.candidateAnalysis.document);
   const preferredTarget = editTargetSelection.candidateTargetForPlan(
     current.analysis.editTargets,
@@ -345,6 +345,7 @@ function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): voi
   if (destroyed) return;
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   sourceSync.handleSourceChange(source, reason);
+  workspaceController.handleSourceChange(source);
 }
 
 function analyzeCurrentSource(source: string): core.CAnalysisSnapshot {
@@ -477,23 +478,17 @@ window.addEventListener(
     destroyed = true;
     sourceSync.destroy();
     structureEdits?.destroy();
-    structureEdits = null;
     projectionPresenter?.destroy();
-    projectionPresenter = null;
     sourceImport.destroy();
     learningSurface?.destroy();
-    learningSurface = null;
     workspaceController.destroy();
     runPanel.destroy();
     structureEditPanel?.destroy();
-    structureEditPanel = null;
     editPanel?.destroy();
-    editPanel = null;
     projectionStatus.destroy();
     blockTree.destroy();
     codePane.destroy();
     parser?.dispose();
-    parser = null;
     runtime.destroy();
   },
   { once: true },

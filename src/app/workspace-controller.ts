@@ -4,14 +4,19 @@ import type {
   WorkspaceEntrySummary,
   WorkspaceKind,
 } from "../shared/workspace.js";
+import { createWorkspacePersistence } from "./workspace-persistence.js";
 import { createWorkspaceDashboard, type WorkspaceDashboard } from "../ui/workspace-dashboard.js";
 
 export interface WorkspaceControllerOptions {
   readonly host: HTMLElement;
   readonly api: Pick<
     PanelApi,
-    "listWorkspaceDocuments" | "createWorkspaceDocument" | "openWorkspaceDocument"
+    | "listWorkspaceDocuments"
+    | "createWorkspaceDocument"
+    | "openWorkspaceDocument"
+    | "saveWorkspaceDocument"
   >;
+  readonly saveStatus: HTMLOutputElement;
   readonly load: (document: ImportedSource) => void;
   readonly enterWorkbench: () => void;
 }
@@ -21,6 +26,8 @@ export interface WorkspaceController {
   readonly activeEntry: WorkspaceEntrySummary | null;
   initialize(): Promise<void>;
   refresh(): Promise<void>;
+  handleSourceChange(source: string): void;
+  flush(): Promise<void>;
   deactivate(): void;
   destroy(): void;
 }
@@ -29,16 +36,24 @@ export function createWorkspaceController(
   options: WorkspaceControllerOptions,
 ): WorkspaceController {
   assertOptions(options);
-  let activeEntry: WorkspaceEntrySummary | null = null;
   let destroyed = false;
   let generation = 0;
+
+  const persistence = createWorkspacePersistence({
+    save: (entryId, expectedRevision, source) =>
+      options.api.saveWorkspaceDocument({ entryId, expectedRevision, source }),
+    onStatus(status) {
+      options.saveStatus.dataset.state = status.state;
+      options.saveStatus.textContent = status.message;
+    },
+  });
 
   const setFailure = (code: string, message: string): void => {
     dashboard.setStatus(`${code}：${message}`, "error");
   };
 
   const adopt = (document: WorkspaceDocument): void => {
-    activeEntry = Object.freeze({ ...document.entry });
+    persistence.adopt(document.entry);
     options.load({
       source: document.source,
       displayName: `${document.entry.title}.c`,
@@ -78,6 +93,7 @@ export function createWorkspaceController(
       const requestGeneration = ++generation;
       dashboard.setStatus("正在创建本地条目…", "loading");
       try {
+        await persistence.flush();
         const result = await options.api.createWorkspaceDocument({ kind, title });
         if (destroyed || requestGeneration !== generation) return false;
         if (result.status === "failed") {
@@ -98,6 +114,7 @@ export function createWorkspaceController(
       const requestGeneration = ++generation;
       dashboard.setStatus("正在打开本地条目…", "loading");
       try {
+        await persistence.flush();
         const result = await options.api.openWorkspaceDocument({ entryId });
         if (destroyed || requestGeneration !== generation) return;
         if (result.status === "failed") {
@@ -117,7 +134,7 @@ export function createWorkspaceController(
   return Object.freeze({
     dashboard,
     get activeEntry(): WorkspaceEntrySummary | null {
-      return activeEntry;
+      return persistence.activeEntry;
     },
     async initialize(): Promise<void> {
       if (destroyed) return;
@@ -129,15 +146,19 @@ export function createWorkspaceController(
       }
     },
     refresh,
+    handleSourceChange(source: string): void {
+      if (!destroyed) persistence.handleSourceChange(source);
+    },
+    flush: () => persistence.flush(),
     deactivate(): void {
       if (destroyed) return;
-      activeEntry = null;
+      persistence.deactivate();
     },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
       generation += 1;
-      activeEntry = null;
+      persistence.destroy();
       dashboard.destroy();
     },
   });
@@ -148,6 +169,8 @@ function assertOptions(options: WorkspaceControllerOptions): void {
     typeof options.api?.listWorkspaceDocuments !== "function" ||
     typeof options.api.createWorkspaceDocument !== "function" ||
     typeof options.api.openWorkspaceDocument !== "function" ||
+    typeof options.api.saveWorkspaceDocument !== "function" ||
+    !(options.saveStatus instanceof HTMLOutputElement) ||
     typeof options.load !== "function" ||
     typeof options.enterWorkbench !== "function"
   ) {

@@ -327,6 +327,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
     identified(document.createElement("button"), "open-paste"),
     identified(document.createElement("button"), "theme-toggle"),
     identified(document.createElement("output"), "parser-status"),
+    identified(document.createElement("output"), "workspace-save-status"),
     identified(document.createElement("output"), "import-status"),
     identified(document.createElement("dialog"), "paste-dialog"),
     identified(document.createElement("textarea"), "paste-source"),

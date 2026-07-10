@@ -1390,7 +1390,7 @@ h2 {
 
 .status-bar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 0 8px;
@@ -1398,6 +1398,28 @@ h2 {
   color: var(--muted);
   background: var(--surface-soft);
   font-size: 10px;
+}
+
+.workspace-save-status {
+  padding-left: 8px;
+  border-left: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.workspace-save-status[data-state="saved"] {
+  color: var(--success);
+}
+
+.workspace-save-status[data-state="pending"],
+.workspace-save-status[data-state="saving"] {
+  color: var(--warning);
+}
+
+.workspace-save-status[data-state="error"] {
+  color: var(--danger);
+  font-weight: 650;
 }
 
 .status-pill {
