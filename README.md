@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**M0：工程骨架与受限运行器已完成。** 2026-07-10 从 `npm ci` 的干净依赖状态执行 `npm run accept:m0`，全部门禁通过。下一阶段是 M1：任意 C17 单文件的无损源码投影；当前版本尚未实现 C → 积木转换。
+**M1：无损源码投影层已完成。** 2026-07-10 从 `npm ci` 的干净依赖状态执行 `npm run accept:m1`，M0 全量回归、WASM 资产、20 个金样本 round-trip 与 2000 例变异 fuzz 全部门禁通过。下一阶段是 M2：正式导入入口、积木面板、只读代码区与双向高亮；当前版本尚未实现这些正式交互界面，也不支持积木编辑。
 
 已建立：
 
@@ -13,7 +13,10 @@
 - 20 个正常 C 金样本与 5 个资源/故障压力样本
 - 逐字节 I/O、ASan + UBSan 与独立 `leaks` 双闸验证器
 - macOS Seatbelt 最佳努力隔离、资源限制、进程组清理与原生信任确认
-- 52 个单元测试、架构边界检查与 5 个真实 Electron IPC E2E
+- `SourceDoc` / `Block` 不可变模型，以 UTF-16 半开区间保存函数级 `syntax` 与其余 `raw`
+- 显式注释节点及确定性吸附归属，可从 Tree-sitter `ERROR` 中挖出仍完整的函数
+- 两枚精确锁定的 Tree-sitter WASM 资产，以及真实 Electron renderer 解析冒烟
+- 87 个单元测试、架构边界检查、7 个真实 Electron E2E 与可复现的变异 fuzz
 
 ## 开发命令
 
@@ -24,7 +27,10 @@ npm run dev
 npm test
 npm run build
 npm run verify:samples
+npm run verify:roundtrip
+npm run fuzz -- --runs 2000
 npm run accept:m0
+npm run accept:m1
 ```
 
 Electron 43 不再在 `npm ci` 的 `postinstall` 阶段下载原生二进制；首次执行 Electron 命令时会按需下载并校验。离线开发前应先在有网络或已有 Electron 缓存的环境启动一次。

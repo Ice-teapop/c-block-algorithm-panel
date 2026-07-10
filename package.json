@@ -14,6 +14,7 @@
     "dev:electron": "npm run build:electron && node scripts/launch-electron.mjs",
     "build": "npm run typecheck && npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
+    "postbuild:renderer": "npm run verify:wasm-assets",
     "build:electron": "tsc -p tsconfig.electron.json && npm run build:preload",
     "build:preload": "vite build --mode electron-preload",
     "start": "npm run build && electron .",
@@ -23,6 +24,7 @@
     "test": "npm run test:unit && npm run deps:check",
     "test:unit": "vitest run",
     "test:watch": "vitest",
+    "fuzz": "node scripts/fuzz.mjs",
     "deps:prepare": "tsc -p tsconfig.deps.json",
     "deps:check": "npm run deps:prepare && depcruise --config .dependency-cruiser.cjs '.dependency-cruiser-build/**/*.js'",
     "format": "prettier --write '**/*.{ts,mjs,cjs,json,md,css,html}'",
@@ -30,7 +32,10 @@
     "test:e2e": "npm run build && playwright test",
     "verify:toolchain": "node scripts/verify-toolchain.mjs",
     "verify:samples": "node scripts/verify-samples.mjs",
-    "accept:m0": "node scripts/accept-m0.mjs"
+    "verify:wasm-assets": "node scripts/verify-wasm-assets.mjs",
+    "verify:roundtrip": "node scripts/roundtrip.mjs",
+    "accept:m0": "node scripts/accept-m0.mjs",
+    "accept:m1": "node scripts/accept-m1.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
@@ -42,9 +47,11 @@
     "electron-builder": "26.15.3",
     "fast-check": "4.9.0",
     "prettier": "3.9.5",
+    "tree-sitter-c": "0.24.1",
     "typescript": "7.0.2",
     "vite": "8.1.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "web-tree-sitter": "0.26.10"
   },
   "build": {
     "appId": "io.han.c-block-algorithm-panel",

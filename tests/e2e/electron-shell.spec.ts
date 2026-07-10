@@ -249,12 +249,54 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     .getAttribute("content");
   expect(contentSecurityPolicy).toContain("default-src 'self'");
   expect(contentSecurityPolicy).toContain("object-src 'none'");
-  expect(contentSecurityPolicy).not.toContain("unsafe-eval");
+  const scriptPolicy = contentSecurityPolicy
+    ?.split(";")
+    .map((directive) => directive.trim().split(/\s+/u))
+    .find(([name]) => name === "script-src");
+  expect(scriptPolicy).toContain("'wasm-unsafe-eval'");
+  expect(scriptPolicy).not.toContain("'unsafe-eval'");
   expect(contentSecurityPolicy).not.toContain("unsafe-inline");
   const scriptSources = await page
     .locator("script[src]")
     .evaluateAll((scripts) => scripts.map((script) => (script as HTMLScriptElement).src));
   expect(scriptSources.every((source) => source.startsWith("file://"))).toBe(true);
+});
+
+test("loads both WASM modules and projects hello.c in the real renderer", async () => {
+  const runtimeFailures: string[] = [];
+  const wasmRequests: string[] = [];
+  const onPageError = (error: Error) => runtimeFailures.push(`pageerror: ${error.message}`);
+  const onRequest = (request: import("@playwright/test").Request) => {
+    if (request.url().includes(".wasm")) {
+      wasmRequests.push(request.url());
+    }
+  };
+  const onRequestFailed = (request: import("@playwright/test").Request) => {
+    if (request.url().includes(".wasm")) {
+      runtimeFailures.push(
+        `requestfailed: ${request.url()} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    }
+  };
+  page.on("pageerror", onPageError);
+  page.on("request", onRequest);
+  page.on("requestfailed", onRequestFailed);
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const parserStatus = page.locator("#parser-status");
+    await expect(parserStatus).toHaveAttribute("data-state", "ready");
+    await expect(parserStatus).toHaveAttribute("data-root-type", "translation_unit");
+    await expect(parserStatus).toHaveAttribute("data-function-count", "1");
+    await expect(parserStatus).toHaveAttribute("data-roundtrip", "true");
+
+    expect(wasmRequests.filter((name) => name.includes("web-tree-sitter-")).length).toBe(1);
+    expect(wasmRequests.filter((name) => name.includes("tree-sitter-c-")).length).toBe(1);
+    expect(runtimeFailures).toEqual([]);
+  } finally {
+    page.off("pageerror", onPageError);
+    page.off("request", onRequest);
+    page.off("requestfailed", onRequestFailed);
+  }
 });
 
 test("uses the enforced BrowserWindow security preferences", async () => {

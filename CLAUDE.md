@@ -84,8 +84,10 @@
 
 **已查证的坑(照抄官方文档会翻车的地方)**:
 
-- 【实测】0.26 的运行时文件名是 `web-tree-sitter.wasm`;官方 README 里 `cp node_modules/web-tree-sitter/tree-sitter.wasm public` 是过时旧名,照抄 404。构建时把 `web-tree-sitter.wasm` 与 `tree-sitter-c.wasm` 都拷入静态目录,`Parser.init({ locateFile: () => 静态路径 })` 显式指定。浏览器侧双 wasm 装载(Vite asset/?url、MIME)是独立的一块接线工作,M1 就要加"能 init 并 parse hello.c"的冒烟测试。
+- 【实测】0.26 的运行时文件名是 `web-tree-sitter.wasm`;官方 README 里 `cp node_modules/web-tree-sitter/tree-sitter.wasm public` 是过时旧名,照抄 404。两枚锁定 WASM vendored 到 `resources/wasm/`,再由 Vite `?url` 各自生成唯一的哈希资产;`Parser.init({ locateFile: () => runtimeWasmUrl })` 显式指定运行时。构建门禁必须同时验证 npm 源文件、vendored 副本与两个构建产物逐字节一致。
 - 【实测】`Language.loadSync` **不存在**,只有 `await Parser.init()` + `await Language.load(path)`。
+- 【实测】Electron renderer 中 `Language.load(stringUrl)` 会误入 Node 文件路径分支;语言 WASM 必须先按 URL 读取为 `Uint8Array`,再传给 `Language.load(bytes)`。生产 `file://` 与开发 HTTP 两条加载路径都要由真实 Electron E2E 覆盖。
+- 【实测】当前 CSP 下 WebAssembly 编译需要 `script-src 'wasm-unsafe-eval'`;只加入这一枚窄 token,仍明确禁止 `'unsafe-eval'` 与 `'unsafe-inline'`。
 - 【实测】`node.hasError / isError / isMissing` 自 0.25 起是**属性**不是方法。
 - 【实测】`@vscode/tree-sitter-wasm` **不含 C 语言**,别用;直接用 tree-sitter-c 包自带的 wasm。
 - 【实测】Tree/Query 是 WASM 堆对象,需要手动 `.delete()` 释放;防抖策略下新旧树并存,旧树不释放会稳定泄漏。
@@ -94,8 +96,11 @@
 
 ```ts
 import { Parser, Language } from 'web-tree-sitter';
-await Parser.init({ locateFile: () => '/wasm/web-tree-sitter.wasm' });
-const C = await Language.load('/wasm/tree-sitter-c.wasm');
+import runtimeWasmUrl from '../resources/wasm/web-tree-sitter.wasm?url';
+import languageWasmUrl from '../resources/wasm/tree-sitter-c.wasm?url';
+await Parser.init({ locateFile: () => runtimeWasmUrl });
+const languageWasm = await readWasmBytes(languageWasmUrl); // 同时支持 HTTP 与 file://
+const C = await Language.load(languageWasm);
 const parser = new Parser();
 parser.setLanguage(C);
 let tree = parser.parse(src);
@@ -142,7 +147,7 @@ let tree = parser.parse(src);
 
 运行链路 = `mkdtemp` 后立即 `realpath` 的临时目录作唯一可写 cwd + 固定 `runner-limits.sh` 设置 `ulimit -t 2 -f 10240 -n 64` + detached 进程组 + Node 侧 wall-clock 3s 定时终止整个进程组 + stdout/stderr 合计 1 MiB 限额 + **RSS 看门狗**(每 100ms `ps -o rss=` 轮询进程组,超 1 GiB 即杀)+ **进程数看门狗**(同一轮询统计该进程组,超过 64 即杀)。`realpath` 是硬要求:macOS 的 `/var` 会规范化为 `/private/var`,未规范化路径会让 Seatbelt 错误拒绝自己的 workdir。不得用 `ulimit -u` 冒充单任务进程限制。终止后保留 stdin/stdout/stderr 错误监听并进入有界 kill/reap 阶段;只有收到 `close` 或确认进程组已清空后才返回,无法确认则以 process-control failure 失败关闭。全局最多 1 个 active native 任务,并发请求立即返回 `RUNNER_BUSY`,避免逐请求资源上限被并发放大。Seatbelt 路径在上述链路外再套固定 profile(显式拒绝网络,文件写仅允许该临时目录;运行 profile 禁止 fork 与二次 exec,编译 profile只读开放经验证的工具链/SDK;为解析 temp 路径祖先只允许 canonical user temp root 的 `file-read-metadata/file-test-existence`,不得读取其文件内容)。trusted-only 路径明确没有这层隔离。wrapper 是仓库内固定文本,所有用户值只走独立 argv,**禁止把源码、路径、stdin 或 argv 拼进 shell 命令字符串**。临时目录、资源限制、进程组、RSS/进程数监控或清理初始化失败时一律拒绝;只有“Seatbelt 探针失败 + main 为当前请求签发内部一次性授权”允许进入 trusted-only,其他错误不得触发降级。Seatbelt 本身和 trusted-only 都不构成 hostile-code 安全保证。资源失控样本验收判定为“被预期的任一资源机制终止即通过”,不绑定具体信号(墙钟 vs CPU 超时在高负载下会抖动)。
 
-**R13 · 泄漏检测双闸,分开跑。**【实测】对 ASan 编译的二进制跑 `leaks --atExit` 会报零泄漏(ASan 接管了分配器)——两者叠加恰好放过泄漏。【规约】金样本准入 = 两道独立门槛:① `-fsanitize=address,undefined` 构建跑通全部 I/O 用例零报告;② **另行 plain 构建**过 `leaks --atExit -- ./prog` 零泄漏。`leaks --atExit` 必须直接启动目标可执行文件,禁止在中间插入再 `exec` 目标的 shell wrapper(macOS 27 实测只分析 wrapper);按本机 `leaks(1)` 契约以退出码 0/1/>1 分别判定“零泄漏/发现泄漏/工具错误”。样本门禁还必须先运行一个故意泄漏的 plain 正控,确认同一 Runner/Seatbelt 链能得到退出码 1 与明确非零泄漏报告,正控未命中时拒绝相信后续零泄漏结果。
+**R13 · 泄漏检测双闸,分开跑。**【实测】对 ASan 编译的二进制跑 `leaks --atExit` 会报零泄漏(ASan 接管了分配器)——两者叠加恰好放过泄漏。【规约】金样本准入 = 两道独立门槛:① `-fsanitize=address,undefined` 构建跑通全部 I/O 用例零报告;② **另行 plain 构建**过 `leaks --atExit -- ./prog` 零泄漏。`leaks --atExit` 必须直接启动目标可执行文件,禁止在中间插入再 `exec` 目标的 shell wrapper(macOS 27 实测只分析 wrapper);按本机 `leaks(1)` 契约以退出码 0/1/>1 分别判定“零泄漏/发现泄漏/工具错误”。样本门禁还必须先运行一个故意泄漏的 plain 正控,确认同一 Runner/Seatbelt 链能得到退出码 1 与明确非零泄漏报告,正控未命中时拒绝相信后续零泄漏结果。【macOS 27 实测修正】ASan/leaks 外层链在整套几十次进程启动中会偶发撞到 3s wall-time,但单独复跑通常远低于 3s;金样本套件只允许消费**全套件唯一一次**纯 wall-time 环境恢复重试,第二次仍失败即拒绝。恢复必须顺序走同一 Runner/Seatbelt 与相同 3s/CPU/RSS/进程/输出上限;已有 sanitizer/非零泄漏证据、其他资源/进程错误、正控与压力样本一律不得重试,且日志必须打印样本、模式与首次 duration。禁止用重试替代真实失败,禁止增加 verification 专用 timeout。
 
 **R14 · 编辑风暴防护(自动补括号 M2 落地,有效树保持 M3 落地)。** 在文件中部敲 `int f() {`,配对 `}` 出现前下半个文件会被解析进 f 的函数体,每次击键整个下半面板重排。【规约】(a) CM6 开启自动补括号;(b) 重解析后若新增 ERROR 影响区域超过文件的 ~30%,积木面板保持上一棵有效树渲染 + 横幅提示(契约 11),不跟随坏树重排。
 

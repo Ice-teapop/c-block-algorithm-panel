@@ -9,6 +9,12 @@ export default defineConfig({
   timeout: 30_000,
   outputDir: join(tmpdir(), "c-block-algorithm-panel-playwright"),
   reporter: "line",
+  webServer: {
+    command: "npm run dev:web -- --host 127.0.0.1 --port 5173 --strictPort",
+    url: "http://127.0.0.1:5173/",
+    reuseExistingServer: false,
+    timeout: 30_000,
+  },
   use: {
     trace: "retain-on-failure",
   },

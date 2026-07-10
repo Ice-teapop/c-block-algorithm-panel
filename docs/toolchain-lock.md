@@ -24,18 +24,20 @@ M0 resolves every direct dependency once and commits the resulting manifest and 
 | `electron-builder`                    | 26.15.3        |
 | `fast-check`                          | 4.9.0          |
 | `prettier`                            | 3.9.5          |
+| `tree-sitter-c`                       | 0.24.1         |
 | `typescript`                          | 7.0.2          |
 | `vite`                                | 8.1.3          |
 | `vitest`                              | 4.1.10         |
+| `web-tree-sitter`                     | 0.26.10        |
 
-The parser dependencies are deliberately deferred to M1. The Electron shell and its desktop automation are part of M0, so their exact versions are locked here.
+The parser dependencies entered at M1. Their browser runtime and C grammar WASM files are vendored under `resources/wasm/` and verified byte-for-byte against the locked npm packages after every renderer build.
 
 ## Electron build contract
 
 1. `npm run dev` starts Vite, waits for its loopback URL, then opens Electron.
 2. `npm run build` emits the renderer to `dist/`, the main process under `dist-electron/electron/main/`, and a bundled CommonJS preload to `dist-electron/preload/index.cjs`.
 3. The preload stays CommonJS because sandboxed Electron preload scripts cannot use ESM imports.
-4. `npm run test:e2e` builds and launches the production `file://` application through Playwright.
+4. `npm run test:e2e` builds and launches both the production `file://` application and the Vite HTTP development path through Playwright; both must load the two parser WASM modules in a real Electron renderer.
 5. `npm run pack` creates an unpacked application; `npm run dist:mac` creates the macOS distributable.
 
 ## Reproducibility rules

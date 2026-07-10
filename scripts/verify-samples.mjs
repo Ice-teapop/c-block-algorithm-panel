@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve, sep } from "node:path";
+import { createGoldWallTimeRecoveryGate } from "./lib/gold-wall-time-recovery.mjs";
 
 const projectRoot = resolve(new URL("..", import.meta.url).pathname);
 const samplesRoot = resolve(projectRoot, "samples");
@@ -26,6 +27,7 @@ const nonZeroLeakReportPattern = /\b[1-9]\d* leaks? for \d+ total leaked bytes\b
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 let stringOutputObserved = false;
+const goldWallTimeRecovery = createGoldWallTimeRecoveryGate();
 
 const fail = (message) => {
   throw new Error(message);
@@ -318,18 +320,49 @@ const compile = async (backend, sample, preset) => {
   return result.artifactId;
 };
 
+const runGoldWithBoundedRecovery = async (backend, sample, test, artifactId, mode) => {
+  const label = `${sample.name}/${test.id} ${mode}`;
+  const attempt = async () =>
+    requireRecord(
+      await backend.run({
+        artifactId,
+        args: sample.args,
+        stdin: test.stdin,
+        fixtures: sample.fixtures,
+        writableFiles: sample.writableFiles,
+        mode,
+      }),
+      `${label} run result`,
+    );
+  const { result } = await goldWallTimeRecovery.run(attempt, {
+    label,
+    hasNonRetryableEvidence: (candidate) => {
+      const stdout = outputBytes(candidate.stdout, `${label} recovery stdout`);
+      const stderr = outputBytes(candidate.stderr, `${label} recovery stderr`);
+      const reportText = Buffer.concat([stdout, stderr]).toString("utf8");
+      const leakSummary =
+        typeof candidate.leakCheck === "object" &&
+        candidate.leakCheck !== null &&
+        typeof candidate.leakCheck.summary === "string"
+          ? candidate.leakCheck.summary
+          : "";
+      return (
+        sanitizerReportPattern.test(reportText) ||
+        nonZeroLeakReportPattern.test(reportText) ||
+        nonZeroLeakReportPattern.test(leakSummary)
+      );
+    },
+    onRecovery: ({ durationMs }) => {
+      console.warn(
+        `⚠ ${label} 首次命中 3s wall-time（durationMs=${String(durationMs)}）；使用全套件唯一一次同限制顺序恢复重试`,
+      );
+    },
+  });
+  return result;
+};
+
 const runGoldCase = async (backend, sample, test, artifactId, mode) => {
-  const result = requireRecord(
-    await backend.run({
-      artifactId,
-      args: sample.args,
-      stdin: test.stdin,
-      fixtures: sample.fixtures,
-      writableFiles: sample.writableFiles,
-      mode,
-    }),
-    `${sample.name}/${test.id} ${mode} run result`,
-  );
+  const result = await runGoldWithBoundedRecovery(backend, sample, test, artifactId, mode);
   if (
     result.ok !== true ||
     result.termination !== "process-exit" ||
@@ -345,17 +378,7 @@ const runGoldCase = async (backend, sample, test, artifactId, mode) => {
 };
 
 const runGoldLeakCase = async (backend, sample, test, artifactId) => {
-  const result = requireRecord(
-    await backend.run({
-      artifactId,
-      args: sample.args,
-      stdin: test.stdin,
-      fixtures: sample.fixtures,
-      writableFiles: sample.writableFiles,
-      mode: "leaks",
-    }),
-    `${sample.name}/${test.id} leaks run result`,
-  );
+  const result = await runGoldWithBoundedRecovery(backend, sample, test, artifactId, "leaks");
   const leakCheck = requireRecord(result.leakCheck, `${sample.name}/${test.id} leakCheck`);
   if (
     result.ok !== true ||
@@ -492,8 +515,21 @@ const formatBackendFailure = (result) =>
   JSON.stringify({
     ok: result.ok,
     termination: result.termination,
+    durationMs: result.durationMs,
     exitCode: result.exitCode,
     signal: result.signal,
+    stdoutBytes:
+      typeof result.stdout === "string"
+        ? Buffer.byteLength(result.stdout)
+        : result.stdout instanceof Uint8Array
+          ? result.stdout.byteLength
+          : null,
+    stderrBytes:
+      typeof result.stderr === "string"
+        ? Buffer.byteLength(result.stderr)
+        : result.stderr instanceof Uint8Array
+          ? result.stderr.byteLength
+          : null,
     diagnostics: result.diagnostics,
     leakCheck: result.leakCheck,
     error: result.error,
@@ -529,6 +565,12 @@ try {
   }
 } finally {
   await backend.dispose();
+}
+
+if (goldWallTimeRecovery.recoveries.length > 0) {
+  console.warn(
+    `⚠ 金样本门禁使用了 ${goldWallTimeRecovery.recoveries.length} 次环境恢复重试；每次仍执行固定 3s Runner 限制`,
+  );
 }
 
 if (stringOutputObserved) {

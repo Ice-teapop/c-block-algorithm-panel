@@ -5,7 +5,13 @@ module.exports = {
       name: "no-unresolved-code-imports",
       severity: "error",
       from: {},
-      to: { couldNotResolve: true, pathNot: "\\.css$" },
+      to: {
+        couldNotResolve: true,
+        // v17 cannot resolve Vite query assets or web-tree-sitter's nested
+        // conditional exports. These exact imports are independently checked
+        // by TypeScript, Vite, and verify-wasm-assets.mjs.
+        pathNot: "(?:\\.css$|\\.wasm\\?url$|^web-tree-sitter$)",
+      },
     },
     {
       name: "no-circular",
