@@ -76,6 +76,7 @@ describe("block tree interaction gate", () => {
     host.emit("dragstart", source, { dataTransfer: transfer });
     expect(source.classList.contains("is-dragging")).toBe(true);
     expect(transfer.effectAllowed).toBe("move");
+    expect(transfer.setData).toHaveBeenCalledWith("text/plain", "c-block-tree-item");
 
     const dragOver = host.emit("dragover", target, { dataTransfer: transfer });
     expect(dragOver.defaultPrevented).toBe(true);
@@ -276,6 +277,7 @@ function entryFor(index: BlockIndex, button: FakeElement): BlockIndexEntry {
 class FakeDataTransfer {
   dropEffect = "none";
   effectAllowed = "uninitialized";
+  setData = vi.fn();
   getData = vi.fn(() => "");
 }
 

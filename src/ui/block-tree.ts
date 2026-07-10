@@ -84,7 +84,12 @@ export function createBlockTree(
     draggedEntry = entry;
     draggedButton = button;
     button.classList.add("is-dragging");
-    if (event.dataTransfer !== null) event.dataTransfer.effectAllowed = "move";
+    if (event.dataTransfer !== null) {
+      event.dataTransfer.effectAllowed = "move";
+      // Chromium only completes a native drag when the source publishes a
+      // payload. Authorization still comes solely from our in-memory entry.
+      event.dataTransfer.setData("text/plain", "c-block-tree-item");
+    }
   };
   const onDragOver = (event: DragEvent) => {
     if (!interactionEnabled) return;
