@@ -1,0 +1,68 @@
+{
+  "name": "c-block-algorithm-panel",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/electron/main/index.js",
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": ">=25.8.1 <26"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --success first --names web,electron \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:web": "vite",
+    "dev:electron": "npm run build:electron && node scripts/launch-electron.mjs",
+    "build": "npm run typecheck && npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json && npm run build:preload",
+    "build:preload": "vite build --mode electron-preload",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit && npm run deps:check",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "deps:prepare": "tsc -p tsconfig.deps.json",
+    "deps:check": "npm run deps:prepare && depcruise --config .dependency-cruiser.cjs '.dependency-cruiser-build/**/*.js'",
+    "format": "prettier --write '**/*.{ts,mjs,cjs,json,md,css,html}'",
+    "format:check": "prettier --check '**/*.{ts,mjs,cjs,json,md,css,html}'",
+    "test:e2e": "npm run build && playwright test",
+    "verify:toolchain": "node scripts/verify-toolchain.mjs",
+    "verify:samples": "node scripts/verify-samples.mjs",
+    "accept:m0": "node scripts/accept-m0.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "25.9.2",
+    "@typescript/typescript-darwin-arm64": "7.0.2",
+    "concurrently": "10.0.3",
+    "dependency-cruiser": "17.4.3",
+    "electron": "43.0.0",
+    "electron-builder": "26.15.3",
+    "fast-check": "4.9.0",
+    "prettier": "3.9.5",
+    "typescript": "7.0.2",
+    "vite": "8.1.3",
+    "vitest": "4.1.10"
+  },
+  "build": {
+    "appId": "io.han.c-block-algorithm-panel",
+    "productName": "C 积木算法面板",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg"
+      ]
+    }
+  }
+}

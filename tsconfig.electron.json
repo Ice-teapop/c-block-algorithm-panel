@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "dist-electron",
+    "rootDir": ".",
+    "types": ["node", "electron", "vitest/globals"]
+  },
+  "include": ["electron/main/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["electron/preload", "tests"]
+}

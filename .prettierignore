@@ -1,0 +1,11 @@
+CLAUDE.md
+node_modules/
+dist/
+dist-electron/
+.dependency-cruiser-build/
+release/
+playwright-report/
+test-results/
+samples/
+malicious/
+package-lock.json

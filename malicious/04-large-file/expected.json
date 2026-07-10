@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "writableFiles": ["output.bin"],
+  "acceptableTerminations": ["file_limit", "wall_timeout", "exited_nonzero", "signal"]
+}

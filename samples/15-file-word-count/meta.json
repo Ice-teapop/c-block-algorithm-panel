@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "15-file-word-count",
+  "args": ["input.txt"],
+  "fixtures": [
+    {
+      "source": "fixtures/input.txt",
+      "target": "input.txt"
+    }
+  ],
+  "writableFiles": []
+}
