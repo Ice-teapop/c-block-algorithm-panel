@@ -3,27 +3,41 @@ import type { Block, BlockIndex, BlockIndexEntry, ParseConcern, SourceDoc } from
 export interface BlockTree {
   setDocument(document: SourceDoc, index: BlockIndex): void;
   setInteractionEnabled(enabled: boolean): void;
+  setTemplateDrag(templateId: string | null): void;
+  getSelectedEntry(): BlockIndexEntry | null;
   select(entry: BlockIndexEntry | null): void;
   destroy(): void;
+}
+
+export type AssemblyInsertPosition = "before" | "after";
+
+export interface AssemblyInsertIntent {
+  readonly templateId: string;
+  readonly target: BlockIndexEntry;
+  readonly position: AssemblyInsertPosition;
 }
 
 export function createBlockTree(
   host: HTMLElement,
   onSelect: (entry: BlockIndexEntry) => void,
   onMove?: (source: BlockIndexEntry, target: BlockIndexEntry) => void,
+  onInsert?: (intent: AssemblyInsertIntent) => void,
 ): BlockTree {
   let currentIndex: BlockIndex | null = null;
+  let selectedEntry: BlockIndexEntry | null = null;
   let selectedButton: HTMLButtonElement | null = null;
   let buttons: HTMLButtonElement[] = [];
   let draggedEntry: BlockIndexEntry | null = null;
   let draggedButton: HTMLButtonElement | null = null;
   let dropTargetButton: HTMLButtonElement | null = null;
+  let draggedTemplateId: string | null = null;
+  let templateDropTarget: HTMLElement | null = null;
   let interactionEnabled = true;
   let destroyed = false;
   const onClick = (event: Event) => {
     if (!interactionEnabled) return;
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-block-index]",
+      "button[data-block-index]",
     );
     if (button === null || button === undefined || currentIndex === null) return;
     const entry = currentIndex.entries[Number(button.dataset.blockIndex)];
@@ -50,9 +64,19 @@ export function createBlockTree(
     draggedButton = null;
     dropTargetButton = null;
   };
+  const clearTemplateDropTarget = () => {
+    templateDropTarget?.classList.remove("is-template-drop-target");
+    templateDropTarget = null;
+  };
+  const setTemplateDropTarget = (slot: HTMLElement | null) => {
+    if (templateDropTarget === slot) return;
+    clearTemplateDropTarget();
+    templateDropTarget = slot;
+    templateDropTarget?.classList.add("is-template-drop-target");
+  };
   const entryForEvent = (event: Event): BlockIndexEntry | null => {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-block-index]",
+      "button[data-block-index]",
     );
     if (button === null || button === undefined || currentIndex === null) return null;
     const entryIndex = Number(button.dataset.blockIndex);
@@ -62,9 +86,35 @@ export function createBlockTree(
   };
   const buttonForEvent = (event: Event): HTMLButtonElement | null => {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-block-index]",
+      "button[data-block-index]",
     );
     return button !== null && button !== undefined ? button : null;
+  };
+  const slotForEvent = (event: Event): HTMLElement | null => {
+    const slot = (event.target as Element | null)?.closest<HTMLElement>("[data-assembly-slot]");
+    return slot ?? null;
+  };
+  const templateIntentForEvent = (event: Event): AssemblyInsertIntent | null => {
+    const slot = slotForEvent(event);
+    if (
+      draggedTemplateId === null ||
+      slot === null ||
+      currentIndex === null ||
+      onInsert === undefined
+    ) {
+      return null;
+    }
+    const index = Number(slot.dataset.blockIndex);
+    const position = slot.dataset.assemblySlot;
+    const target = Number.isSafeInteger(index) ? currentIndex.entries[index] : undefined;
+    if (
+      target === undefined ||
+      !isMovableEntry(target) ||
+      (position !== "before" && position !== "after")
+    ) {
+      return null;
+    }
+    return Object.freeze({ templateId: draggedTemplateId, target, position });
   };
   const setDropTarget = (button: HTMLButtonElement | null) => {
     if (dropTargetButton === button) return;
@@ -93,6 +143,14 @@ export function createBlockTree(
   };
   const onDragOver = (event: DragEvent) => {
     if (!interactionEnabled) return;
+    const templateIntent = templateIntentForEvent(event);
+    if (templateIntent !== null) {
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+      setTemplateDropTarget(slotForEvent(event));
+      return;
+    }
+    clearTemplateDropTarget();
     const targetEntry = entryForEvent(event);
     const targetButton = buttonForEvent(event);
     if (
@@ -110,6 +168,14 @@ export function createBlockTree(
   };
   const onDragLeave = (event: DragEvent) => {
     if (!interactionEnabled) return;
+    const slot = slotForEvent(event);
+    if (slot !== null && slot === templateDropTarget) {
+      const relatedTarget = event.relatedTarget;
+      if (!(relatedTarget instanceof Node) || !slot.contains(relatedTarget)) {
+        clearTemplateDropTarget();
+      }
+      return;
+    }
     const button = buttonForEvent(event);
     if (button === null || button !== dropTargetButton) return;
     const relatedTarget = event.relatedTarget;
@@ -118,6 +184,16 @@ export function createBlockTree(
   };
   const onDrop = (event: DragEvent) => {
     if (!interactionEnabled) return;
+    const templateIntent = templateIntentForEvent(event);
+    if (templateIntent !== null) {
+      event.preventDefault();
+      clearDragState();
+      clearTemplateDropTarget();
+      draggedTemplateId = null;
+      delete host.dataset.templateDrag;
+      onInsert?.(templateIntent);
+      return;
+    }
     const sourceEntry = draggedEntry;
     const targetEntry = entryForEvent(event);
     if (sourceEntry === null || targetEntry === null || sourceEntry === targetEntry) {
@@ -134,6 +210,7 @@ export function createBlockTree(
       return;
     }
     clearDragState();
+    clearTemplateDropTarget();
   };
   host.addEventListener("click", onClick);
   host.addEventListener("keydown", onKeyDown);
@@ -160,6 +237,7 @@ export function createBlockTree(
       assertActive(destroyed);
       clearDragState();
       currentIndex = index;
+      selectedEntry = null;
       selectedButton = null;
       host.replaceChildren();
       const byBlock = new Map<Block, BlockIndexEntry>();
@@ -181,7 +259,7 @@ export function createBlockTree(
       } else {
         host.append(tree);
       }
-      buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("[data-block-index]"));
+      buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button[data-block-index]"));
       for (const [position, button] of buttons.entries()) {
         button.tabIndex = position === 0 ? 0 : -1;
       }
@@ -194,6 +272,11 @@ export function createBlockTree(
       }
       interactionEnabled = enabled;
       clearDragState();
+      clearTemplateDropTarget();
+      if (!enabled) {
+        draggedTemplateId = null;
+        delete host.dataset.templateDrag;
+      }
       host.inert = !enabled;
       if (enabled) {
         host.removeAttribute("aria-disabled");
@@ -202,15 +285,31 @@ export function createBlockTree(
       }
       refreshDraggability();
     },
+    setTemplateDrag(templateId: string | null) {
+      assertActive(destroyed);
+      if (templateId !== null && (typeof templateId !== "string" || templateId.length === 0)) {
+        throw new TypeError("templateId 必须是非空字符串或 null");
+      }
+      clearDragState();
+      clearTemplateDropTarget();
+      draggedTemplateId = interactionEnabled ? templateId : null;
+      if (draggedTemplateId === null) delete host.dataset.templateDrag;
+      else host.dataset.templateDrag = "true";
+    },
+    getSelectedEntry() {
+      assertActive(destroyed);
+      return selectedEntry;
+    },
     select(entry: BlockIndexEntry | null) {
       assertActive(destroyed);
       if (selectedButton !== null) {
         selectedButton.setAttribute("aria-selected", "false");
         selectedButton.classList.remove("is-selected");
       }
+      selectedEntry = entry?.kind === "block" ? entry : null;
       selectedButton =
         entry?.kind === "block"
-          ? host.querySelector<HTMLButtonElement>(`[data-block-index="${entry.index}"]`)
+          ? host.querySelector<HTMLButtonElement>(`button[data-block-index="${entry.index}"]`)
           : null;
       if (selectedButton !== null) {
         for (const button of buttons) button.tabIndex = button === selectedButton ? 0 : -1;
@@ -223,6 +322,9 @@ export function createBlockTree(
       if (destroyed) return;
       destroyed = true;
       clearDragState();
+      clearTemplateDropTarget();
+      draggedTemplateId = null;
+      delete host.dataset.templateDrag;
       host.removeEventListener("click", onClick);
       host.removeEventListener("keydown", onKeyDown);
       host.removeEventListener("dragstart", onDragStart);
@@ -235,6 +337,7 @@ export function createBlockTree(
       host.replaceChildren();
       buttons = [];
       currentIndex = null;
+      selectedEntry = null;
       selectedButton = null;
     },
   });
@@ -294,6 +397,9 @@ function renderBlock(
     badge.title = concerns.map((concern) => concern.message).join("\n");
     button.append(badge);
   }
+  if (entry !== undefined && isMovableEntry(entry)) {
+    item.append(renderAssemblySlot(window.document, entry, "before"));
+  }
   item.append(button);
 
   if (block.children.length > 0) {
@@ -305,7 +411,23 @@ function renderBlock(
     }
     item.append(group);
   }
+  if (entry !== undefined && isMovableEntry(entry)) {
+    item.append(renderAssemblySlot(window.document, entry, "after"));
+  }
   return item;
+}
+
+function renderAssemblySlot(
+  ownerDocument: Document,
+  entry: BlockIndexEntry,
+  position: AssemblyInsertPosition,
+): HTMLDivElement {
+  const slot = ownerDocument.createElement("div");
+  slot.className = "assembly-slot";
+  slot.dataset.blockIndex = String(entry.index);
+  slot.dataset.assemblySlot = position;
+  slot.setAttribute("aria-hidden", "true");
+  return slot;
 }
 
 function concernsForBlock(

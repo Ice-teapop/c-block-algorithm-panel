@@ -118,6 +118,55 @@ describe("block tree interaction gate", () => {
     expect(onMove).not.toHaveBeenCalled();
   });
 
+  it("inserts a catalog template only through an internal template drag session", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const onInsert = vi.fn();
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn(), onInsert);
+    tree.setDocument(document, index);
+    const target = buttonFor(host, "return_statement");
+    const slot = slotFor(host, target.dataset.blockIndex ?? "", "before");
+    const transfer = new FakeDataTransfer();
+    transfer.getData = vi.fn(() => "builtin.control.for");
+
+    expect(host.emit("dragover", slot, { dataTransfer: transfer }).defaultPrevented).toBe(false);
+    host.emit("drop", slot, { dataTransfer: transfer });
+    expect(onInsert).not.toHaveBeenCalled();
+    expect(transfer.getData).not.toHaveBeenCalled();
+
+    tree.setTemplateDrag("builtin.control.for");
+    expect(host.dataset.templateDrag).toBe("true");
+    const over = host.emit("dragover", slot, { dataTransfer: transfer });
+    expect(over.defaultPrevented).toBe(true);
+    expect(transfer.dropEffect).toBe("copy");
+    expect(slot.classList.contains("is-template-drop-target")).toBe(true);
+
+    const drop = host.emit("drop", slot, { dataTransfer: transfer });
+    expect(drop.defaultPrevented).toBe(true);
+    expect(onInsert).toHaveBeenCalledOnce();
+    expect(onInsert).toHaveBeenCalledWith({
+      templateId: "builtin.control.for",
+      target: entryFor(index, target),
+      position: "before",
+    });
+    expect(host.dataset.templateDrag).toBeUndefined();
+    expect(slot.classList.contains("is-template-drop-target")).toBe(false);
+  });
+
+  it("exposes the selected target for keyboard-accessible palette insertion", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn(), vi.fn());
+    tree.setDocument(document, index);
+    const statement = entryFor(index, buttonFor(host, "expression_statement"));
+
+    expect(tree.getSelectedEntry()).toBeNull();
+    tree.select(statement);
+    expect(tree.getSelectedEntry()).toBe(statement);
+    tree.select(null);
+    expect(tree.getSelectedEntry()).toBeNull();
+  });
+
   it("ignores every drag action while disabled and clears an active drag immediately", () => {
     const { document, index } = fixture();
     const host = fakeDocument.createElement("div");
@@ -262,10 +311,21 @@ function rawBlock(source: string, excerpt: string): Block {
 
 function buttonFor(host: FakeElement, nodeType: string): FakeElement {
   const button = host
-    .querySelectorAll<FakeElement>("[data-block-index]")
+    .querySelectorAll<FakeElement>("button[data-block-index]")
     .find((candidate) => candidate.dataset.nodeType === nodeType);
   if (button === undefined) throw new Error(`missing ${nodeType} button`);
   return button;
+}
+
+function slotFor(host: FakeElement, blockIndex: string, position: "before" | "after"): FakeElement {
+  const slot = host
+    .querySelectorAll<FakeElement>("[data-assembly-slot]")
+    .find(
+      (candidate) =>
+        candidate.dataset.blockIndex === blockIndex && candidate.dataset.assemblySlot === position,
+    );
+  if (slot === undefined) throw new Error(`missing ${position} assembly slot for ${blockIndex}`);
+  return slot;
 }
 
 function entryFor(index: BlockIndex, button: FakeElement): BlockIndexEntry {
@@ -381,21 +441,42 @@ class FakeElement {
   }
 
   closest<T>(selector: string): T | null {
-    if (selector !== "[data-block-index]") return null;
     let candidate: FakeElement | null = this;
     while (candidate !== null) {
-      if (candidate.dataset.blockIndex !== undefined) return candidate as T;
+      const matchesBlock =
+        selector === "[data-block-index]" && candidate.dataset.blockIndex !== undefined;
+      const matchesButton =
+        selector === "button[data-block-index]" &&
+        candidate.tagName === "button" &&
+        candidate.dataset.blockIndex !== undefined;
+      const matchesSlot =
+        selector === "[data-assembly-slot]" && candidate.dataset.assemblySlot !== undefined;
+      if (matchesBlock || matchesButton || matchesSlot) return candidate as T;
       candidate = candidate.parent;
     }
     return null;
   }
 
   querySelectorAll<T>(selector: string): T[] {
-    if (selector !== "[data-block-index]") return [];
+    if (
+      selector !== "[data-block-index]" &&
+      selector !== "button[data-block-index]" &&
+      selector !== "[data-assembly-slot]"
+    ) {
+      return [];
+    }
     const matches: T[] = [];
     const visit = (element: FakeElement) => {
       for (const child of element.children) {
-        if (child.dataset.blockIndex !== undefined) matches.push(child as T);
+        const matchesBlock =
+          selector === "[data-block-index]" && child.dataset.blockIndex !== undefined;
+        const matchesButton =
+          selector === "button[data-block-index]" &&
+          child.tagName === "button" &&
+          child.dataset.blockIndex !== undefined;
+        const matchesSlot =
+          selector === "[data-assembly-slot]" && child.dataset.assemblySlot !== undefined;
+        if (matchesBlock || matchesButton || matchesSlot) matches.push(child as T);
         visit(child);
       }
     };
@@ -404,12 +485,12 @@ class FakeElement {
   }
 
   querySelector<T>(selector: string): T | null {
-    const match = /^\[data-block-index="(\d+)"\]$/u.exec(selector);
+    const match = /^(?:button)?\[data-block-index="(\d+)"\]$/u.exec(selector);
     if (match === null) return null;
     return (
-      (this.querySelectorAll<FakeElement>("[data-block-index]").find(
-        (candidate) => candidate.dataset.blockIndex === match[1],
-      ) as T | undefined) ?? null
+      (this.querySelectorAll<FakeElement>(
+        selector.startsWith("button") ? "button[data-block-index]" : "[data-block-index]",
+      ).find((candidate) => candidate.dataset.blockIndex === match[1]) as T | undefined) ?? null
     );
   }
 
