@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "472aa396f9d4a9a428436c7abe0d560529140cb45d9c32423c48f06f38e649e4",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "attribute-bearing helper",
+      "range": [0, 65],
+      "kind": "raw",
+      "reason": "unsupported-syntax"
+    },
+    {
+      "label": "supported sibling main",
+      "range": [67, 99],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    }
+  ]
+}

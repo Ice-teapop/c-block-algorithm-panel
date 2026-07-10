@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "49cf66d8941ca01c7751eccfb1814d98fe490c083d123848c63aef597363b953",
+  "parserState": "recovery",
+  "oracles": [
+    {
+      "label": "complete helper survives",
+      "range": [0, 34],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "truncated function header",
+      "range": [36, 52],
+      "kind": "raw",
+      "reason": "parse-error"
+    },
+    {
+      "label": "complete declaration mined from recovery",
+      "range": [57, 78],
+      "kind": "syntax",
+      "role": "declaration",
+      "nodeType": "declaration"
+    },
+    {
+      "label": "truncated conditional tail",
+      "range": [83, 121],
+      "kind": "raw",
+      "reason": "parse-error"
+    }
+  ]
+}

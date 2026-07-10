@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "a4efb3bd84aeb8767776e0bb139fc3705e1edd7d35d0f951f1b84e0f90730351",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "main function",
+      "range": [0, 228],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "forward goto middle",
+      "range": [91, 103],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "goto_statement"
+    },
+    {
+      "label": "forward goto finish",
+      "range": [114, 126],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "goto_statement"
+    },
+    {
+      "label": "backward goto start",
+      "range": [182, 193],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "goto_statement"
+    }
+  ]
+}

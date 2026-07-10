@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "ce030019811b34ee26ddda757602c8acb0c93614080a51c05659fd38d243a34b",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "K&R add function",
+      "range": [0, 70],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "K&R function return",
+      "range": [48, 68],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    },
+    {
+      "label": "ordinary sibling main",
+      "range": [72, 112],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    }
+  ]
+}

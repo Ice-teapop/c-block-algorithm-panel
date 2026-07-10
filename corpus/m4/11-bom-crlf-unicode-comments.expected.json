@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "cc34e62bbc1f2d10bbcc6ccd327d95ccb6d3cb2db86f723fee0bdb5b7c136344",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "Unicode teaching comment",
+      "range": [1, 30],
+      "kind": "raw",
+      "reason": "not-yet-structured"
+    },
+    {
+      "label": "BOM CRLF main",
+      "range": [31, 136],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "BOM CRLF if",
+      "range": [73, 114],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "if_statement"
+    },
+    {
+      "label": "BOM CRLF return",
+      "range": [120, 133],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

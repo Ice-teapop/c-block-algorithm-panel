@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "0c45fa5439979bdbbb75088886ee3f27ab08c5cdf5aba5d6d05b6f7a5d0b09c3",
+  "parserState": "recovery",
+  "oracles": [
+    { "label": "disabled broken code", "range": [0, 19], "kind": "raw", "reason": "parse-error" },
+    {
+      "label": "recovered declaration",
+      "range": [27, 45],
+      "kind": "syntax",
+      "role": "declaration",
+      "nodeType": "declaration"
+    },
+    {
+      "label": "main mined from ERROR",
+      "range": [46, 86],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "main return remains structured",
+      "range": [67, 84],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

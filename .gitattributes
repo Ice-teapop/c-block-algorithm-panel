@@ -1,0 +1,2 @@
+corpus/m4/10-crlf-for-loop.c -text
+corpus/m4/11-bom-crlf-unicode-comments.c -text

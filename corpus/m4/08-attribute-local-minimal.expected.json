@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "3fd286332c872aed98aa25aeb9961c602d346f80b0425e6ce10d0b03273b95b0",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "main remains structured",
+      "range": [0, 95],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "only attributed declaration degrades",
+      "range": [21, 59],
+      "kind": "raw",
+      "reason": "unsupported-syntax"
+    },
+    {
+      "label": "following expression remains structured",
+      "range": [64, 75],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "expression_statement"
+    },
+    {
+      "label": "following return remains structured",
+      "range": [80, 93],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

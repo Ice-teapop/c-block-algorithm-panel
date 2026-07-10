@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "15fcfdb0671600015cecc2e5415925305196501c29e0d48f64b7140eca041891",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "line comment containing fake code",
+      "range": [0, 47],
+      "kind": "raw",
+      "reason": "not-yet-structured"
+    },
+    {
+      "label": "only real main function",
+      "range": [48, 80],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "only real return",
+      "range": [69, 78],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

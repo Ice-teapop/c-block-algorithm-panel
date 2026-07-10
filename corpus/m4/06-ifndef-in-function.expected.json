@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "8ba5d3a94509028f0d5e4bacdbad38b7156a94b1e9957bfc10f8d643a9b5c2bc",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "main function",
+      "range": [0, 114],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "ifndef region",
+      "range": [36, 94],
+      "kind": "syntax",
+      "role": "preprocessor",
+      "nodeType": "preproc_ifdef"
+    },
+    {
+      "label": "ifndef branch assignment",
+      "range": [56, 66],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "expression_statement"
+    },
+    {
+      "label": "else branch assignment",
+      "range": [77, 87],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "expression_statement"
+    }
+  ]
+}

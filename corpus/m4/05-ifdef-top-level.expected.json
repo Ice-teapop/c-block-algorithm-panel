@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "f79234897c4107a1face832c0e04a5c65392943c2031556c2fa9e168f40098cf",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "ifdef region",
+      "range": [0, 99],
+      "kind": "syntax",
+      "role": "preprocessor",
+      "nodeType": "preproc_ifdef"
+    },
+    {
+      "label": "enabled branch function",
+      "range": [15, 50],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "else branch function",
+      "range": [57, 92],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "main function",
+      "range": [101, 141],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    }
+  ]
+}

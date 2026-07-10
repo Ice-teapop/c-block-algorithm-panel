@@ -201,7 +201,7 @@ function collectNodeFacts(source: string, rootNode: Node): NodeFacts {
       range.from < range.to &&
       isCompleteFunction(node)
     ) {
-      if (containsUnsupportedFunctionSyntax(node)) {
+      if (containsUnsupportedFunctionHeaderSyntax(node)) {
         unsupportedFunctions.push(range);
       } else {
         functions.push(Object.freeze({ range }));
@@ -252,8 +252,12 @@ function isCompleteFunction(node: Node): boolean {
   );
 }
 
-function containsUnsupportedFunctionSyntax(functionNode: Node): boolean {
-  const stack = [...functionNode.namedChildren];
+function containsUnsupportedFunctionHeaderSyntax(functionNode: Node): boolean {
+  const body = functionNode.childForFieldName("body");
+  const stack = functionNode.namedChildren.filter(
+    (child) =>
+      body === null || child.startIndex !== body.startIndex || child.endIndex !== body.endIndex,
+  );
   while (stack.length > 0) {
     const node = stack.pop();
     if (node === undefined) {

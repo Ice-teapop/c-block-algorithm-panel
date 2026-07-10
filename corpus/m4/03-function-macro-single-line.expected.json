@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "e93fe2ae26113bbe6ac295f3f7b05f9d651978d037e04faf029dd97267647e79",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "function-like macro definition",
+      "range": [0, 27],
+      "kind": "raw",
+      "reason": "unsupported-syntax"
+    },
+    {
+      "label": "main function",
+      "range": [28, 67],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "macro call return",
+      "range": [49, 65],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

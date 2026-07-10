@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "bc4f657f1a6fb8cd3970ba8213d8375ebe4102a528edc02026a53aecbae0cc60",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "CRLF main function",
+      "range": [0, 121],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "CRLF for loop",
+      "range": [42, 99],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "for_statement"
+    },
+    {
+      "label": "CRLF loop body",
+      "range": [81, 92],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "expression_statement"
+    },
+    {
+      "label": "CRLF return",
+      "range": [105, 118],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "return_statement"
+    }
+  ]
+}

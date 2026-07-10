@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "aecf5c44b5a70b69bbf7c34d8d8c98581dbdb35f22408798a7a3a18941b26413",
+  "parserState": "ready",
+  "oracles": [
+    {
+      "label": "classify function",
+      "range": [0, 290],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    {
+      "label": "outer for",
+      "range": [30, 248],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "for_statement"
+    },
+    {
+      "label": "nested switch",
+      "range": [77, 242],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "switch_statement"
+    },
+    {
+      "label": "goto zero",
+      "range": [130, 140],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "goto_statement"
+    },
+    {
+      "label": "goto one",
+      "range": [177, 186],
+      "kind": "syntax",
+      "role": "statement",
+      "nodeType": "goto_statement"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "ce8910310037156f1d23d28099db8dfc4fc41e809e778df1cd5b9279f8c23d76",
+  "parserState": "recovery",
+  "oracles": [
+    {
+      "label": "complete main survives",
+      "range": [0, 32],
+      "kind": "syntax",
+      "role": "function",
+      "nodeType": "function_definition"
+    },
+    { "label": "truncated if region", "range": [34, 83], "kind": "raw", "reason": "parse-error" }
+  ]
+}

@@ -56,6 +56,13 @@ const UNSUPPORTED_STATEMENT_NODE_TYPES = new Set([
   "seh_try_statement",
 ]);
 
+const UNSUPPORTED_DECLARATION_DESCENDANT_TYPES = new Set([
+  "attribute_declaration",
+  "attribute_specifier",
+  "attributed_declarator",
+  "ms_declspec_modifier",
+]);
+
 /**
  * Produces the M2 statement-level view while copying only immutable ranges and
  * node type strings out of the live Tree-sitter tree.
@@ -115,9 +122,14 @@ function projectTopLevelNode(node: Node, context: ProjectionContext): readonly B
   }
   if (node.type === "declaration" || node.type === "type_definition") {
     return [
-      nodeIsComplete(node)
+      nodeIsComplete(node) && !containsUnsupportedDeclarationSyntax(node)
         ? makeSyntaxBlock(node.type, "declaration", range, [])
-        : makeRawBlock(range, rawReason(range, context)),
+        : makeRawBlock(
+            range,
+            containsUnsupportedDeclarationSyntax(node)
+              ? "unsupported-syntax"
+              : rawReason(range, context),
+          ),
     ];
   }
   if (node.type === "preproc_include" || node.type === "preproc_def") {
@@ -139,6 +151,17 @@ function projectTopLevelNode(node: Node, context: ProjectionContext): readonly B
   return [makeRawBlock(range, rawReason(range, context))];
 }
 
+function containsUnsupportedDeclarationSyntax(node: Node): boolean {
+  const stack = [...node.namedChildren];
+  while (stack.length > 0) {
+    const candidate = stack.pop();
+    if (candidate === undefined) continue;
+    if (UNSUPPORTED_DECLARATION_DESCENDANT_TYPES.has(candidate.type)) return true;
+    stack.push(...candidate.namedChildren);
+  }
+  return false;
+}
+
 function projectFunctionNode(node: Node, context: ProjectionContext): readonly Block[] {
   const range = safeNodeRange(node, context.sourceLength);
   if (range === null) {
@@ -149,9 +172,14 @@ function projectFunctionNode(node: Node, context: ProjectionContext): readonly B
   }
   if (node.type === "declaration" || node.type === "type_definition") {
     return [
-      nodeIsComplete(node)
+      nodeIsComplete(node) && !containsUnsupportedDeclarationSyntax(node)
         ? makeSyntaxBlock(node.type, "declaration", range, [])
-        : makeRawBlock(range, rawReason(range, context)),
+        : makeRawBlock(
+            range,
+            containsUnsupportedDeclarationSyntax(node)
+              ? "unsupported-syntax"
+              : rawReason(range, context),
+          ),
     ];
   }
   if (STATEMENT_NODE_TYPES.has(node.type)) {
