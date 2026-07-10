@@ -139,6 +139,7 @@ structureEdits = createStructureEditController({
   onSuccess: () => {
     editPanel?.setStatus({ kind: "success", message: "结构修改已提交；可随时撤销。" });
     sourceImport.setStatus("结构修改已提交；可使用撤销恢复上一版本。", "ready");
+    elements.showPage("build");
   },
   onError: (error) => {
     editPanel?.setStatus(error);
