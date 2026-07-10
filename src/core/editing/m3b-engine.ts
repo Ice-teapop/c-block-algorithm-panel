@@ -311,7 +311,7 @@ function assertPostcondition(
   if (raw.category !== "statement") failPostcondition("statement raw plan 类型不一致");
   switch (request.kind) {
     case "insert-statement":
-      assertInsertionPostcondition(context.analysis, request, diffs, candidate);
+      assertInsertionPostcondition(context.analysis, request, raw.plan, diffs, candidate);
       return;
     case "delete-statement":
       assertDeletionPostcondition(context, request.targetId, diffs, candidate);
@@ -330,6 +330,7 @@ function assertPostcondition(
 function assertInsertionPostcondition(
   base: CAnalysisSnapshot,
   request: Extract<StatementOperationRequest, { readonly kind: "insert-statement" }>,
+  rawPlan: StatementOperationPlan,
   diffs: readonly EditDiff[],
   candidate: CAnalysisSnapshot,
 ): void {
@@ -357,7 +358,9 @@ function assertInsertionPostcondition(
     entry.blocker !== null ||
     !ALLOWED_INSERTED_NODE_TYPES.has(entry.nodeType) ||
     entry.nodeType.startsWith("preproc_") ||
-    candidate.document.source.slice(entry.range.from, entry.range.to) !== request.statementText
+    rawPlan.insertedStatementText === undefined ||
+    candidate.document.source.slice(entry.range.from, entry.range.to) !==
+      rawPlan.insertedStatementText
   ) {
     failPostcondition("新增区间必须恰好包含一个允许的非预处理 statement/declaration");
   }

@@ -75,7 +75,7 @@ interface StatementRequestBase {
 export interface InsertStatementRequest extends StatementRequestBase {
   readonly kind: "insert-statement";
   readonly position: "before" | "after";
-  /** One unindented physical source line. Candidate shape is revalidated after parsing. */
+  /** One unindented statement/control fragment. Candidate shape is revalidated after parsing. */
   readonly statementText: string;
 }
 
@@ -97,6 +97,8 @@ export interface StatementOperationPlan {
   readonly baseRevision: number;
   readonly targetIds: readonly string[];
   readonly patches: readonly TextPatch[];
+  /** Exact statement text expected inside the candidate CST after indentation/newline adaptation. */
+  readonly insertedStatementText?: string;
   /** All current statement operations may change semantics and require a diff confirmation. */
   readonly requiresConfirmation: true;
 }
@@ -308,16 +310,22 @@ function planInsertion(
 
   const indentation = source.slice(target.indentationRange.from, target.indentationRange.to);
   const newline = newlineForTarget(source, target);
+  const insertedStatementText = adaptInsertedStatementText(
+    request.statementText,
+    indentation,
+    newline,
+  );
   const targetEndsWithNewline = endsWithNewline(source, target.extendedRange);
   const newText =
     request.position === "after" && !targetEndsWithNewline
-      ? `${newline}${indentation}${request.statementText}`
-      : `${indentation}${request.statementText}${newline}`;
+      ? `${newline}${indentation}${insertedStatementText}`
+      : `${indentation}${insertedStatementText}${newline}`;
 
   return freezePlan(
     request,
     [target.id],
     [createTextPatch(textRange(position, position), newText)],
+    insertedStatementText,
   );
 }
 
@@ -411,12 +419,14 @@ function freezePlan(
   request: StatementOperationRequest,
   targetIds: readonly string[],
   patches: readonly TextPatch[],
+  insertedStatementText?: string,
 ): StatementOperationPlan {
   return Object.freeze({
     kind: request.kind,
     baseRevision: request.baseRevision,
     targetIds: Object.freeze([...targetIds]),
     patches: Object.freeze([...patches]),
+    ...(insertedStatementText === undefined ? {} : { insertedStatementText }),
     requiresConfirmation: true,
   });
 }
@@ -559,22 +569,40 @@ function validateInsertedStatementText(statementText: string): void {
     typeof statementText !== "string" ||
     statementText.length === 0 ||
     statementText.trim().length === 0 ||
-    /[\r\n]/u.test(statementText) ||
+    /^[\r\n]|[\r\n]$/u.test(statementText) ||
     /^[ \t\f\v]|[ \t\f\v]$/u.test(statementText)
   ) {
     throw operationError(
       "INVALID_STATEMENT_REQUEST",
-      "插入内容必须是一条非空、无外层缩进的物理源代码行",
+      "插入内容必须是非空、首行无外层缩进且没有首尾空行的 C 语句片段",
     );
   }
-  const firstPreprocessingToken = statementText.replace(/^(?:[ \t\f\v]|\/\*[^\r\n]*?\*\/)+/u, "");
-  if (
-    ["#", "%:", "??="].some((token) => firstPreprocessingToken.startsWith(token)) ||
-    /(?:\\|\?\?\/)[ \t\f\v]*$/u.test(statementText) ||
-    /^\/\//u.test(statementText)
-  ) {
-    throw operationError("PREPROCESSOR_BOUNDARY", "插入内容不能是预处理、续行或纯注释行");
+
+  const physicalLines = statementText.split(/\r\n|\r|\n/u);
+  for (const [index, line] of physicalLines.entries()) {
+    const firstPreprocessingToken = line.replace(
+      /^(?:[ \t\f\v]|\/\*[^\r\n]*?\*\/)+/u,
+      "",
+    );
+    if (
+      ["#", "%:", "??="].some((token) => firstPreprocessingToken.startsWith(token)) ||
+      /(?:\\|\?\?\/)[ \t\f\v]*$/u.test(line) ||
+      (index === 0 && /^\/\//u.test(line))
+    ) {
+      throw operationError(
+        "PREPROCESSOR_BOUNDARY",
+        "插入内容不能包含预处理、续行或以纯行注释开头",
+      );
+    }
   }
+}
+
+function adaptInsertedStatementText(
+  statementText: string,
+  indentation: string,
+  newline: string,
+): string {
+  return statementText.split(/\r\n|\r|\n/u).join(`${newline}${indentation}`);
 }
 
 function classifyEditableRelation(parent: Node, child: Node): StatementParentMode | null {

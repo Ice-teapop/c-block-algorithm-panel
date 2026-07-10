@@ -142,6 +142,29 @@ describe("M3b whole-line insertion and deletion", () => {
     expect(Object.isFrozen(plan)).toBe(true);
   });
 
+  it("adapts a single multiline control block to the target indentation and newline", () => {
+    const source = "int value(void) {\r\n  return 1;\r\n}\r\n";
+    const snapshot = extract(source, 111);
+    const target = requireTarget(source, snapshot, "return 1;");
+    const plan = planStatementOperation(source, snapshot, {
+      kind: "insert-statement",
+      baseRevision: 111,
+      targetId: target.id,
+      expectedTargetText: slice(source, target),
+      position: "before",
+      statementText: "for (int i = 0; i < 3; i++) {\n  tick();\n}",
+    });
+    const application = applyTextPatches(source, plan.patches);
+
+    expect(plan.insertedStatementText).toBe(
+      "for (int i = 0; i < 3; i++) {\r\n    tick();\r\n  }",
+    );
+    expect(application.source).toBe(
+      "int value(void) {\r\n  for (int i = 0; i < 3; i++) {\r\n    tick();\r\n  }\r\n  return 1;\r\n}\r\n",
+    );
+    expect(parseHasError(application.source)).toBe(false);
+  });
+
   it("deletes attached movable leading and trailing comments in one minimal range", () => {
     const source = [
       "int value(void) {",
@@ -241,7 +264,8 @@ describe("M3b whole-line insertion and deletion", () => {
     const returnTarget = requireTarget(source, snapshot, "return condition;");
     for (const statementText of [
       "  update();",
-      "update();\nnext();",
+      "\nupdate();",
+      "update();\n",
       "#define X 1",
       "/* disguised */ #define X 1",
       "/**/ %:define X 1",

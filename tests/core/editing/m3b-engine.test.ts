@@ -101,6 +101,49 @@ describe("M3b validated statement engine", () => {
     assertDeepPlanFrozen(plan);
   });
 
+  it("accepts one multiline control fragment and rejects multiple sibling statements", () => {
+    const source = "int main(void) {\n  return 0;\n}\n";
+    const revision = 111;
+    const analysis = parser.analyze(source, revision);
+    const target = requireStatement(source, analysis, "return 0;");
+    const control = planM3bEdit(
+      { source, analysis, analyzer: parser, validateSource: () => undefined },
+      {
+        kind: "insert-statement",
+        baseRevision: revision,
+        targetId: target.id,
+        expectedTargetText: "return 0;",
+        position: "before",
+        statementText: "for (int i = 0; i < 3; i++) {\n  tick();\n}",
+      },
+    );
+
+    expect(control.candidateSource).toContain(
+      "  for (int i = 0; i < 3; i++) {\n    tick();\n  }\n  return 0;",
+    );
+    expect(
+      control.candidateAnalysis.statementEdits.statements.filter(
+        (entry) => entry.nodeType === "for_statement",
+      ),
+    ).toHaveLength(1);
+
+    expectM3bError(
+      () =>
+        planM3bEdit(
+          { source, analysis, analyzer: parser, validateSource: () => undefined },
+          {
+            kind: "insert-statement",
+            baseRevision: revision,
+            targetId: target.id,
+            expectedTargetText: "return 0;",
+            position: "before",
+            statementText: "first();\nsecond();",
+          },
+        ),
+      ["CANDIDATE_POSTCONDITION_FAILED"],
+    );
+  });
+
   it("rejects a BOM-disguised directive only after candidate reparse", () => {
     const source = "int main(void) {\n  return 0;\n}\n";
     const revision = 12;
