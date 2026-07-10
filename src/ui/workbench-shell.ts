@@ -69,7 +69,7 @@ export function mountWorkbench(
             <h2 id="code-title">C 代码</h2>
             <span id="source-meta" class="source-meta">—</span>
           </header>
-          <div id="code-pane" class="code-pane" aria-label="只读 C 代码编辑器"></div>
+          <div id="code-pane" class="code-pane" aria-label="C 代码编辑器"></div>
         </section>
 
         <aside class="panel panel--inspector inspector" aria-labelledby="inspector-title">

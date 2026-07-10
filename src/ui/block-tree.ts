@@ -2,6 +2,7 @@ import type { Block, BlockIndex, BlockIndexEntry, ParseConcern, SourceDoc } from
 
 export interface BlockTree {
   setDocument(document: SourceDoc, index: BlockIndex): void;
+  setInteractionEnabled(enabled: boolean): void;
   select(entry: BlockIndexEntry | null): void;
   destroy(): void;
 }
@@ -13,7 +14,10 @@ export function createBlockTree(
   let currentIndex: BlockIndex | null = null;
   let selectedButton: HTMLButtonElement | null = null;
   let buttons: HTMLButtonElement[] = [];
+  let interactionEnabled = true;
+  let destroyed = false;
   const onClick = (event: Event) => {
+    if (!interactionEnabled) return;
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
       "[data-block-index]",
     );
@@ -22,6 +26,7 @@ export function createBlockTree(
     if (entry?.kind === "block") onSelect(entry);
   };
   const onKeyDown = (event: KeyboardEvent) => {
+    if (!interactionEnabled) return;
     const current = event.target as HTMLButtonElement;
     const position = buttons.indexOf(current);
     if (position < 0) return;
@@ -39,6 +44,7 @@ export function createBlockTree(
 
   return Object.freeze({
     setDocument(sourceDoc: SourceDoc, index: BlockIndex) {
+      assertActive(destroyed);
       currentIndex = index;
       selectedButton = null;
       host.replaceChildren();
@@ -66,7 +72,21 @@ export function createBlockTree(
         button.tabIndex = position === 0 ? 0 : -1;
       }
     },
+    setInteractionEnabled(enabled: boolean) {
+      assertActive(destroyed);
+      if (typeof enabled !== "boolean") {
+        throw new TypeError("enabled 必须是布尔值");
+      }
+      interactionEnabled = enabled;
+      host.inert = !enabled;
+      if (enabled) {
+        host.removeAttribute("aria-disabled");
+      } else {
+        host.setAttribute("aria-disabled", "true");
+      }
+    },
     select(entry: BlockIndexEntry | null) {
+      assertActive(destroyed);
       if (selectedButton !== null) {
         selectedButton.setAttribute("aria-selected", "false");
         selectedButton.classList.remove("is-selected");
@@ -83,14 +103,24 @@ export function createBlockTree(
       }
     },
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       host.removeEventListener("click", onClick);
       host.removeEventListener("keydown", onKeyDown);
+      host.inert = false;
+      host.removeAttribute("aria-disabled");
       host.replaceChildren();
       buttons = [];
       currentIndex = null;
       selectedButton = null;
     },
   });
+}
+
+function assertActive(destroyed: boolean): void {
+  if (destroyed) {
+    throw new Error("BlockTree 已销毁");
+  }
 }
 
 function renderBlock(

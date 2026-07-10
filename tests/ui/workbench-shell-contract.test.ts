@@ -28,6 +28,11 @@ describe("workbench shell extension contract", () => {
     expect(source).not.toMatch(/themeButton\.addEventListener/u);
   });
 
+  it("labels the code surface without making a static read-only claim", () => {
+    expect(source).toContain('id="code-pane" class="code-pane" aria-label="C 代码编辑器"');
+    expect(source).not.toContain('aria-label="只读 C 代码编辑器"');
+  });
+
   it("publishes an idempotent teardown path for remountable workbench shells", () => {
     expect(source).toContain("readonly destroy: () => void");
     expect(source).toContain('removeEventListener("keydown", handleInspectorKeydown)');

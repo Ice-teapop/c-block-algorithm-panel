@@ -13,6 +13,7 @@ import {
   StateEffect,
   StateField,
   Transaction,
+  type Extension,
 } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
@@ -26,8 +27,10 @@ import {
   type SourceOffsetMap,
 } from "../renderer/source-offset-map.js";
 import {
+  allowExactSourceInput,
   createExactSourceEdit,
   createExactSourceState,
+  exactSourceInputValidator,
   getExactSource,
 } from "./exact-source-history.js";
 
@@ -39,7 +42,16 @@ export interface CodeHighlight {
   readonly title?: string;
 }
 
-export interface CodePaneOptions {
+export interface CodePaneInputOptions {
+  /** Direct typing is opt-in; programmatic exact-source edits remain available in either mode. */
+  readonly editable?: boolean;
+  /** Throws synchronously when a direct-input candidate must not enter editor history. */
+  readonly validateSource?: (candidateSource: string) => void;
+  /** Receives the policy error while the rejected transaction still observes the prior state. */
+  readonly onInputRejected?: (error: unknown) => void;
+}
+
+export interface CodePaneOptions extends CodePaneInputOptions {
   readonly onSourceOffset: (sourceOffset: number) => void;
   readonly onSourceChange?: (source: string, reason: CodeSourceChangeReason) => void;
 }
@@ -112,8 +124,10 @@ const highlightField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
-/** Creates a non-typing CodeMirror surface with an exact, programmatically editable source. */
+/** Creates an exact-source CodeMirror surface whose direct typing is explicitly opt-in. */
 export function createCodePane(host: HTMLElement, options: CodePaneOptions): CodePane {
+  const editable = options.editable ?? false;
+  const inputExtensions = createCodePaneInputExtensions(options);
   let exactSource = "";
   let offsetMap = createSourceOffsetMap(exactSource);
   let destroyed = false;
@@ -130,13 +144,13 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
     // A non-fallback style prevents CodeMirror's light default palette from leaking into
     // either industrial theme. CSS variables make a theme switch re-style existing tokens.
     industrialSyntaxHighlighting,
-    // The DOM cannot be typed into, while EditorState remains writable so
-    // the official CodeMirror undo/redo commands can replay exact patches.
-    EditorView.editable.of(false),
+    // Direct input is an explicit capability. EditorState stays writable in
+    // both modes so official undo/redo can replay exact programmatic patches.
+    inputExtensions,
     EditorView.cspNonce.of(__CODEMIRROR_STYLE_NONCE__),
     EditorView.contentAttributes.of({
-      "aria-label": "C 源码（只读）",
-      "aria-readonly": "true",
+      "aria-label": editable ? "C 源码编辑器" : "C 源码（只读）",
+      "aria-readonly": String(!editable),
       "aria-multiline": "true",
       tabindex: "0",
       spellcheck: "false",
@@ -258,6 +272,30 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       mount.remove();
     },
   };
+}
+
+/** Builds the direct-input gate separately so its atomic behavior can be verified without a DOM. */
+export function createCodePaneInputExtensions(options: CodePaneInputOptions): Extension {
+  const editable = options.editable ?? false;
+  if (typeof editable !== "boolean") {
+    throw new TypeError("editable 必须是布尔值");
+  }
+  return [
+    EditorView.editable.of(editable),
+    ...(editable
+      ? [
+          allowExactSourceInput.of(true),
+          exactSourceInputValidator.of((candidateSource) => {
+            try {
+              options.validateSource?.(candidateSource);
+            } catch (error: unknown) {
+              options.onInputRejected?.(error);
+              throw error;
+            }
+          }),
+        ]
+      : []),
+  ];
 }
 
 function isProgrammatic(transactions: readonly Transaction[]): boolean {
