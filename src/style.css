@@ -1945,6 +1945,281 @@ h2 {
   line-height: 1.5;
 }
 
+/* Dashboard: Finder-style information density, no decorative cards. */
+.workbench-page[data-workbench-page-id="dashboard"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workbench-page[data-workbench-page-id="dashboard"] > .workbench-page__title {
+  display: none;
+}
+
+.workspace-dashboard {
+  display: grid;
+  min-width: 0;
+  min-height: 100%;
+  grid-template-columns: 188px minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.workspace-dashboard__sidebar {
+  display: grid;
+  align-content: start;
+  padding: 8px 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.workspace-dashboard__filter {
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-dashboard__filter::after {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  content: attr(data-count);
+}
+
+.workspace-dashboard__filter:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.workspace-dashboard__filter.is-selected {
+  border-left-color: var(--accent);
+  color: var(--ink);
+  background: var(--surface-active);
+}
+
+.workspace-dashboard__content {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 42px 28px minmax(0, 1fr);
+}
+
+.workspace-dashboard__toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, 240px) auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-dashboard__location {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-dashboard__location strong {
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+
+.workspace-dashboard__search {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--input-surface);
+  font-size: 10px;
+}
+
+.workspace-dashboard__status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-dashboard__status[data-state="success"] {
+  color: var(--success);
+}
+
+.workspace-dashboard__status[data-state="error"] {
+  color: var(--danger);
+}
+
+.workspace-dashboard__table-region {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--input-surface);
+  scrollbar-gutter: stable;
+}
+
+.workspace-dashboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 10px;
+}
+
+.workspace-dashboard__table th,
+.workspace-dashboard__table td {
+  height: 34px;
+  padding: 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-dashboard__table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  height: 28px;
+  color: var(--muted-subtle);
+  background: var(--surface-soft);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspace-dashboard__table th:first-child {
+  width: 52%;
+}
+
+.workspace-dashboard__table th:nth-child(2) {
+  width: 15%;
+}
+
+.workspace-dashboard__table th:nth-child(3) {
+  width: 20%;
+}
+
+.workspace-dashboard__table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.workspace-dashboard__open {
+  max-width: 100%;
+  padding: 3px 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--ink-secondary);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-dashboard__open:hover {
+  color: var(--accent-hover);
+}
+
+.workspace-dashboard__table td:not(:first-child) {
+  color: var(--muted);
+}
+
+.workspace-dashboard__table td[data-state="saved"] {
+  color: var(--success);
+}
+
+.workspace-dashboard__empty {
+  display: grid;
+  min-height: 180px;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-dashboard__empty p {
+  margin: 0;
+}
+
+.workspace-create-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.workspace-create-dialog::backdrop {
+  background: var(--overlay);
+}
+
+.workspace-create-dialog__surface {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.workspace-create-dialog__surface h2 {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-create-dialog__surface label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-create-dialog__surface input,
+.workspace-create-dialog__surface select {
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--input-surface);
+  font-size: 11px;
+  text-transform: none;
+}
+
+.workspace-create-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
 .block-library-manager {
   display: grid;
   min-height: 100%;
@@ -2117,6 +2392,10 @@ h2 {
 
   .block-library-manager {
     grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+  }
+
+  .workspace-dashboard {
+    grid-template-columns: 160px minmax(0, 1fr);
   }
 
   .dock-group__label {

@@ -39,12 +39,14 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
     }),
     inspectorViews: Object.freeze([]),
     dockGroups: Object.freeze([
+      Object.freeze({ id: "home", label: "文件", order: 0 }),
       Object.freeze({ id: "core", label: "构建", order: 10 }),
       Object.freeze({ id: "inspect", label: "检查", order: 20 }),
       Object.freeze({ id: "execute", label: "执行", order: 30 }),
       Object.freeze({ id: "learn", label: "学习", order: 40 }),
     ]),
     pages: Object.freeze([
+      Object.freeze({ id: "dashboard", label: "Dashboard", groupId: "home", order: 0 }),
       Object.freeze({ id: "build", label: "搭建", groupId: "core", order: 10 }),
       Object.freeze({ id: "library", label: "积木库", groupId: "core", order: 20 }),
       Object.freeze({ id: "explanation", label: "解释", groupId: "inspect", order: 10 }),

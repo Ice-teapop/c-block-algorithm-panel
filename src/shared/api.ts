@@ -97,7 +97,7 @@ export interface Capabilities {
   readonly requiresNativeTrustConfirmation: boolean;
 }
 
-export type SourceOrigin = "dialog" | "drop" | "paste";
+export type SourceOrigin = "dialog" | "drop" | "paste" | "workspace";
 
 export type SourceImportErrorCode =
   | "SOURCE_IMPORT_BUSY"

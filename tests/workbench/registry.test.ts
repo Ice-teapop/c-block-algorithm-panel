@@ -174,12 +174,14 @@ describe("WorkbenchModuleRegistry", () => {
       expect.objectContaining({ id: "run", label: "运行", order: 30 }),
     ]);
     expect(snapshot.dockGroups).toEqual([
+      expect.objectContaining({ id: "home", label: "文件", order: 0 }),
       expect.objectContaining({ id: "core", label: "构建", order: 10 }),
       expect.objectContaining({ id: "inspect", label: "检查", order: 20 }),
       expect.objectContaining({ id: "execute", label: "执行", order: 30 }),
       expect.objectContaining({ id: "learn", label: "学习", order: 40 }),
     ]);
     expect(snapshot.pages).toEqual([
+      expect.objectContaining({ id: "dashboard", groupId: "home", order: 0 }),
       expect.objectContaining({ id: "build", groupId: "core", order: 10 }),
       expect.objectContaining({ id: "library", groupId: "core", order: 20 }),
       expect.objectContaining({ id: "explanation", groupId: "inspect", order: 10 }),

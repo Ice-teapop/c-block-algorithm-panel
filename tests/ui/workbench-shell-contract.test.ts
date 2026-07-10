@@ -45,7 +45,7 @@ describe("workbench shell extension contract", () => {
     expect(source).toContain('tab.setAttribute("role", "tab")');
     expect(source).toContain('tab.setAttribute("aria-selected", String(active))');
     expect(source).toContain("item.panel.hidden = !active");
-    expect(source).toContain('showPage("build")');
+    expect(source).toContain('showPage("dashboard")');
     expect(source).not.toMatch(/replaceChildren\([^)]*panel/gu);
     expect(source).not.toMatch(/item\.panel\.remove\(\)/gu);
   });

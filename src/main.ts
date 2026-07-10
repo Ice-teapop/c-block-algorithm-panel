@@ -1,6 +1,5 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
-import { INITIAL_SOURCE } from "./app/initial-source.js";
 import { createLearningSurface, type LearningSurface } from "./app/learning-surface.js";
 import { createProjectionPresenter, type ProjectionPresenter } from "./app/projection-presenter.js";
 import { sourceMetadata } from "./app/source-display.js";
@@ -17,6 +16,7 @@ import {
   structureEditSelectionForBlock,
 } from "./app/structure-edit-selection.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
+import { createWorkspaceController, type WorkspaceController } from "./app/workspace-controller.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
 import { validateSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
@@ -101,7 +101,18 @@ structureEditPanel = createStructureEditPanel<core.M3bEditPlan>(elements.getInsp
   commit: (plan) => requireStructureEdits().commit(plan),
 });
 const runPanel = createCurrentRunPanel();
-const sourceImport = createSourceImportController(elements, { load: loadSource });
+const workspaceController: WorkspaceController = createWorkspaceController({
+  host: elements.getPageHost("dashboard"),
+  api: window.panelApi,
+  load: loadSource,
+  enterWorkbench: () => elements.showPage("build"),
+});
+const sourceImport = createSourceImportController(elements, {
+  load: (document) => {
+    workspaceController.deactivate();
+    loadSource(document);
+  },
+});
 projectionPresenter = createProjectionPresenter({
   elements,
   blockTree,
@@ -172,8 +183,11 @@ async function initialize(): Promise<void> {
     startupLoader.advance("parser-ready");
     sourceImport.setEnabled(true);
     startupLoader.advance("source");
-    loadSource({ source: INITIAL_SOURCE, displayName: "algorithm-demo.c", origin: "paste" });
-    sourceImport.setStatus("示例已载入；可打开、拖入或粘贴自己的 .c 文件。", "ready");
+    elements.parserStatus.textContent = "C 解析器已加载 · 等待打开工作区条目";
+    elements.parserStatus.dataset.state = "ready";
+    await workspaceController.initialize();
+    if (destroyed) return;
+    sourceImport.setStatus("可新建本地条目，或打开、拖入、粘贴现有 .c 文件。", "ready");
     startupLoader.complete();
   } catch (error: unknown) {
     startupLoader.fail(`启动失败：${errorMessage(error)}`);
@@ -191,6 +205,7 @@ function loadSource(imported: ImportedSource): void {
   blockTree.setInteractionEnabled(true);
   adoptAnalysis(imported, analysis, true, null);
   projectionStatus.setState(projectionMode);
+  elements.showPage("build");
 }
 
 function adoptAnalysis(
@@ -308,8 +323,7 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
     throw new Error("候选分析快照无效；源码未修改");
   }
 
-  // Build every derived structure before touching CodeMirror. This keeps a
-  // rejected or internally inconsistent plan completely atomic.
+  // Build derived structures before CodeMirror so rejected plans stay atomic.
   core.createBlockIndex(plan.candidateAnalysis.document);
   const preferredTarget = editTargetSelection.candidateTargetForPlan(
     current.analysis.editTargets,
@@ -469,6 +483,7 @@ window.addEventListener(
     sourceImport.destroy();
     learningSurface?.destroy();
     learningSurface = null;
+    workspaceController.destroy();
     runPanel.destroy();
     structureEditPanel?.destroy();
     structureEditPanel = null;

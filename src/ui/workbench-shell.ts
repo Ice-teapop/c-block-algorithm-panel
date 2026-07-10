@@ -81,10 +81,16 @@ export function mountWorkbench(
 
       <header class="app-bar">
         <div class="app-navigation">
-          <nav id="workbench-dock" class="dock-bar" role="tablist" aria-label="工作台页面"></nav>
+          <nav
+            id="workbench-dock"
+            class="dock-bar"
+            role="tablist"
+            aria-label="工作台页面"
+            data-tour-target="dock"
+          ></nav>
         </div>
         <div class="document-identity" aria-label="当前文档">
-          <span id="file-name">正在准备示例…</span>
+          <span id="file-name">本地工作区</span>
         </div>
         <nav class="app-actions" aria-label="工作台操作">
           <button id="open-source" class="button button--quiet" type="button" disabled>
@@ -197,7 +203,7 @@ export function mountWorkbench(
     dock.append(groupElement);
   }
 
-  let currentPageId = "build";
+  let currentPageId = "dashboard";
   let destroyed = false;
   const showPage = (pageId: string): void => {
     assertActive(destroyed);
@@ -255,7 +261,7 @@ export function mountWorkbench(
     next.tab.focus();
   };
   dock.addEventListener("keydown", handleDockKeydown);
-  showPage("build");
+  showPage("dashboard");
 
   const destroy = (): void => {
     if (destroyed) return;
@@ -367,7 +373,9 @@ function validateNavigation(snapshot: WorkbenchRegistrySnapshot): NavigationMode
   const pageIds = new Set(pages.map((page) => page.id));
   if (groupIds.size !== groups.length) throw new TypeError("Dock 分组 id 不得重复");
   if (pageIds.size !== pages.length) throw new TypeError("工作台页面 id 不得重复");
-  if (!pageIds.has("build")) throw new TypeError("工作台缺少默认 build 页面");
+  if (!pageIds.has("dashboard") || !pageIds.has("build")) {
+    throw new TypeError("工作台缺少默认 dashboard 或 build 页面");
+  }
   for (const page of pages) {
     if (!groupIds.has(page.groupId)) {
       throw new TypeError(`工作台页面 ${page.id} 引用了未知 Dock 分组 ${page.groupId}`);

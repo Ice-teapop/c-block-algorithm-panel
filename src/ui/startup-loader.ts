@@ -24,7 +24,7 @@ const STAGES: Readonly<Record<StartupStage, StagePresentation>> = Object.freeze(
   shell: Object.freeze({ progress: 8, message: "正在建立本地工作台…" }),
   parser: Object.freeze({ progress: 32, message: "正在加载 C 解析器…" }),
   "parser-ready": Object.freeze({ progress: 68, message: "解析器已就绪，正在准备算法面板…" }),
-  source: Object.freeze({ progress: 86, message: "正在分析示例 C 源码…" }),
+  source: Object.freeze({ progress: 86, message: "正在读取 Documents 工作区…" }),
 });
 
 const COMPLETE_HIDE_DELAY_MS = 480;

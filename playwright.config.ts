@@ -2,6 +2,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
 
+process.env.PANEL_WORKSPACE_ROOT ??= join(tmpdir(), `c-block-e2e-${String(process.pid)}`);
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,

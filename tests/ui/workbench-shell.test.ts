@@ -21,7 +21,7 @@ describe("workbench shell Dock behavior", () => {
     vi.unstubAllGlobals();
   });
 
-  it("mounts six grouped tabs with build active and generic extension hosts", () => {
+  it("mounts seven grouped tabs with Dashboard active and generic extension hosts", () => {
     const shell = mount();
     const tabs = app.findAllByClass("dock-tab");
 
@@ -29,6 +29,7 @@ describe("workbench shell Dock behavior", () => {
     expect(app.innerHTML).not.toContain("app-title");
     expect(shell.startupProgress.id).toBe("startup-progress");
     expect(tabs.map(({ textContent }) => textContent)).toEqual([
+      "Dashboard",
       "搭建",
       "积木库",
       "解释",
@@ -38,13 +39,15 @@ describe("workbench shell Dock behavior", () => {
     ]);
     expect(tabs.every((tab) => tab.getAttribute("role") === "tab")).toBe(true);
     expect(app.findAllByClass("dock-group__label").map(({ textContent }) => textContent)).toEqual([
+      "文件",
       "构建",
       "检查",
       "执行",
       "学习",
     ]);
-    expect(shell.currentPage).toBe("build");
-    expect(pagePanel("build").hidden).toBe(false);
+    expect(shell.currentPage).toBe("dashboard");
+    expect(pagePanel("dashboard").hidden).toBe(false);
+    expect(pagePanel("build").hidden).toBe(true);
     expect(pagePanel("library").hidden).toBe(true);
     expect(shell.blockPalette.id).toBe("block-palette");
     expect(shell.getPageHost("library").id).toBe("library-host");
@@ -77,18 +80,18 @@ describe("workbench shell Dock behavior", () => {
     const dock = app.require("workbench-dock");
 
     expect(dock.keydown("ArrowRight").defaultPrevented).toBe(true);
-    expect(shell.currentPage).toBe("library");
-    expect(document.activeElement).toBe(tab("library"));
+    expect(shell.currentPage).toBe("build");
+    expect(document.activeElement).toBe(tab("build"));
     dock.keydown("End");
     expect(shell.currentPage).toBe("guide");
     dock.keydown("ArrowDown");
-    expect(shell.currentPage).toBe("build");
+    expect(shell.currentPage).toBe("dashboard");
     dock.keydown("ArrowLeft");
     expect(shell.currentPage).toBe("guide");
     dock.keydown("ArrowUp");
     expect(shell.currentPage).toBe("run");
     dock.keydown("Home");
-    expect(shell.currentPage).toBe("build");
+    expect(shell.currentPage).toBe("dashboard");
   });
 
   it("removes every Dock listener during idempotent teardown", () => {
@@ -101,7 +104,7 @@ describe("workbench shell Dock behavior", () => {
     expect(dock.listenerRemoveCount("keydown")).toBe(1);
     expect(tabs.every((item) => item.listenerRemoveCount("click") === 1)).toBe(true);
     tab("library").click();
-    expect(shell.currentPage).toBe("build");
+    expect(shell.currentPage).toBe("dashboard");
     expect(() => shell.showPage("build")).toThrow(/已销毁/u);
   });
 
