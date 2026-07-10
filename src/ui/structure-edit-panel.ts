@@ -394,6 +394,8 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
     content.replaceChildren();
     controls = emptyControls();
     const current = selection;
+    root.hidden =
+      current === null || (current.statement === undefined && current.localVariable === undefined);
     if (
       current === null ||
       (current.statement === undefined && current.localVariable === undefined)

@@ -261,6 +261,7 @@ export function createEditPanel<P extends EditConfirmationPlan>(
 
   const renderTarget = (): void => {
     currentForm = null;
+    root.dataset.hasTarget = String(currentTarget !== null);
     content.replaceChildren();
     if (parseBlocked) {
       content.append(

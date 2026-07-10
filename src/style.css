@@ -677,8 +677,8 @@ h2 {
 
 .edit-panel {
   display: grid;
-  min-height: 100%;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  grid-template-rows: auto auto auto;
 }
 
 .edit-panel__toolbar {
@@ -732,8 +732,15 @@ h2 {
 .edit-panel__content {
   min-height: 0;
   padding: 0 8px 10px;
-  overflow: auto;
-  scrollbar-gutter: stable;
+}
+
+.edit-panel[data-has-target="false"] .edit-panel__content {
+  display: none;
+}
+
+.edit-panel[data-has-target="false"]:has(+ .structure-edit-panel:not([hidden]))
+  .edit-panel__status {
+  display: none;
 }
 
 .edit-panel__form,
@@ -834,8 +841,9 @@ h2 {
 
 .structure-edit-panel {
   display: grid;
-  min-height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  grid-template-rows: auto auto;
 }
 
 .structure-edit-panel__status {
@@ -861,8 +869,6 @@ h2 {
   min-width: 0;
   min-height: 0;
   padding: 0 8px 10px;
-  overflow: auto;
-  scrollbar-gutter: stable;
 }
 
 .structure-edit-panel__group {

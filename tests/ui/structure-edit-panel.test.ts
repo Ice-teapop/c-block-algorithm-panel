@@ -201,12 +201,14 @@ describe("structure edit panel DOM behavior", () => {
     });
 
     expect(fixture.root.children).toHaveLength(1);
+    expect((panel.element as unknown as FakeElement).hidden).toBe(true);
     expect(fixture.root.findByClass("structure-edit-panel__unavailable")?.textContent).toMatch(
       /选择/u,
     );
     expect(panel.element.getAttribute("aria-label")).toBe("结构编辑");
 
     panel.setSelection(completeSelection());
+    expect((panel.element as unknown as FakeElement).hidden).toBe(false);
     const insertInput = fixture.root.findInputByLabel("要插入的单行 C 语句");
     const insertBefore = fixture.root.findByOperation("insert-before");
     const deleteButton = fixture.root.findByOperation("delete");
@@ -398,6 +400,7 @@ class FakeElement {
   autocomplete = "";
   spellcheck = true;
   disabled = false;
+  hidden = false;
   removeCount = 0;
   private parent: FakeElement | null = null;
   private readonly attributes = new Map<string, string>();
