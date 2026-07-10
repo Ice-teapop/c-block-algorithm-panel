@@ -390,7 +390,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 860,
     minHeight: 600,
     show: true,
-    backgroundColor: "#eef1f4",
+    backgroundColor: "#0d0f11",
     title: "C 积木算法面板",
     webPreferences,
   }) as PanelBrowserWindow;

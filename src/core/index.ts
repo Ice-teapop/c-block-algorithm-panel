@@ -26,7 +26,41 @@ export type {
   Utf16Offset,
 } from "./model.js";
 export { textRange, utf16Offset } from "./model.js";
-export { CParser, type CParserAssets } from "./parser.js";
+export { CParser, type CAnalysisSnapshot, type CParserAssets } from "./parser.js";
+export {
+  applyEditPlan,
+  applyTextPatches,
+  BINARY_OPERATORS,
+  BINARY_OPERATOR_PRECEDENCE,
+  createEditPlan,
+  createTextPatch,
+  extractEditTargets,
+  planBinaryOperatorPatches,
+  planStructuredEdit,
+  precedence,
+  StructuredEditError,
+  type BinaryExpressionEditTarget,
+  type BinaryOperator,
+  type BinaryOperatorEditRequest,
+  type EditTarget,
+  type EditTargetSnapshot,
+  type EditApplication,
+  type EditDiff,
+  type EditPlan,
+  type ForFieldsEditRequest,
+  type ForStatementEditTarget,
+  type IfConditionEditRequest,
+  type IfStatementEditTarget,
+  type LiteralEditRequest,
+  type LiteralEditTarget,
+  type LiteralKind,
+  type StructuredEditAnalyzer,
+  type StructuredEditContext,
+  type StructuredEditErrorCode,
+  type StructuredEditPlan,
+  type StructuredEditRequest,
+  type TextPatch,
+} from "./editing/index.js";
 export { projectCst } from "./projector.js";
 export { projectStatementBlocks } from "./statement-projector.js";
 export type { StatementProjectionFacts } from "./statement-projector.js";

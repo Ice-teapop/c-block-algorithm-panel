@@ -1,61 +1,69 @@
-import {
-  createBlockIndex,
-  offsetToBlock,
-  renderSourceDoc,
-  symbolAt,
-  type Block,
-  type BlockIndex,
-  type BlockIndexEntry,
-  type CParser,
-  type SourceDoc,
-  type SymbolRecord,
-} from "./core/index.js";
+import * as core from "./core/index.js";
+import * as editTargetSelection from "./app/edit-target-selection.js";
+import { sourceMetadata } from "./app/source-display.js";
+import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
-import { importPastedSource } from "./shared/source-import.js";
+import { importPastedSource, validateSourceText } from "./shared/source-import.js";
 import type { ImportedSource, SourceImportResult } from "./shared/api.js";
 import { createBlockTree } from "./ui/block-tree.js";
-import { createCodePane, type CodeHighlight } from "./ui/code-pane.js";
-import { explainBlock } from "./ui/explanation.js";
+import { createCodePane, type CodeHighlight, type CodeSourceChangeReason } from "./ui/code-pane.js";
+import { createEditPanel, type EditPanel, type EditPanelRequest } from "./ui/edit-panel.js";
+import { renderExplanationView } from "./ui/explanation-view.js";
 import { createRunPanel } from "./ui/run-panel.js";
-import { mountWorkbench } from "./ui/workbench-shell.js";
 
-const INITIAL_SOURCE = [
-  "#include <stdio.h>",
-  "",
-  "int main(void) {",
-  "  int total = 0;",
-  "  for (int i = 0; i < 3; i++) {",
-  "    total += i;",
-  "  }",
-  '  printf("%d\\n", total);',
-  "  return 0;",
-  "}",
-  "",
-].join("\n");
+const INITIAL_SOURCE = `#include <stdio.h>
+
+int main(void) {
+  int total = 0;
+  for (int i = 0; i < 3; i++) {
+    total += i;
+  }
+  printf("%d\\n", total);
+  return 0;
+}
+`;
 
 interface ReadySession {
   readonly imported: ImportedSource;
-  readonly document: SourceDoc;
-  readonly blockIndex: BlockIndex;
+  readonly analysis: core.CAnalysisSnapshot;
+  readonly blockIndex: core.BlockIndex;
 }
 
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
 
-const elements = mountWorkbench(app);
-let parser: CParser | null = null;
+const runtime = createWorkbenchRuntime(app);
+const { elements } = runtime;
+const explanationHost = elements.getInspectorHost("explanation");
+let parser: core.CParser | null = null;
 let session: ReadySession | null = null;
-let selectedEntry: BlockIndexEntry | null = null;
-let selectedSymbol: SymbolRecord | null = null;
 let importRequestId = 0;
 let dragDepth = 0;
 let destroyed = false;
+let editPanel: EditPanel<core.StructuredEditPlan> | null = null;
 
 const codePane = createCodePane(elements.codePane, {
   onSourceOffset: selectFromCode,
+  onSourceChange: onCodeSourceChange,
 });
 const blockTree = createBlockTree(elements.blockTree, (entry) => {
-  selectBlock(entry, true, null);
+  const target =
+    session === null
+      ? null
+      : editTargetSelection.editTargetForBlock(session.analysis.editTargets, entry);
+  selectBlock(entry, true, null, target, target === null ? "explanation" : "edit");
+});
+editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("edit"), {
+  plan: planPanelEdit,
+  commit: commitPanelEdit,
+  undo: () => {
+    codePane.undo();
+    editPanel?.setHistoryDepth(codePane.getHistoryDepth());
+  },
+  redo: () => {
+    codePane.redo();
+    editPanel?.setHistoryDepth(codePane.getHistoryDepth());
+  },
 });
 let runPanel = createCurrentRunPanel();
 
@@ -91,21 +99,36 @@ async function initialize(): Promise<void> {
 
 function loadSource(imported: ImportedSource): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
-  const document = parser.project(imported.source);
-  if (renderSourceDoc(document) !== imported.source) {
+  const analysis = parser.analyze(imported.source, nextSessionRevision());
+  adoptAnalysis(imported, analysis, true, null);
+}
+
+function adoptAnalysis(
+  imported: ImportedSource,
+  analysis: core.CAnalysisSnapshot,
+  resetEditor: boolean,
+  preferredTarget: core.EditTarget | null,
+): void {
+  const { document } = analysis;
+  if (core.renderSourceDoc(document) !== imported.source) {
     throw new Error("无损投影未能逐字符重建输入源码");
   }
-  const blockIndex = createBlockIndex(document);
-  session = Object.freeze({ imported, document, blockIndex });
-  selectedEntry = null;
-  selectedSymbol = null;
+  if (analysis.editTargets.revision < 0) {
+    throw new Error("编辑目标快照缺少合法版本号");
+  }
+  if (!resetEditor && codePane.getSource() !== imported.source) {
+    throw new Error("CodeMirror 精确源码与分析快照不同步");
+  }
+  const blockIndex = core.createBlockIndex(document);
+  session = Object.freeze({ imported, analysis, blockIndex });
   runPanel.destroy();
   runPanel = createCurrentRunPanel();
 
-  codePane.setSource(imported.source);
+  if (resetEditor) codePane.setSource(imported.source);
   blockTree.setDocument(document, blockIndex);
   elements.fileName.textContent = imported.displayName;
   elements.sourceMeta.textContent = sourceMetadata(imported.source);
+  editPanel?.setHistoryDepth(codePane.getHistoryDepth());
 
   const functions = flattenBlocks(document.blocks).filter(
     (block) => block.kind === "syntax" && block.role === "function",
@@ -118,37 +141,184 @@ function loadSource(imported: ImportedSource): void {
   elements.parserStatus.dataset.functionCount = String(functions.length);
   elements.parserStatus.dataset.roundtrip = "true";
 
-  const firstFunction = blockIndex.entries.find(
-    (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
+  if (preferredTarget !== null) {
+    const preferredEntry = editTargetSelection.blockEntryForTarget(blockIndex, preferredTarget);
+    selectBlock(preferredEntry, false, null, preferredTarget, "edit");
+  } else {
+    const firstFunction = blockIndex.entries.find(
+      (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
+    );
+    const firstBlock = blockIndex.entries.find((entry) => entry.kind === "block");
+    selectBlock(
+      firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null,
+      false,
+      null,
+      null,
+      "explanation",
+    );
+  }
+}
+
+function nextSessionRevision(): number {
+  const current = session?.analysis.editTargets.revision ?? -1;
+  if (current >= Number.MAX_SAFE_INTEGER) {
+    throw new Error("源码版本号已达到安全整数上限");
+  }
+  return current + 1;
+}
+
+function planPanelEdit(request: EditPanelRequest): core.StructuredEditPlan {
+  const current = session;
+  const currentParser = parser;
+  if (current === null || currentParser === null) {
+    throw new Error("C 解析器或源码会话尚未就绪");
+  }
+  const target = editTargetSelection
+    .allEditTargets(current.analysis.editTargets)
+    .find((candidate) => candidate.id === request.targetId);
+  if (target === undefined) {
+    throw new Error("编辑目标已经过期，请重新选择代码");
+  }
+  const structuredRequest = toStructuredEditRequest(request, target);
+  return core.planStructuredEdit(
+    {
+      source: current.imported.source,
+      analysis: current.analysis,
+      analyzer: currentParser,
+      validateSource: assertEditableSource,
+    },
+    structuredRequest,
   );
-  const firstBlock = blockIndex.entries.find((entry) => entry.kind === "block");
-  selectBlock(firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null, false, null);
+}
+
+function commitPanelEdit(plan: core.StructuredEditPlan): void {
+  const current = session;
+  if (
+    current === null ||
+    current.analysis.editTargets.revision !== plan.baseRevision ||
+    codePane.getSource() !== current.imported.source
+  ) {
+    throw new Error("预览已经过期；源码未修改，请重新选择并预览");
+  }
+  if (
+    plan.candidateAnalysis.editTargets.revision !== plan.candidateRevision ||
+    plan.candidateSource !== plan.candidateAnalysis.document.source ||
+    core.renderSourceDoc(plan.candidateAnalysis.document) !== plan.candidateSource
+  ) {
+    throw new Error("候选分析快照无效；源码未修改");
+  }
+
+  // Build every derived structure before touching CodeMirror. This keeps a
+  // rejected or internally inconsistent plan completely atomic.
+  core.createBlockIndex(plan.candidateAnalysis.document);
+  const preferredTarget = editTargetSelection.candidateTargetForPlan(
+    current.analysis.editTargets,
+    plan,
+  );
+  const changed = codePane.applyPatches(plan.patches);
+  if (!changed || codePane.getSource() !== plan.candidateSource) {
+    throw new Error("CodeMirror 未能精确应用结构化补丁");
+  }
+
+  const imported = Object.freeze({ ...current.imported, source: plan.candidateSource });
+  adoptAnalysis(imported, plan.candidateAnalysis, false, preferredTarget);
+  editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
+  setImportStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
+}
+
+function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
+  if (destroyed) return;
+  editPanel?.setHistoryDepth(codePane.getHistoryDepth());
+  const current = session;
+  const currentParser = parser;
+  if (current === null || currentParser === null || current.imported.source === source) return;
+
+  try {
+    assertEditableSource(source);
+    const analysis = currentParser.analyze(source, nextSessionRevision());
+    if (analysis.document.parse.hasError) {
+      throw new Error("历史记录产生了含解析错误的版本");
+    }
+    const imported = Object.freeze({ ...current.imported, source });
+    adoptAnalysis(imported, analysis, false, null);
+    const action = reason === "undo" ? "撤销" : reason === "redo" ? "重做" : "修改";
+    editPanel?.setStatus(`${action}完成。`);
+    setImportStatus(`${action}完成；当前源码已重新解析。`, "ready");
+  } catch (error: unknown) {
+    const message = `无法同步编辑历史：${errorMessage(error)}`;
+    editPanel?.setStatus(new Error(message));
+    setImportStatus(message, "error");
+  }
+}
+
+function toStructuredEditRequest(
+  request: EditPanelRequest,
+  target: core.EditTarget,
+): core.StructuredEditRequest {
+  const base = {
+    baseRevision: request.baseRevision,
+    targetId: request.targetId,
+    expectedTargetText: target.text,
+  };
+  switch (request.kind) {
+    case "replace-literal":
+      return { ...base, kind: "literal", newText: request.newText };
+    case "replace-binary-operator":
+      return { ...base, kind: "binary-operator", newOperator: request.newOperator };
+    case "replace-for-fields":
+      return {
+        ...base,
+        kind: "for-fields",
+        newInitializer: request.initializerText,
+        newCondition: request.conditionText,
+        newUpdate: request.updateText,
+      };
+    case "replace-if-condition":
+      return { ...base, kind: "if-condition", newCondition: request.conditionText };
+  }
+}
+
+function assertEditableSource(source: string): void {
+  const validation = validateSourceText(source);
+  if (!validation.ok) {
+    throw new Error(`${validation.code}：${validation.message}`);
+  }
 }
 
 function selectFromCode(sourceOffset: number): void {
   if (session === null) return;
-  const symbol = symbolAt(session.document.symbols, sourceOffset);
-  const entry = offsetToBlock(session.blockIndex, sourceOffset);
-  selectBlock(entry, false, symbol);
+  const symbol = core.symbolAt(session.analysis.document.symbols, sourceOffset);
+  const entry = core.offsetToBlock(session.blockIndex, sourceOffset);
+  const target = editTargetSelection.editTargetAtOffset(session.analysis.editTargets, sourceOffset);
+  selectBlock(entry, false, symbol, target, target === null ? "explanation" : "edit");
 }
 
 function selectBlock(
-  entry: BlockIndexEntry | null,
+  entry: core.BlockIndexEntry | null,
   reveal: boolean,
-  symbol: SymbolRecord | null,
+  symbol: core.SymbolRecord | null,
+  editTarget: core.EditTarget | null,
+  inspector: "explanation" | "edit",
 ): void {
   if (session === null) return;
-  elements.showInspector("explanation");
-  selectedEntry = entry;
-  selectedSymbol = symbol;
+  const sourceDocument = session.analysis.document;
+  elements.showInspector(inspector);
   blockTree.select(entry);
+  editPanel?.setTarget(editTarget);
+  editPanel?.setHistoryDepth(codePane.getHistoryDepth());
+  if (sourceDocument.parse.hasError) {
+    editPanel?.setStatus({
+      kind: "parse-error",
+      message: "当前源码含解析恢复节点；先修复源码，再进行结构化编辑。",
+    });
+  }
 
   const highlights: CodeHighlight[] = [];
   if (entry?.block !== null && entry?.block !== undefined) {
     highlights.push({ range: entry.block.range, kind: "primary" });
   }
   if (symbol !== null) {
-    for (const occurrence of session.document.symbols.occurrences) {
+    for (const occurrence of sourceDocument.symbols.occurrences) {
       if (occurrence.symbolId !== symbol.id) continue;
       highlights.push({
         range: occurrence.range,
@@ -161,86 +331,7 @@ function selectBlock(
   if (reveal && entry?.block !== null && entry?.block !== undefined) {
     codePane.reveal(entry.block.range);
   }
-  renderExplanation(entry?.block ?? null, symbol);
-}
-
-function renderExplanation(block: Block | null, focusedSymbol: SymbolRecord | null): void {
-  const current = session;
-  elements.explanation.replaceChildren();
-  if (current === null || block === null) {
-    const empty = document.createElement("p");
-    empty.className = "empty-state";
-    empty.textContent = "这里是源码空白或注释区。选择一条语句积木查看作用。";
-    elements.explanation.append(empty);
-    return;
-  }
-
-  const explanation = explainBlock(current.document, block);
-  const title = document.createElement("h3");
-  title.className = "explanation__title";
-  title.textContent =
-    focusedSymbol === null ? explanation.title : `${explanation.title} · ${focusedSymbol.name}`;
-  const summary = document.createElement("p");
-  summary.className = "explanation__summary";
-  summary.textContent = explanation.summary;
-  elements.explanation.append(title, summary);
-
-  if (explanation.details.length > 0) {
-    const details = document.createElement("ul");
-    details.className = "explanation__details";
-    for (const detail of explanation.details) {
-      const item = document.createElement("li");
-      item.textContent = detail;
-      details.append(item);
-    }
-    elements.explanation.append(details);
-  }
-
-  const symbols = [...explanation.symbols].sort((left, right) => {
-    const leftFocused = focusedSymbol?.name === left.name && focusedSymbol.kind === left.kind;
-    const rightFocused = focusedSymbol?.name === right.name && focusedSymbol.kind === right.kind;
-    return Number(rightFocused) - Number(leftFocused);
-  });
-  if (symbols.length > 0) {
-    const list = document.createElement("ul");
-    list.className = "explanation__symbols";
-    for (const symbol of symbols) {
-      const item = document.createElement("li");
-      item.className = "symbol-card";
-      if (focusedSymbol?.name === symbol.name && focusedSymbol.kind === symbol.kind) {
-        item.dataset.focused = "true";
-      }
-      const name = document.createElement("code");
-      name.textContent =
-        symbol.valueText === undefined ? symbol.name : `${symbol.name} = ${symbol.valueText}`;
-      const meta = document.createElement("span");
-      meta.className = "symbol-card__meta";
-      meta.textContent = [
-        symbolKindLabel(symbol.kind),
-        symbol.header,
-        `${symbol.usageCount} 处使用`,
-      ]
-        .filter((value): value is string => value !== undefined)
-        .join(" · ");
-      item.append(name, meta);
-      if (symbol.signatureText !== undefined) appendText(item, symbol.signatureText);
-      if (symbol.description !== undefined) appendText(item, symbol.description);
-      list.append(item);
-    }
-    elements.explanation.append(list);
-  }
-
-  if (explanation.concerns.length > 0) {
-    const concerns = document.createElement("ul");
-    concerns.className = "explanation__concerns";
-    for (const message of explanation.concerns) {
-      const item = document.createElement("li");
-      item.className = "concern-card";
-      item.textContent = `低置信度：${message}`;
-      concerns.append(item);
-    }
-    elements.explanation.append(concerns);
-  }
+  renderExplanationView(explanationHost, sourceDocument, entry?.block ?? null, symbol);
 }
 
 async function openNativeSource(): Promise<void> {
@@ -275,7 +366,7 @@ function confirmPaste(): void {
 }
 
 function createCurrentRunPanel() {
-  return createRunPanel(elements.runPanel, {
+  return createRunPanel(elements.getInspectorHost("run"), {
     getSource: () => session?.imported.source ?? "",
     getDisplayName: () => session?.imported.displayName ?? "main.c",
   });
@@ -348,59 +439,19 @@ function setImportStatus(message: string, state: "loading" | "ready" | "error"):
   elements.importStatus.dataset.state = state;
 }
 
-function sourceMetadata(source: string): string {
-  const bytes = new TextEncoder().encode(source).byteLength;
-  return `${newlineLabel(source)} · ${bytes.toLocaleString("zh-CN")} B · UTF-8`;
-}
-
-function newlineLabel(source: string): string {
-  const withoutCrlf = source.replaceAll("\r\n", "");
-  const hasCrlf = source.includes("\r\n");
-  const hasLf = withoutCrlf.includes("\n");
-  const hasCr = withoutCrlf.includes("\r");
-  if (Number(hasCrlf) + Number(hasLf) + Number(hasCr) > 1) return "混合换行";
-  if (hasCrlf) return "CRLF";
-  if (hasCr) return "CR";
-  if (hasLf) return "LF";
-  return "单行";
-}
-
 function hasFiles(event: DragEvent): boolean {
   return event.dataTransfer?.types.includes("Files") === true;
 }
 
-function symbolTooltip(symbol: SymbolRecord, role: "declaration" | "use"): string {
+function symbolTooltip(symbol: core.SymbolRecord, role: "declaration" | "use"): string {
   const roleText = role === "declaration" ? "声明" : "使用";
   return symbol.valueText === undefined
     ? `${symbol.name} · ${roleText}`
     : `${symbol.name} = ${symbol.valueText} · ${roleText}`;
 }
 
-function symbolKindLabel(kind: SymbolRecord["kind"]): string {
-  const labels: Readonly<Record<SymbolRecord["kind"], string>> = {
-    parameter: "参数",
-    "local-variable": "局部变量",
-    "file-variable": "文件变量",
-    "enum-constant": "枚举常量",
-    function: "函数",
-    typedef: "typedef",
-    "object-macro": "对象宏",
-    "builtin-function": "标准库函数",
-    "builtin-typedef": "标准 typedef",
-    "builtin-object-macro": "标准对象宏",
-    "unknown-external": "未知外部符号",
-  };
-  return labels[kind];
-}
-
-function appendText(parent: HTMLElement, text: string): void {
-  const paragraph = document.createElement("span");
-  paragraph.textContent = text;
-  parent.append(paragraph);
-}
-
-function flattenBlocks(blocks: readonly Block[]): readonly Block[] {
-  const flattened: Block[] = [];
+function flattenBlocks(blocks: readonly core.Block[]): readonly core.Block[] {
+  const flattened: core.Block[] = [];
   const stack = [...blocks].reverse();
   while (stack.length > 0) {
     const block = stack.pop();
@@ -424,7 +475,10 @@ window.addEventListener(
     parser = null;
     blockTree.destroy();
     codePane.destroy();
+    editPanel?.destroy();
+    editPanel = null;
     runPanel.destroy();
+    runtime.destroy();
   },
   { once: true },
 );

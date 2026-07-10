@@ -44,6 +44,22 @@ module.exports = {
       to: { path: "^(?:\\.dependency-cruiser-build/)?src/analysis/" },
     },
     {
+      // This protects the emitted runtime graph. The matching TypeScript source
+      // fitness test also catches imports erased by compilation (import type).
+      name: "workbench-metadata-can-only-import-workbench-or-shared",
+      severity: "error",
+      from: { path: "^(?:\\.dependency-cruiser-build/)?src/workbench/" },
+      to: {
+        path: "^(?:\\.dependency-cruiser-build/)?(?:src/(?!workbench(?:/|\\.)|shared(?:/|\\.))|electron/)",
+      },
+    },
+    {
+      name: "core-cannot-import-workbench-shell-metadata",
+      severity: "error",
+      from: { path: "^(?:\\.dependency-cruiser-build/)?src/core/" },
+      to: { path: "^(?:\\.dependency-cruiser-build/)?src/workbench/" },
+    },
+    {
       name: "ai-cannot-import-core-write-interfaces",
       severity: "error",
       from: { path: "^(?:\\.dependency-cruiser-build/)?src/ai/" },

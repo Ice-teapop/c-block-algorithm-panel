@@ -24,6 +24,7 @@ const FIXTURE_SOURCE = `${[
 ].join("\r\n")}\r\n`;
 const FIXTURE_EDITOR_TEXT = FIXTURE_SOURCE.replaceAll("\r\n", "\n").replace("\uFEFF", "•");
 const PASTED_SOURCE = "int main(void) {\n  int pasted = 1;\n  return pasted;\n}\n";
+const THEME_STORAGE_KEY = "c-block-algorithm-panel.theme";
 
 let electronApplication: ElectronApplication | undefined;
 let page: Page;
@@ -247,7 +248,7 @@ test("compiles and runs from the UI after exactly two accepted native trust prom
     };
   });
 
-  const runPanel = page.locator(".run-panel");
+  const runPanel = page.locator("#run-panel .run-panel");
   await expect(runPanel).toHaveAttribute("data-state", "ready");
   await expect(page.locator('[data-run-field="mode"]')).toContainText("可信代码模式");
   await expect(page.locator('[data-run-field="trust-confirmation"]')).toContainText("需要");
@@ -269,7 +270,7 @@ test("compiles and runs from the UI after exactly two accepted native trust prom
 test("keeps CodeMirror read-only and injects nonce-bearing styles without CSP violations", async () => {
   await loadFixtureThroughOpenButton();
   const content = page.locator(".cm-content");
-  await expect(content).toHaveAttribute("contenteditable", "true");
+  await expect(content).toHaveAttribute("contenteditable", "false");
   await expect(content).toHaveAttribute("aria-readonly", "true");
   const before = await editorText();
 
@@ -306,26 +307,82 @@ test("keeps the compact three-column workbench usable at the minimum window size
     await expect(page.locator("#import-status")).toBeVisible();
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
-    await expect(page.locator("#explanation")).toBeVisible();
+    await expect(page.locator("#explanation-host")).toBeVisible();
     await page.getByRole("tab", { name: "运行" }).click();
+    await expect(page.locator("#run-panel")).toBeVisible();
     await expect(page.getByRole("button", { name: "编译并运行" })).toBeVisible();
     const viewport = await page.evaluate(() => {
       const statusBar = document.querySelector(".status-bar")?.getBoundingClientRect();
       const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
+      const workbench = document.querySelector(".workbench")?.getBoundingClientRect();
+      const panels = [...document.querySelectorAll<HTMLElement>(".workbench > .panel")].map(
+        (panel) => {
+          const rectangle = panel.getBoundingClientRect();
+          const style = getComputedStyle(panel);
+          return {
+            left: rectangle.left,
+            right: rectangle.right,
+            top: rectangle.top,
+            bottom: rectangle.bottom,
+            borderRadius: style.borderRadius,
+            boxShadow: style.boxShadow,
+          };
+        },
+      );
       return {
         clientHeight: document.documentElement.clientHeight,
         scrollHeight: document.documentElement.scrollHeight,
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        bodyClientHeight: document.body.clientHeight,
+        bodyScrollHeight: document.body.scrollHeight,
+        bodyClientWidth: document.body.clientWidth,
+        bodyScrollWidth: document.body.scrollWidth,
         codePaneHeight: codePane?.height,
         statusTop: statusBar?.top,
         statusBottom: statusBar?.bottom,
         statusHeight: statusBar?.height,
+        workbench:
+          workbench === undefined
+            ? undefined
+            : {
+                left: workbench.left,
+                right: workbench.right,
+                top: workbench.top,
+                bottom: workbench.bottom,
+              },
+        panels,
       };
     });
     expect(viewport.scrollHeight).toBe(viewport.clientHeight);
+    expect(viewport.scrollWidth).toBe(viewport.clientWidth);
+    expect(viewport.bodyScrollHeight).toBe(viewport.bodyClientHeight);
+    expect(viewport.bodyScrollWidth).toBe(viewport.bodyClientWidth);
     expect(viewport.codePaneHeight).toBeGreaterThan(400);
-    expect(viewport.statusHeight).toBe(26);
+    expect(viewport.statusHeight).toBe(24);
     expect(viewport.statusTop).toBeGreaterThanOrEqual(0);
     expect(viewport.statusBottom).toBeLessThanOrEqual(viewport.clientHeight);
+    expect(viewport.panels).toHaveLength(3);
+    expect(viewport.workbench).toBeDefined();
+    const [blocksPanel, codePanel, inspectorPanel] = viewport.panels;
+    if (
+      viewport.workbench === undefined ||
+      blocksPanel === undefined ||
+      codePanel === undefined ||
+      inspectorPanel === undefined
+    ) {
+      throw new Error("860×600 工业三栏工作面未完整渲染");
+    }
+    expect(blocksPanel.left).toBeCloseTo(viewport.workbench.left, 1);
+    expect(blocksPanel.right).toBeCloseTo(codePanel.left, 1);
+    expect(codePanel.right).toBeCloseTo(inspectorPanel.left, 1);
+    expect(inspectorPanel.right).toBeCloseTo(viewport.workbench.right, 1);
+    for (const panel of viewport.panels) {
+      expect(panel.top).toBeCloseTo(viewport.workbench.top, 1);
+      expect(panel.bottom).toBeCloseTo(viewport.workbench.bottom, 1);
+      expect(panel.borderRadius).toBe("0px");
+      expect(panel.boxShadow).toBe("none");
+    }
   } finally {
     await getElectronApplication().evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]?.setSize(1180, 780);
@@ -335,12 +392,20 @@ test("keeps the compact three-column workbench usable at the minimum window size
 
 test("switches the inspector tabs with the keyboard", async () => {
   const explanationTab = page.getByRole("tab", { name: "解释" });
+  const editTab = page.getByRole("tab", { name: "编辑" });
   const runTab = page.getByRole("tab", { name: "运行" });
   await explanationTab.focus();
   await page.keyboard.press("ArrowRight");
+  await expect(editTab).toBeFocused();
+  await expect(editTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#edit-panel")).toBeVisible();
+  await page.keyboard.press("ArrowRight");
   await expect(runTab).toBeFocused();
   await expect(runTab).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#runner-panel")).toBeVisible();
+  await expect(page.locator("#run-panel")).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(editTab).toBeFocused();
+  await expect(page.locator("#edit-panel")).toBeVisible();
   await page.keyboard.press("ArrowLeft");
   await expect(explanationTab).toBeFocused();
   await expect(page.locator("#explanation-panel")).toBeVisible();
@@ -350,6 +415,52 @@ test("switches the inspector tabs with the keyboard", async () => {
   await expect(explanationTab).toBeFocused();
   await page.keyboard.press("End");
   await expect(runTab).toBeFocused();
+});
+
+test("switches and persists the industrial color theme", async () => {
+  await page.evaluate((storageKey) => localStorage.removeItem(storageKey), THEME_STORAGE_KEY);
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  const root = page.locator("html");
+  try {
+    const toLightButton = page.getByRole("button", { name: "切换为浅色主题" });
+    await expect(root).toHaveAttribute("data-theme", "dark");
+    await expect(toLightButton).toBeVisible();
+    const darkBackground = await page
+      .locator("body")
+      .evaluate((body) => getComputedStyle(body).backgroundColor);
+
+    await toLightButton.click();
+    await expect(root).toHaveAttribute("data-theme", "light");
+    await expect(page.getByRole("button", { name: "切换为深色主题" })).toBeVisible();
+    const lightBackground = await page
+      .locator("body")
+      .evaluate((body) => getComputedStyle(body).backgroundColor);
+    expect(lightBackground).not.toBe(darkBackground);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(root).toHaveAttribute("data-theme", "light");
+    await expect(page.getByRole("button", { name: "切换为深色主题" })).toBeVisible();
+    expect(
+      await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor),
+    ).toBe(lightBackground);
+
+    await page.getByRole("button", { name: "切换为深色主题" }).click();
+    await expect(root).toHaveAttribute("data-theme", "dark");
+    await expect(page.getByRole("button", { name: "切换为浅色主题" })).toBeVisible();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(root).toHaveAttribute("data-theme", "dark");
+    await expect(page.getByRole("button", { name: "切换为浅色主题" })).toBeVisible();
+  } finally {
+    if (!page.isClosed()) {
+      await page.evaluate(({ storageKey, theme }) => localStorage.setItem(storageKey, theme), {
+        storageKey: THEME_STORAGE_KEY,
+        theme: "dark",
+      });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(root).toHaveAttribute("data-theme", "dark");
+    }
+  }
 });
 
 test("renders the application icon from the packaged renderer path", async () => {

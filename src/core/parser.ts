@@ -1,10 +1,16 @@
 import { Language, Parser } from "web-tree-sitter";
 import type { SourceDoc } from "./model.js";
+import { extractEditTargets, type EditTargetSnapshot } from "./editing/targets.js";
 import { projectCst } from "./projector.js";
 
 export interface CParserAssets {
   readonly runtimeWasmUrl: string;
   readonly languageWasm: string | Uint8Array;
+}
+
+export interface CAnalysisSnapshot {
+  readonly document: SourceDoc;
+  readonly editTargets: EditTargetSnapshot;
 }
 
 let initializedRuntimeUrl: string | undefined;
@@ -33,6 +39,10 @@ export class CParser {
   }
 
   project(source: string): SourceDoc {
+    return this.analyze(source, 0).document;
+  }
+
+  analyze(source: string, revision: number): CAnalysisSnapshot {
     if (this.#disposed) {
       throw new Error("CParser 已释放，不能继续解析");
     }
@@ -41,7 +51,10 @@ export class CParser {
       throw new Error("tree-sitter 未返回语法树");
     }
     try {
-      return projectCst(source, tree.rootNode);
+      return Object.freeze({
+        document: projectCst(source, tree.rootNode),
+        editTargets: extractEditTargets(tree.rootNode, source, revision),
+      });
     } finally {
       tree.delete();
     }
