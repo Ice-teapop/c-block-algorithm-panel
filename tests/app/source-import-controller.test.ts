@@ -25,7 +25,10 @@ describe("source import controller", () => {
   it("loads the latest native-open result and ignores completion after destroy", async () => {
     const first = deferred<SourceImportResult>();
     const second = deferred<SourceImportResult>();
-    const openSource = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const openSource = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
     const harness = createHarness({ openSource });
     const load = vi.fn();
     const controller = createSourceImportController(harness.elements, { load });
@@ -88,10 +91,12 @@ describe("source import controller", () => {
   });
 });
 
-function createHarness(overrides: {
-  readonly openSource?: () => Promise<SourceImportResult>;
-  readonly openDroppedSource?: (file: File) => Promise<SourceImportResult>;
-} = {}) {
+function createHarness(
+  overrides: {
+    readonly openSource?: () => Promise<SourceImportResult>;
+    readonly openDroppedSource?: (file: File) => Promise<SourceImportResult>;
+  } = {},
+) {
   const openButton = new FakeButton();
   const pasteButton = new FakeButton();
   const pasteConfirm = new FakeButton();
