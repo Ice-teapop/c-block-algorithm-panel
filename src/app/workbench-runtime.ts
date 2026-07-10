@@ -12,7 +12,7 @@ export interface WorkbenchRuntime {
 export function createWorkbenchRuntime(app: HTMLElement): WorkbenchRuntime {
   const registry = createBuiltinWorkbenchRegistry();
   const registrySnapshot = registry.snapshot();
-  const elements = mountWorkbench(app, registrySnapshot.inspectorViews);
+  const elements = mountWorkbench(app, registrySnapshot);
   const themeController = createThemeController({
     root: document.documentElement,
     button: elements.themeButton,

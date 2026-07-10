@@ -1,4 +1,9 @@
-import type { InspectorViewContribution } from "../workbench/contracts.js";
+import type {
+  RegisteredDockGroup,
+  RegisteredInspectorView,
+  RegisteredWorkbenchPage,
+  WorkbenchRegistrySnapshot,
+} from "../workbench/contracts.js";
 
 export interface WorkbenchElements {
   readonly shell: HTMLElement;
@@ -9,6 +14,7 @@ export interface WorkbenchElements {
   readonly sourceMeta: HTMLElement;
   readonly parserStatus: HTMLOutputElement;
   readonly importStatus: HTMLOutputElement;
+  readonly blockPalette: HTMLElement;
   readonly blockTree: HTMLElement;
   readonly codePane: HTMLElement;
   readonly dropOverlay: HTMLElement;
@@ -17,30 +23,42 @@ export interface WorkbenchElements {
   readonly pasteError: HTMLElement;
   readonly pasteConfirm: HTMLButtonElement;
   readonly pasteCancel: HTMLButtonElement;
+  readonly currentPage: string;
+  readonly showPage: (pageId: string) => void;
+  readonly getPageHost: (pageId: string) => HTMLElement;
+  /** Compatibility alias for the explanation/edit/run pages. */
   readonly showInspector: (viewId: string) => void;
+  /** Compatibility alias for the explanation/edit/run page hosts. */
   readonly getInspectorHost: (viewId: string) => HTMLElement;
   readonly destroy: () => void;
 }
 
-interface MountedInspectorView {
-  readonly viewId: string;
+interface MountedPage {
+  readonly pageId: string;
   readonly tab: HTMLButtonElement;
   readonly panel: HTMLElement;
   readonly host: HTMLElement;
 }
 
+interface NavigationModel {
+  readonly groups: readonly RegisteredDockGroup[];
+  readonly pages: readonly RegisteredWorkbenchPage[];
+  readonly inspectorViews: readonly RegisteredInspectorView[];
+}
+
 export function mountWorkbench(
   app: HTMLElement,
-  inspectorViews: readonly InspectorViewContribution[],
+  registrySnapshot: WorkbenchRegistrySnapshot,
 ): WorkbenchElements {
-  const views = validateInspectorViews(inspectorViews);
+  const navigation = validateNavigation(registrySnapshot);
+  const ownerDocument = app.ownerDocument;
 
   app.innerHTML = `
     <div id="workbench-shell" class="workbench-shell">
       <header class="app-bar">
-        <div class="brand" aria-labelledby="app-title">
-          <img class="brand__mark" src="./app-icon.png" alt="" />
+        <div class="brand app-navigation" aria-labelledby="app-title">
           <h1 id="app-title">C 积木算法面板</h1>
+          <nav id="workbench-dock" class="dock-bar" role="tablist" aria-label="工作台页面"></nav>
         </div>
         <div class="document-identity" aria-label="当前文档">
           <span id="file-name">正在准备示例…</span>
@@ -56,26 +74,35 @@ export function mountWorkbench(
         </nav>
       </header>
 
-      <main class="workbench" aria-label="C 算法工作台">
-        <section class="panel panel--blocks" aria-labelledby="blocks-title">
-          <header class="panel__header">
-            <h2 id="blocks-title">结构</h2>
-          </header>
-          <div id="block-tree" class="block-tree"></div>
-        </section>
+      <main id="workbench-pages" class="workbench-pages" aria-label="C 算法工作台">
+        <section
+          id="build-panel"
+          class="workbench workbench-page workbench-page--build"
+          role="tabpanel"
+          data-workbench-page-id="build"
+        >
+          <section class="panel panel--palette panel--blocks" aria-labelledby="palette-title">
+            <header class="panel__header">
+              <h2 id="palette-title">积木</h2>
+            </header>
+            <div id="block-palette" class="block-palette"></div>
+          </section>
 
-        <section class="panel panel--code" aria-labelledby="code-title">
-          <header class="panel__header panel__header--code">
-            <h2 id="code-title">C 代码</h2>
-            <span id="source-meta" class="source-meta">—</span>
-          </header>
-          <div id="code-pane" class="code-pane" aria-label="C 代码编辑器"></div>
-        </section>
+          <section class="panel panel--blocks" aria-labelledby="blocks-title">
+            <header class="panel__header">
+              <h2 id="blocks-title">结构</h2>
+            </header>
+            <div id="block-tree" class="block-tree"></div>
+          </section>
 
-        <aside class="panel panel--inspector inspector" aria-labelledby="inspector-title">
-          <h2 id="inspector-title" class="visually-hidden">检查器</h2>
-          <div id="inspector-tabs" class="inspector-tabs" role="tablist" aria-label="检查器"></div>
-        </aside>
+          <section class="panel panel--code" aria-labelledby="code-title">
+            <header class="panel__header panel__header--code">
+              <h2 id="code-title">C 代码</h2>
+              <span id="source-meta" class="source-meta">—</span>
+            </header>
+            <div id="code-pane" class="code-pane" aria-label="C 代码编辑器"></div>
+          </section>
+        </section>
       </main>
 
       <footer class="status-bar">
@@ -113,68 +140,111 @@ export function mountWorkbench(
     </div>
   `;
 
-  const inspector = required(app, ".inspector", HTMLElement);
-  const inspectorTabs = required(app, "#inspector-tabs", HTMLElement);
-  const mountedViews = views.map((view, index) =>
-    mountInspectorView(inspectorTabs, inspector, view, index === 0),
-  );
-  const mountedViewsById = new Map(mountedViews.map((view) => [view.viewId, view]));
+  const dock = required(app, "#workbench-dock", HTMLElement);
+  const pageStack = required(app, "#workbench-pages", HTMLElement);
+  const buildPanel = required(app, "#build-panel", HTMLElement);
+  const mountedById = new Map<string, MountedPage>();
+  const clickListeners = new Map<HTMLButtonElement, () => void>();
 
-  const getMountedInspector = (viewId: string): MountedInspectorView => {
-    const mounted = mountedViewsById.get(viewId);
-    if (mounted === undefined) {
-      throw new RangeError(`未知检查器视图：${viewId}`);
+  for (const page of navigation.pages) {
+    const mounted =
+      page.id === "build"
+        ? mountBuildPage(ownerDocument, buildPanel, page)
+        : mountExtensionPage(ownerDocument, pageStack, page);
+    mountedById.set(page.id, mounted);
+  }
+
+  const mountedPages: MountedPage[] = [];
+  for (const group of navigation.groups) {
+    const groupPages = navigation.pages.filter((page) => page.groupId === group.id);
+    if (groupPages.length === 0) continue;
+    const groupElement = ownerDocument.createElement("div");
+    groupElement.className = "dock-group";
+    groupElement.dataset.dockGroupId = group.id;
+    groupElement.setAttribute("role", "group");
+    const groupLabel = ownerDocument.createElement("span");
+    groupLabel.className = "dock-group__label";
+    groupLabel.textContent = group.label;
+    groupElement.setAttribute("aria-label", group.label);
+    groupElement.append(groupLabel);
+    for (const page of groupPages) {
+      const mounted = requireMountedPage(mountedById, page.id);
+      groupElement.append(mounted.tab);
+      mountedPages.push(mounted);
     }
-    return mounted;
-  };
-  const showInspector = (viewId: string): void => {
-    getMountedInspector(viewId);
-    for (const item of mountedViews) {
-      const active = item.viewId === viewId;
+    dock.append(groupElement);
+  }
+
+  let currentPageId = "build";
+  let destroyed = false;
+  const showPage = (pageId: string): void => {
+    assertActive(destroyed);
+    requireMountedPage(mountedById, pageId);
+    currentPageId = pageId;
+    for (const item of mountedPages) {
+      const active = item.pageId === pageId;
       item.tab.setAttribute("aria-selected", String(active));
       item.tab.tabIndex = active ? 0 : -1;
       item.panel.hidden = !active;
     }
   };
-  const getInspectorHost = (viewId: string): HTMLElement => getMountedInspector(viewId).host;
-  const tabClickListeners = new Map<HTMLButtonElement, () => void>();
-  for (const item of mountedViews) {
-    const listener = (): void => showInspector(item.viewId);
-    tabClickListeners.set(item.tab, listener);
+  const getPageHost = (pageId: string): HTMLElement => {
+    assertActive(destroyed);
+    return requireMountedPage(mountedById, pageId).host;
+  };
+  const inspectorIds = new Set(navigation.inspectorViews.map((view) => view.id));
+  const requireInspectorId = (viewId: string): void => {
+    if (!inspectorIds.has(viewId)) throw new RangeError(`未知检查器视图：${viewId}`);
+  };
+  const showInspector = (viewId: string): void => {
+    requireInspectorId(viewId);
+    showPage(viewId);
+  };
+  const getInspectorHost = (viewId: string): HTMLElement => {
+    requireInspectorId(viewId);
+    return getPageHost(viewId);
+  };
+
+  for (const item of mountedPages) {
+    const listener = (): void => showPage(item.pageId);
+    clickListeners.set(item.tab, listener);
     item.tab.addEventListener("click", listener);
   }
-  const handleInspectorKeydown = (event: KeyboardEvent): void => {
-    if (!(event instanceof KeyboardEvent)) return;
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const handleDockKeydown = (event: KeyboardEvent): void => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+      return;
+    }
     event.preventDefault();
     const activeIndex = Math.max(
       0,
-      mountedViews.findIndex((item) => item.tab.getAttribute("aria-selected") === "true"),
+      mountedPages.findIndex((item) => item.pageId === currentPageId),
     );
     const nextIndex =
       event.key === "Home"
         ? 0
         : event.key === "End"
-          ? mountedViews.length - 1
-          : event.key === "ArrowRight"
-            ? (activeIndex + 1) % mountedViews.length
-            : (activeIndex - 1 + mountedViews.length) % mountedViews.length;
-    const next = mountedViews[nextIndex];
+          ? mountedPages.length - 1
+          : event.key === "ArrowRight" || event.key === "ArrowDown"
+            ? (activeIndex + 1) % mountedPages.length
+            : (activeIndex - 1 + mountedPages.length) % mountedPages.length;
+    const next = mountedPages[nextIndex];
     if (next === undefined) return;
-    showInspector(next.viewId);
+    showPage(next.pageId);
     next.tab.focus();
   };
-  inspectorTabs.addEventListener("keydown", handleInspectorKeydown);
+  dock.addEventListener("keydown", handleDockKeydown);
+  showPage("build");
 
-  let destroyed = false;
   const destroy = (): void => {
     if (destroyed) return;
     destroyed = true;
-    inspectorTabs.removeEventListener("keydown", handleInspectorKeydown);
-    for (const [tab, listener] of tabClickListeners) {
+    dock.removeEventListener("keydown", handleDockKeydown);
+    for (const [tab, listener] of clickListeners) {
       tab.removeEventListener("click", listener);
     }
-    tabClickListeners.clear();
+    clickListeners.clear();
+    mountedById.clear();
+    mountedPages.splice(0, mountedPages.length);
   };
 
   return Object.freeze({
@@ -186,6 +256,7 @@ export function mountWorkbench(
     sourceMeta: required(app, "#source-meta", HTMLElement),
     parserStatus: required(app, "#parser-status", HTMLOutputElement),
     importStatus: required(app, "#import-status", HTMLOutputElement),
+    blockPalette: required(app, "#block-palette", HTMLElement),
     blockTree: required(app, "#block-tree", HTMLElement),
     codePane: required(app, "#code-pane", HTMLElement),
     dropOverlay: required(app, "#drop-overlay", HTMLElement),
@@ -194,86 +265,117 @@ export function mountWorkbench(
     pasteError: required(app, "#paste-error", HTMLElement),
     pasteConfirm: required(app, "#paste-confirm", HTMLButtonElement),
     pasteCancel: required(app, "#paste-cancel", HTMLButtonElement),
+    get currentPage(): string {
+      return currentPageId;
+    },
+    showPage,
+    getPageHost,
     showInspector,
     getInspectorHost,
     destroy,
   });
 }
 
-function validateInspectorViews(
-  inspectorViews: readonly InspectorViewContribution[],
-): readonly InspectorViewContribution[] {
-  if (inspectorViews.length === 0) {
-    throw new TypeError("工作台至少需要一个检查器视图");
-  }
-
-  const ids = new Set<string>();
-  const views = inspectorViews.map((view) => {
-    if (typeof view.id !== "string" || view.id.trim().length === 0) {
-      throw new TypeError("检查器视图 id 不得为空");
-    }
-    if (ids.has(view.id)) {
-      throw new TypeError(`检查器视图 id 不得重复：${view.id}`);
-    }
-    if (!Number.isSafeInteger(view.order)) {
-      throw new TypeError(`检查器视图 order 必须是安全整数：${String(view.order)}`);
-    }
-    ids.add(view.id);
-    return view;
-  });
-
-  return Object.freeze(
-    views.sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, "en")),
-  );
+function mountBuildPage(
+  ownerDocument: Document,
+  panel: HTMLElement,
+  page: RegisteredWorkbenchPage,
+): MountedPage {
+  const tab = createPageTab(ownerDocument, page);
+  panel.hidden = true;
+  panel.setAttribute("aria-labelledby", tab.id);
+  return Object.freeze({ pageId: page.id, tab, panel, host: panel });
 }
 
-function mountInspectorView(
-  tabList: HTMLElement,
-  inspector: HTMLElement,
-  view: InspectorViewContribution,
-  active: boolean,
-): MountedInspectorView {
-  const token = inspectorDomToken(view.id);
-  const tabId = `${token}-tab`;
-  const panelId = `${token}-panel`;
-  const hostId = `${token}-host`;
+function mountExtensionPage(
+  ownerDocument: Document,
+  pageStack: HTMLElement,
+  page: RegisteredWorkbenchPage,
+): MountedPage {
+  const token = pageDomToken(page.id);
+  const tab = createPageTab(ownerDocument, page);
+  const panel = ownerDocument.createElement("section");
+  panel.id = `${token}-panel`;
+  panel.className = "workbench-page workbench-page--extension";
+  panel.setAttribute("role", "tabpanel");
+  panel.setAttribute("aria-labelledby", tab.id);
+  panel.dataset.workbenchPageId = page.id;
+  panel.hidden = true;
+  const heading = ownerDocument.createElement("h2");
+  heading.className = "workbench-page__title";
+  heading.textContent = page.label;
+  const host = ownerDocument.createElement("div");
+  host.id = `${token}-host`;
+  host.className = `workbench-page__host ${token}`;
+  host.dataset.workbenchPageId = page.id;
+  panel.append(heading, host);
+  pageStack.append(panel);
+  return Object.freeze({ pageId: page.id, tab, panel, host });
+}
 
-  const tab = document.createElement("button");
-  tab.id = tabId;
-  tab.className = "inspector-tab";
+function createPageTab(ownerDocument: Document, page: RegisteredWorkbenchPage): HTMLButtonElement {
+  const token = pageDomToken(page.id);
+  const tab = ownerDocument.createElement("button");
+  tab.id = `${token}-tab`;
+  tab.className = "dock-tab";
   tab.type = "button";
-  tab.role = "tab";
-  tab.textContent = view.label;
-  tab.tabIndex = active ? 0 : -1;
-  tab.setAttribute("aria-selected", String(active));
-  tab.setAttribute("aria-controls", panelId);
-  tab.dataset.inspectorViewId = view.id;
-
-  const panel = document.createElement("section");
-  panel.id = panelId;
-  panel.className = "inspector-pane";
-  panel.role = "tabpanel";
-  panel.hidden = !active;
-  panel.setAttribute("aria-labelledby", tabId);
-  panel.dataset.inspectorViewId = view.id;
-
-  const host = document.createElement("div");
-  host.id = hostId;
-  host.className = `inspector-view-host ${token}`;
-  host.dataset.inspectorViewId = view.id;
-  panel.append(host);
-  tabList.append(tab);
-  inspector.append(panel);
-
-  return Object.freeze({ viewId: view.id, tab, panel, host });
+  tab.setAttribute("role", "tab");
+  tab.textContent = page.label;
+  tab.tabIndex = -1;
+  tab.setAttribute("aria-selected", "false");
+  tab.setAttribute("aria-controls", `${token}-panel`);
+  tab.dataset.workbenchPageId = page.id;
+  return tab;
 }
 
-function inspectorDomToken(viewId: string): string {
-  if (/^[A-Za-z0-9_.:-]+$/u.test(viewId)) return viewId;
-  const codePoints = [...viewId]
+function validateNavigation(snapshot: WorkbenchRegistrySnapshot): NavigationModel {
+  if (snapshot === null || typeof snapshot !== "object") {
+    throw new TypeError("工作台注册快照必须是对象");
+  }
+  const groups = [...snapshot.dockGroups];
+  const pages = [...snapshot.pages];
+  const inspectorViews = [...snapshot.inspectorViews];
+  if (groups.length === 0 || pages.length === 0) {
+    throw new TypeError("工作台至少需要一个 Dock 分组和页面");
+  }
+  const groupIds = new Set(groups.map((group) => group.id));
+  const pageIds = new Set(pages.map((page) => page.id));
+  if (groupIds.size !== groups.length) throw new TypeError("Dock 分组 id 不得重复");
+  if (pageIds.size !== pages.length) throw new TypeError("工作台页面 id 不得重复");
+  if (!pageIds.has("build")) throw new TypeError("工作台缺少默认 build 页面");
+  for (const page of pages) {
+    if (!groupIds.has(page.groupId)) {
+      throw new TypeError(`工作台页面 ${page.id} 引用了未知 Dock 分组 ${page.groupId}`);
+    }
+  }
+  for (const view of inspectorViews) {
+    if (!pageIds.has(view.id)) {
+      throw new TypeError(`检查器兼容视图 ${view.id} 缺少同名页面`);
+    }
+  }
+  return Object.freeze({
+    groups: Object.freeze(groups),
+    pages: Object.freeze(pages),
+    inspectorViews: Object.freeze(inspectorViews),
+  });
+}
+
+function requireMountedPage(pages: ReadonlyMap<string, MountedPage>, pageId: string): MountedPage {
+  const page = pages.get(pageId);
+  if (page === undefined) throw new RangeError(`未知工作台页面：${pageId}`);
+  return page;
+}
+
+function pageDomToken(pageId: string): string {
+  if (/^[A-Za-z0-9_.:-]+$/u.test(pageId)) return pageId;
+  const codePoints = [...pageId]
     .map((character) => character.codePointAt(0)?.toString(16))
     .join("-");
   return `~${codePoints}`;
+}
+
+function assertActive(destroyed: boolean): void {
+  if (destroyed) throw new Error("工作台外壳已销毁");
 }
 
 function required<T extends Element>(
