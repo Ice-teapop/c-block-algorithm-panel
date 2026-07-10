@@ -13,6 +13,10 @@ export function assertSourceDocInvariants(document: SourceDoc): void {
   assertFrozen(document.parse.errorRanges, "SourceDoc.parse.errorRanges");
   assertFrozen(document.parse.missingOffsets, "SourceDoc.parse.missingOffsets");
   assertFrozen(document.issues, "SourceDoc.issues");
+  assertFrozen(document.concerns, "SourceDoc.concerns");
+  assertFrozen(document.symbols, "SourceDoc.symbols");
+  assertFrozen(document.symbols.symbols, "SourceDoc.symbols.symbols");
+  assertFrozen(document.symbols.occurrences, "SourceDoc.symbols.occurrences");
 
   assertOrderedNonOverlappingBlocks(document.blocks, document.range, document.source.length);
   assertComments(document.comments, document.range, document.source.length);
@@ -29,17 +33,41 @@ export function assertSourceDocInvariants(document: SourceDoc): void {
     assertFrozen(issue, `issue:${issue.code}`);
     assertRange(issue.range, document.range, document.source.length, true);
   }
+  for (const concern of document.concerns) {
+    assertFrozen(concern, `concern:${concern.code}`);
+    assertRange(concern.blockRange, document.range, document.source.length, false);
+    assertRange(concern.evidenceRange, document.range, document.source.length, false);
+  }
+  const symbolIds = new Set<string>();
+  for (const symbol of document.symbols.symbols) {
+    assertFrozen(symbol, `symbol:${symbol.id}`);
+    if (symbol.id.length === 0 || symbolIds.has(symbol.id)) {
+      throw new Error(`symbol id 必须非空且在 snapshot 内唯一：${symbol.id}`);
+    }
+    symbolIds.add(symbol.id);
+    assertFrozen(symbol.declarationRanges, `symbol:${symbol.id}.declarationRanges`);
+    for (const range of symbol.declarationRanges) {
+      assertRange(range, document.range, document.source.length, false);
+    }
+  }
+  for (const occurrence of document.symbols.occurrences) {
+    assertFrozen(occurrence, `occurrence:${occurrence.symbolId}`);
+    if (!symbolIds.has(occurrence.symbolId)) {
+      throw new Error(`occurrence 引用了不存在的 symbol：${occurrence.symbolId}`);
+    }
+    assertRange(occurrence.range, document.range, document.source.length, false);
+  }
 
   const rebuilt = rebuildFromCoverage(document);
   if (rebuilt !== document.source) {
-    throw new Error("coverage leaves + gaps 未能逐字符重建 SourceDoc.source");
+    throw new Error("顶层 block coverage + gaps 未能逐字符重建 SourceDoc.source");
   }
 }
 
 export function rebuildFromCoverage(document: SourceDoc): string {
   let cursor = document.range.from;
   let rebuilt = "";
-  for (const block of flattenCoverageLeaves(document.blocks)) {
+  for (const block of document.blocks) {
     rebuilt += document.source.slice(cursor, block.range.from);
     rebuilt += document.source.slice(block.range.from, block.range.to);
     cursor = block.range.to;
@@ -51,7 +79,7 @@ export function rebuildFromCoverage(document: SourceDoc): string {
 export function nonTriviaGaps(document: SourceDoc): readonly TextRange[] {
   const gaps: TextRange[] = [];
   let cursor = document.range.from;
-  for (const block of flattenCoverageLeaves(document.blocks)) {
+  for (const block of document.blocks) {
     if (cursor < block.range.from) {
       const gap = document.source.slice(cursor, block.range.from);
       if (!isAllowedGap(gap, cursor)) {
@@ -74,28 +102,6 @@ function isAllowedGap(gap: string, from: number): boolean {
   return ASCII_C_TRIVIA.test(withoutInitialBom);
 }
 
-function flattenCoverageLeaves(blocks: readonly Block[]): readonly Block[] {
-  const leaves: Block[] = [];
-  const stack = [...blocks].reverse();
-  while (stack.length > 0) {
-    const block = stack.pop();
-    if (block === undefined) {
-      continue;
-    }
-    if (block.children.length === 0) {
-      leaves.push(block);
-      continue;
-    }
-    for (let index = block.children.length - 1; index >= 0; index -= 1) {
-      const child = block.children[index];
-      if (child !== undefined) {
-        stack.push(child);
-      }
-    }
-  }
-  return leaves;
-}
-
 function assertOrderedNonOverlappingBlocks(
   blocks: readonly Block[],
   parentRange: TextRange,
@@ -113,8 +119,16 @@ function assertOrderedNonOverlappingBlocks(
       throw new Error("raw block 不得拥有子 block");
     }
     if (block.kind === "syntax") {
-      if (block.role !== "function" || block.nodeType !== "function_definition") {
-        throw new Error("M1 syntax block 只允许完整函数");
+      if (block.nodeType.length === 0) {
+        throw new Error("syntax block 的 nodeType 不得为空");
+      }
+      if (
+        block.role !== "function" &&
+        block.role !== "statement" &&
+        block.role !== "declaration" &&
+        block.role !== "preprocessor"
+      ) {
+        throw new Error("syntax block 的 role 不在 M2 白名单内");
       }
     }
     assertOrderedNonOverlappingBlocks(block.children, block.range, sourceLength);

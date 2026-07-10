@@ -56,8 +56,8 @@ describe("M1 gold corpus P1/P2", () => {
           .descendantsOfType("function_definition")
           .filter(isCompleteOracleFunction)
           .map((node) => [node.startIndex, node.endIndex] as const);
-        const actualFunctionRanges = document.blocks
-          .filter((block) => block.kind === "syntax")
+        const actualFunctionRanges = flattenBlocks(document.blocks)
+          .filter((block) => block.kind === "syntax" && block.role === "function")
           .map((block) => [block.range.from, block.range.to] as const);
         const expectedCommentRanges = oracleTree.rootNode
           .descendantsOfType("comment")
@@ -88,6 +88,20 @@ function isCompleteOracleFunction(node: Node): boolean {
     node.childForFieldName("declarator") !== null &&
     node.childForFieldName("body")?.type === "compound_statement"
   );
+}
+
+function flattenBlocks(
+  blocks: readonly import("../../src/core/index.js").Block[],
+): readonly import("../../src/core/index.js").Block[] {
+  const flattened: import("../../src/core/index.js").Block[] = [];
+  const stack = [...blocks].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop();
+    if (block === undefined) continue;
+    flattened.push(block);
+    stack.push(...[...block.children].reverse());
+  }
+  return flattened;
 }
 
 function assertTextEqual(actual: string, expected: string, label: string): void {

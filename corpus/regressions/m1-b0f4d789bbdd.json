@@ -1,0 +1,8 @@
+{
+  "seed": 12628236,
+  "mutation": {
+    "kind": "delete-token",
+    "sample": 2,
+    "token": 180072520
+  }
+}

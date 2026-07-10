@@ -119,7 +119,7 @@ let tree = parser.parse(src);
 
 ## 4. 关键实现规约(每条都是审稿实测踩出来的坑)
 
-**R1 · 索引单位 = UTF-16 码元,不是字节。**【实测】web-tree-sitter 解析 JS 字符串时 `startIndex/endIndex` 是 UTF-16 code unit 偏移;CM6 的 pos 同域,所以内部自洽。但:含中文注释的文件里它**不等于** UTF-8 字节偏移(`// 中文注释` 是 7 码元 / 15 字节)。【规约】(a) 全代码库术语统一叫 `range`(码元),禁止叫 byte range;(b) 禁止用 Buffer 字节切片做任何断言或补丁(逐字节比较只允许对完整文件的 rebuild===src 用);(c) clang 诊断的列号是**字节**基准——回贴积木前必须做"该行 UTF-8 前缀字节数 → 码元"换算,落盘/读盘同理。
+**R1 · 索引单位 = UTF-16 码元,不是字节。**【实测】web-tree-sitter 解析 JS 字符串时 `startIndex/endIndex` 是原始 JS 字符串的 UTF-16 code unit 偏移;含中文注释的文件里它**不等于** UTF-8 字节偏移(`// 中文注释` 是 7 码元 / 15 字节)。另一个容易漏掉的边界是:CM6 的逻辑文档把 LF、CR 和 CRLF 都计作 1 个换行位置,所以 CRLF 在 SourceDoc 中占 2 个码元、在 CM6 中只占 1 个位置,两域不能直接互用。【规约】(a) 全代码库术语统一叫 `range`(源码码元),禁止叫 byte range;(b) SourceDoc range 与 CM6 pos 之间必须经预扫描的 CRLF 坐标映射转换,编译/round-trip 永远使用原始 source;(c) 禁止用 Buffer 字节切片做任何断言或补丁(逐字节比较只允许对完整文件的 rebuild===src 用);(d) clang 诊断的列号是**字节**基准——回贴积木前必须做"该行 UTF-8 前缀字节数 → 码元"换算,落盘/读盘同理。
 
 **R2 · ERROR 恢复必须"挖掘"而不是"整块降级"。**【实测】`#if 0` 包住写坏的代码、或不配对花括号,会产生一个从错误点延伸到文件末尾的顶层 ERROR 节点,把后面完全合法的 `main()` 整个吞进去——而"用 `#if 0` 注释掉坏代码"恰是学生最常见操作。【规约】降级算法:遇到 ERROR 节点,**递归进入其内部,把结构完整(hasError=false)的子树(function_definition、declaration 等)照常映射为语法积木,只把真正碎掉的 token 区间降级为原始 C 积木**。禁止"最小语句级祖先整体降级"这种一刀切。
 
@@ -149,7 +149,7 @@ let tree = parser.parse(src);
 
 **R13 · 泄漏检测双闸,分开跑。**【实测】对 ASan 编译的二进制跑 `leaks --atExit` 会报零泄漏(ASan 接管了分配器)——两者叠加恰好放过泄漏。【规约】金样本准入 = 两道独立门槛:① `-fsanitize=address,undefined` 构建跑通全部 I/O 用例零报告;② **另行 plain 构建**过 `leaks --atExit -- ./prog` 零泄漏。`leaks --atExit` 必须直接启动目标可执行文件,禁止在中间插入再 `exec` 目标的 shell wrapper(macOS 27 实测只分析 wrapper);按本机 `leaks(1)` 契约以退出码 0/1/>1 分别判定“零泄漏/发现泄漏/工具错误”。样本门禁还必须先运行一个故意泄漏的 plain 正控,确认同一 Runner/Seatbelt 链能得到退出码 1 与明确非零泄漏报告,正控未命中时拒绝相信后续零泄漏结果。【macOS 27 实测修正】ASan/leaks 外层链在整套几十次进程启动中会偶发撞到 3s wall-time,但单独复跑通常远低于 3s;金样本套件只允许消费**全套件唯一一次**纯 wall-time 环境恢复重试,第二次仍失败即拒绝。恢复必须顺序走同一 Runner/Seatbelt 与相同 3s/CPU/RSS/进程/输出上限;已有 sanitizer/非零泄漏证据、其他资源/进程错误、正控与压力样本一律不得重试,且日志必须打印样本、模式与首次 duration。禁止用重试替代真实失败,禁止增加 verification 专用 timeout。
 
-**R14 · 编辑风暴防护(自动补括号 M2 落地,有效树保持 M3 落地)。** 在文件中部敲 `int f() {`,配对 `}` 出现前下半个文件会被解析进 f 的函数体,每次击键整个下半面板重排。【规约】(a) CM6 开启自动补括号;(b) 重解析后若新增 ERROR 影响区域超过文件的 ~30%,积木面板保持上一棵有效树渲染 + 横幅提示(契约 11),不跟随坏树重排。
+**R14 · 编辑风暴防护(自动补括号配置 M2 落地,可观察编辑与有效树保持 M3 落地)。** 在文件中部敲 `int f() {`,配对 `}` 出现前下半个文件会被解析进 f 的函数体,每次击键整个下半面板重排。【规约】(a) M2 的 CM6 工厂接入自动补括号配置,但产品编辑器按 M2 铁律保持只读,因此不制造虚假的可输入验收;M3 启用源码编辑时才验收实际配对输入;(b) 重解析后若新增 ERROR 影响区域超过文件的 ~30%,积木面板保持上一棵有效树渲染 + 横幅提示(契约 11),不跟随坏树重排。
 
 **R15 · Electron IPC 是公开安全边界。** M0 的 preload 只暴露固定形状的 `window.panelApi.capabilities/compile/run`;后续里程碑按需增加 `openSource`、`loadProject`、`saveProject`、`diagnose`、`trace`、`explain`,但始终禁止暴露通用 `send/on`、`ipcRenderer`、`process`、`Buffer`、任意路径读写或 shell 能力。每个 `ipcMain.handle` 先验证请求来自当前主 frame,再用独立 schema 做运行时校验:source ≤512 KiB、stdin ≤1 MiB、argv ≤64 项且单项 ≤16 KiB/合计 ≤64 KiB、fixtures ≤64 个且单个 ≤1 MiB/合计 ≤8 MiB、拒绝 NUL 和越界/绝对路径;所有超时、进程数、内存与输出上限由 main 固定且 renderer 无权放宽。文件打开/保存只通过原生对话框或 main 持有的项目句柄。`capabilities` 在 main 内返回冻结快照;Electron structured clone 不保留 `Object.freeze`,所以 preload 每次给 renderer 防御性新副本,验收必须证明 renderer 修改自己的副本不会污染下一次 main 快照,不得用 renderer 侧 `Object.isFrozen` 作虚假保证。compile/run/diagnose/trace/explain 等操作返回带判别字段的结果(`{ok:true,...}` / `{ok:false,error:{code,message}}`),预期错误不靠 throw 穿过 IPC。CSP 禁止远程脚本和 `unsafe-eval`;导航、弹窗、权限请求和外链默认拒绝,允许项必须显式列入 main allowlist。
 

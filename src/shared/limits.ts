@@ -23,8 +23,10 @@ export interface RunnerLimits {
   readonly maxArtifacts: number;
 }
 
+export const MAX_SOURCE_BYTES = 512 * 1024;
+
 export const RUNNER_LIMITS: Readonly<RunnerLimits> = Object.freeze({
-  maxSourceBytes: 512 * 1024,
+  maxSourceBytes: MAX_SOURCE_BYTES,
   maxSourceNameBytes: 128,
   maxArtifactIdBytes: 128,
   maxArgumentCount: 64,

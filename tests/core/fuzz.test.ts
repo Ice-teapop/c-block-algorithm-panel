@@ -138,8 +138,8 @@ function assertEligibleFunctionsPreserved(
       .filter(isEligibleOracleFunction)
       .map((node) => `${node.startIndex}:${node.endIndex}`)
       .sort();
-    const actual = document.blocks
-      .filter((block) => block.kind === "syntax")
+    const actual = flattenBlocks(document.blocks)
+      .filter((block) => block.kind === "syntax" && block.role === "function")
       .map((block) => `${block.range.from}:${block.range.to}`)
       .sort();
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -150,6 +150,20 @@ function assertEligibleFunctionsPreserved(
   } finally {
     tree.delete();
   }
+}
+
+function flattenBlocks(
+  blocks: readonly import("../../src/core/index.js").Block[],
+): readonly import("../../src/core/index.js").Block[] {
+  const flattened: import("../../src/core/index.js").Block[] = [];
+  const stack = [...blocks].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop();
+    if (block === undefined) continue;
+    flattened.push(block);
+    stack.push(...[...block.children].reverse());
+  }
+  return flattened;
 }
 
 function isEligibleOracleFunction(node: Node): boolean {

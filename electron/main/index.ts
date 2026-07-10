@@ -14,6 +14,7 @@ import type {
   RunRequest,
   RunnerErrorCode,
   RunResult,
+  SourceImportResult,
 } from "../../src/shared/api.js";
 import {
   compile,
@@ -26,8 +27,18 @@ import {
   type TrustedOperation,
   type TrustedRequestSummary,
 } from "./runner/index.js";
+import {
+  invalidSourceImportRequestFailure,
+  readSourceFile,
+  sourceDialogFailure,
+  sourceImportBusyFailure,
+  sourceImportContextFailure,
+  validateDroppedSourceRequest,
+} from "./source-import.js";
 
 const IPC_CHANNELS = Object.freeze({
+  openSource: "panel:open-source",
+  openDroppedSource: "panel:open-dropped-source",
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
@@ -41,6 +52,7 @@ let isShuttingDown = false;
 let cleanupComplete = false;
 let cleanupPromise: Promise<void> | undefined;
 let runnerRequestInFlight = false;
+let sourceImportInFlight = false;
 
 type PanelBrowserWindow = BrowserWindow & {
   readonly panelSecurityPreferences: Readonly<WebPreferences>;
@@ -144,6 +156,20 @@ function acquireMainRunnerRequest(): (() => void) | null {
   };
 }
 
+function acquireSourceImport(): (() => void) | null {
+  if (sourceImportInFlight) {
+    return null;
+  }
+  sourceImportInFlight = true;
+  let released = false;
+  return () => {
+    if (!released) {
+      released = true;
+      sourceImportInFlight = false;
+    }
+  };
+}
+
 type AuthorizationResult =
   | { readonly state: "ready"; readonly grant?: TrustedExecutionGrant }
   | { readonly state: "context-closed" };
@@ -226,6 +252,76 @@ async function authorizeTrustedFallback(
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.openSource, async (event, ...args): Promise<SourceImportResult> => {
+    const senderWindow = requireTrustedSenderWindow(event);
+    if (args.length !== 0) {
+      return invalidSourceImportRequestFailure();
+    }
+    if (isShuttingDown) {
+      return sourceImportContextFailure();
+    }
+    const releaseImport = acquireSourceImport();
+    if (releaseImport === null) {
+      return sourceImportBusyFailure();
+    }
+
+    try {
+      let result: Awaited<ReturnType<typeof dialog.showOpenDialog>>;
+      try {
+        result = await dialog.showOpenDialog(senderWindow, {
+          title: "导入 C 源文件",
+          properties: ["openFile"],
+          filters: [{ name: "C 源文件", extensions: ["c"] }],
+        });
+      } catch {
+        return sourceDialogFailure();
+      }
+      if (!isCurrentRequestContext(event, senderWindow)) {
+        return sourceImportContextFailure();
+      }
+      if (result.canceled) {
+        return Object.freeze({ status: "cancelled" });
+      }
+      if (result.filePaths.length !== 1) {
+        return sourceDialogFailure();
+      }
+      const request = validateDroppedSourceRequest({ path: result.filePaths[0] });
+      if (!request.ok) {
+        return sourceDialogFailure();
+      }
+      const imported = await readSourceFile(request.path, "dialog");
+      return isCurrentRequestContext(event, senderWindow) ? imported : sourceImportContextFailure();
+    } finally {
+      releaseImport();
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.openDroppedSource,
+    async (event, request: unknown): Promise<SourceImportResult> => {
+      const senderWindow = requireTrustedSenderWindow(event);
+      if (isShuttingDown) {
+        return sourceImportContextFailure();
+      }
+      const validated = validateDroppedSourceRequest(request);
+      if (!validated.ok) {
+        return validated.result;
+      }
+      const releaseImport = acquireSourceImport();
+      if (releaseImport === null) {
+        return sourceImportBusyFailure();
+      }
+      try {
+        const imported = await readSourceFile(validated.path, "drop");
+        return isCurrentRequestContext(event, senderWindow)
+          ? imported
+          : sourceImportContextFailure();
+      } finally {
+        releaseImport();
+      }
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.capabilities, async (event) => {
     requireTrustedSenderWindow(event);
     if (isShuttingDown) {
@@ -284,6 +380,7 @@ function createMainWindow(): BrowserWindow {
     webSecurity: true,
     allowRunningInsecureContent: false,
     webviewTag: false,
+    navigateOnDragDrop: false,
   }) satisfies Readonly<WebPreferences>;
 
   const mainWindow = new BrowserWindow({

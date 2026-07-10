@@ -18,8 +18,8 @@ interface BlockBase {
 
 export interface SyntaxBlock extends BlockBase {
   readonly kind: "syntax";
-  readonly role: "function";
-  readonly nodeType: "function_definition";
+  readonly role: "function" | "statement" | "declaration" | "preprocessor";
+  readonly nodeType: string;
 }
 
 export interface RawBlock extends BlockBase {
@@ -63,6 +63,55 @@ export interface ProjectionIssue {
   readonly message: string;
 }
 
+export type ParseConcernCode =
+  "unknown-type-name" | "variable-used-as-type" | "typedef-used-as-call";
+
+export interface ParseConcern {
+  readonly code: ParseConcernCode;
+  readonly confidence: "low";
+  readonly blockRange: TextRange;
+  readonly evidenceRange: TextRange;
+  readonly message: string;
+}
+
+export type SymbolKind =
+  | "parameter"
+  | "local-variable"
+  | "file-variable"
+  | "enum-constant"
+  | "function"
+  | "typedef"
+  | "object-macro"
+  | "builtin-function"
+  | "builtin-typedef"
+  | "builtin-object-macro"
+  | "unknown-external";
+
+export interface SymbolRecord {
+  /** Snapshot-local identity. It is intentionally unstable across reparses. */
+  readonly id: string;
+  readonly name: string;
+  readonly kind: SymbolKind;
+  readonly declarationRanges: readonly TextRange[];
+  readonly confidence: "certain" | "low" | "unknown";
+  readonly header?: string;
+  readonly signatureText?: string;
+  readonly valueText?: string;
+  readonly description?: string;
+}
+
+export interface SymbolOccurrence {
+  readonly symbolId: string;
+  readonly range: TextRange;
+  readonly role: "declaration" | "use";
+  readonly resolution: "local" | "file" | "user-macro" | "builtin" | "unknown";
+}
+
+export interface SymbolSnapshot {
+  readonly symbols: readonly SymbolRecord[];
+  readonly occurrences: readonly SymbolOccurrence[];
+}
+
 export interface SourceDoc {
   readonly source: string;
   readonly range: TextRange;
@@ -70,6 +119,8 @@ export interface SourceDoc {
   readonly comments: readonly CommentNode[];
   readonly parse: ParseSummary;
   readonly issues: readonly ProjectionIssue[];
+  readonly concerns: readonly ParseConcern[];
+  readonly symbols: SymbolSnapshot;
 }
 
 export interface BlockShape {

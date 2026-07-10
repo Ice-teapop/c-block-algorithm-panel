@@ -28,14 +28,19 @@ describe("M1 function-level lossless projection", () => {
       "",
     ].join("\n");
     const document = parser.project(source);
-    const functions = document.blocks.filter((block) => block.kind === "syntax");
+    const functions = functionBlocks(document.blocks);
 
     expect(functions).toHaveLength(2);
     expect(functions.map((block) => source.slice(block.range.from, block.range.to))).toEqual([
       "static int square(int value) { return value * value; }",
       'int main(void) { printf("%d\\n", square(global)); return 0; }',
     ]);
-    expect(document.blocks.some((block) => block.kind === "raw")).toBe(true);
+    expect(
+      document.blocks.some((block) => block.kind === "syntax" && block.role === "preprocessor"),
+    ).toBe(true);
+    expect(
+      document.blocks.some((block) => block.kind === "syntax" && block.role === "declaration"),
+    ).toBe(true);
     expect(renderSourceDoc(document)).toBe(source);
     expect(rebuildFromCoverage(document)).toBe(source);
     assertSourceDocInvariants(document);
@@ -167,7 +172,7 @@ describe("M1 function-level lossless projection", () => {
   it("mines a complete main function from inside an EOF-spanning ERROR node", () => {
     const source = "#if 0\nint broken( {\n#endif\nint main(void){return 0;}\n";
     const document = parser.project(source);
-    const functions = document.blocks.filter((block) => block.kind === "syntax");
+    const functions = functionBlocks(document.blocks);
 
     expect(document.parse.hasError).toBe(true);
     expect(functions).toHaveLength(1);
@@ -185,12 +190,8 @@ describe("M1 function-level lossless projection", () => {
       "#ifdef FEATURE\nint enabled(void){return 1;}\n#else\nint disabled(void){return 0;}\n#endif\n";
     const ifSource = "#if FEATURE + 1\nint conditional(void){return 1;}\n#endif\n";
 
-    expect(
-      parser.project(ifdefSource).blocks.filter((block) => block.kind === "syntax"),
-    ).toHaveLength(2);
-    expect(parser.project(ifSource).blocks.filter((block) => block.kind === "syntax")).toHaveLength(
-      0,
-    );
+    expect(functionBlocks(parser.project(ifdefSource).blocks)).toHaveLength(2);
+    expect(functionBlocks(parser.project(ifSource).blocks)).toHaveLength(0);
   });
 
   it("keeps extension-bearing functions raw without turning valid functions raw", () => {
@@ -200,7 +201,7 @@ describe("M1 function-level lossless projection", () => {
       "",
     ].join("\n");
     const document = parser.project(source);
-    const functions = document.blocks.filter((block) => block.kind === "syntax");
+    const functions = functionBlocks(document.blocks);
 
     expect(functions.map((block) => source.slice(block.range.from, block.range.to))).toEqual([
       "int main(void) { return 0; }",
@@ -223,3 +224,23 @@ describe("M1 function-level lossless projection", () => {
     expect(projectionShape(second)).toEqual(projectionShape(first));
   });
 });
+
+function functionBlocks(blocks: readonly import("../../src/core/index.js").Block[]) {
+  return flattenBlocks(blocks).filter(
+    (block) => block.kind === "syntax" && block.role === "function",
+  );
+}
+
+function flattenBlocks(
+  blocks: readonly import("../../src/core/index.js").Block[],
+): readonly import("../../src/core/index.js").Block[] {
+  const flattened: import("../../src/core/index.js").Block[] = [];
+  const stack = [...blocks].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop();
+    if (block === undefined) continue;
+    flattened.push(block);
+    stack.push(...[...block.children].reverse());
+  }
+  return flattened;
+}

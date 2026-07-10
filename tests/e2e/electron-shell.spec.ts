@@ -5,10 +5,15 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { CompileRequest } from "../../src/shared/api.js";
 
 let electronApplication: ElectronApplication | undefined;
 let page: Page;
+let importFixtureDirectory = "";
+let importFixturePath = "";
 
 function getElectronApplication(): ElectronApplication {
   if (electronApplication === undefined) {
@@ -18,6 +23,12 @@ function getElectronApplication(): ElectronApplication {
 }
 
 test.beforeAll(async () => {
+  importFixtureDirectory = await mkdtemp(join(tmpdir(), "panel-e2e-import-"));
+  importFixturePath = join(importFixtureDirectory, "保真.c");
+  await writeFile(
+    importFixturePath,
+    Buffer.from("\uFEFF// 中文\r\nint main(void) { return 0; }\r\n", "utf8"),
+  );
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
@@ -32,6 +43,232 @@ test.beforeAll(async () => {
     },
   });
   page = await electronApplication.firstWindow();
+});
+
+test("imports through the native dialog without exposing an absolute path", async () => {
+  const application = getElectronApplication();
+  await application.evaluate(({ dialog }, path) => {
+    const mutableDialog = dialog as unknown as {
+      showOpenDialog: () => Promise<{ readonly canceled: boolean; readonly filePaths: string[] }>;
+    };
+    mutableDialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, importFixturePath);
+
+  const result = await page.evaluate(() => window.panelApi.openSource());
+
+  expect(result).toEqual({
+    status: "opened",
+    document: {
+      source: "\uFEFF// 中文\r\nint main(void) { return 0; }\r\n",
+      displayName: "保真.c",
+      origin: "dialog",
+    },
+  });
+  expect(JSON.stringify(result)).not.toContain(importFixtureDirectory);
+});
+
+test("imports a disk-backed dropped File and rejects a synthetic File", async () => {
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.id = "e2e-disk-file";
+    document.body.append(input);
+  });
+  const input = page.locator("#e2e-disk-file");
+  await input.setInputFiles(importFixturePath);
+
+  const result = await page.evaluate(() => {
+    const file = (document.querySelector("#e2e-disk-file") as HTMLInputElement | null)?.files?.[0];
+    if (file === undefined) {
+      throw new Error("测试未得到 disk-backed File");
+    }
+    return window.panelApi.openDroppedSource(file);
+  });
+  const synthetic = await page.evaluate(() =>
+    window.panelApi.openDroppedSource(new File(["int x;"], "synthetic.c", { type: "text/x-c" })),
+  );
+
+  expect(result).toMatchObject({
+    status: "opened",
+    document: { displayName: "保真.c", origin: "drop" },
+  });
+  expect(synthetic).toMatchObject({
+    status: "failed",
+    error: { code: "SOURCE_INVALID_DROP" },
+  });
+  await input.evaluate((element) => element.remove());
+});
+
+test("serializes native and dropped source imports behind one main-process gate", async () => {
+  const application = getElectronApplication();
+  await application.evaluate(({ dialog }) => {
+    const state = globalThis as typeof globalThis & {
+      __panelSourceDialogCount?: number;
+      __resolvePanelSourceDialog?: () => void;
+    };
+    state.__panelSourceDialogCount = 0;
+    const mutableDialog = dialog as unknown as {
+      showOpenDialog: () => Promise<{
+        readonly canceled: boolean;
+        readonly filePaths: string[];
+      }>;
+    };
+    mutableDialog.showOpenDialog = () =>
+      new Promise((resolve) => {
+        state.__panelSourceDialogCount = (state.__panelSourceDialogCount ?? 0) + 1;
+        state.__resolvePanelSourceDialog = () => resolve({ canceled: true, filePaths: [] });
+      });
+  });
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.id = "e2e-concurrent-disk-file";
+    document.body.append(input);
+  });
+  const input = page.locator("#e2e-concurrent-disk-file");
+  await input.setInputFiles(importFixturePath);
+
+  const firstRequest = page.evaluate(() => window.panelApi.openSource());
+  try {
+    await expect
+      .poll(() =>
+        application.evaluate(() => {
+          const state = globalThis as typeof globalThis & {
+            __panelSourceDialogCount?: number;
+          };
+          return state.__panelSourceDialogCount ?? 0;
+        }),
+      )
+      .toBe(1);
+
+    const concurrentOpen = await page.evaluate(() => window.panelApi.openSource());
+    const concurrentDrop = await page.evaluate(() => {
+      const file = (document.querySelector("#e2e-concurrent-disk-file") as HTMLInputElement | null)
+        ?.files?.[0];
+      if (file === undefined) {
+        throw new Error("测试未得到并发导入所需的 disk-backed File");
+      }
+      return window.panelApi.openDroppedSource(file);
+    });
+
+    expect(concurrentOpen).toMatchObject({
+      status: "failed",
+      error: { code: "SOURCE_IMPORT_BUSY" },
+    });
+    expect(concurrentDrop).toMatchObject({
+      status: "failed",
+      error: { code: "SOURCE_IMPORT_BUSY" },
+    });
+    const dialogCount = await application.evaluate(() => {
+      const state = globalThis as typeof globalThis & {
+        __panelSourceDialogCount?: number;
+      };
+      return state.__panelSourceDialogCount ?? 0;
+    });
+    expect(dialogCount).toBe(1);
+  } finally {
+    await application.evaluate(() => {
+      const state = globalThis as typeof globalThis & {
+        __resolvePanelSourceDialog?: () => void;
+      };
+      state.__resolvePanelSourceDialog?.();
+    });
+    await expect(firstRequest).resolves.toEqual({ status: "cancelled" });
+    await input.evaluate((element) => element.remove());
+  }
+});
+
+test("drops a pending native result when its renderer frame reloads", async () => {
+  const application = getElectronApplication();
+  const staleFixturePath = join(importFixtureDirectory, "stale-context.c");
+  const staleSentinel = "STALE_IMPORT_RESULT_MUST_NOT_REACH_NEW_FRAME";
+  await writeFile(staleFixturePath, `/* ${staleSentinel} */\nint stale(void) { return 1; }\n`);
+  await application.evaluate(
+    ({ dialog }, paths) => {
+      const state = globalThis as typeof globalThis & {
+        __panelStaleDialogCount?: number;
+        __resolvePanelStaleDialog?: () => void;
+      };
+      state.__panelStaleDialogCount = 0;
+      const mutableDialog = dialog as unknown as {
+        showOpenDialog: () => Promise<{
+          readonly canceled: boolean;
+          readonly filePaths: string[];
+        }>;
+      };
+      mutableDialog.showOpenDialog = () => {
+        state.__panelStaleDialogCount = (state.__panelStaleDialogCount ?? 0) + 1;
+        if (state.__panelStaleDialogCount === 1) {
+          return new Promise((resolve) => {
+            state.__resolvePanelStaleDialog = () =>
+              resolve({ canceled: false, filePaths: [paths.stale] });
+          });
+        }
+        return Promise.resolve({ canceled: false, filePaths: [paths.fresh] });
+      };
+    },
+    { stale: staleFixturePath, fresh: importFixturePath },
+  );
+
+  const staleRequest = page
+    .evaluate(() => window.panelApi.openSource())
+    .then(
+      (result) => ({ state: "resolved" as const, result }),
+      (error: unknown) => ({
+        state: "context-destroyed" as const,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  await expect
+    .poll(() =>
+      application.evaluate(() => {
+        const state = globalThis as typeof globalThis & {
+          __panelStaleDialogCount?: number;
+        };
+        return state.__panelStaleDialogCount ?? 0;
+      }),
+    )
+    .toBe(1);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await application.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __resolvePanelStaleDialog?: () => void;
+    };
+    state.__resolvePanelStaleDialog?.();
+  });
+
+  const staleOutcome = await staleRequest;
+  if (staleOutcome.state === "resolved") {
+    expect(staleOutcome.result).toMatchObject({
+      status: "failed",
+      error: { code: "SOURCE_CONTEXT_CLOSED" },
+    });
+  }
+
+  // Reload normally destroys the old evaluate context, so its discriminated result cannot be
+  // observed directly. The stable contract is that resolving the old dialog releases the main
+  // gate, never writes its source into the new frame, and lets that frame import independently.
+  await expect(page.locator("body")).not.toContainText(staleSentinel);
+  let freshResult: Awaited<ReturnType<Window["panelApi"]["openSource"]>> | undefined;
+  await expect
+    .poll(async () => {
+      const result = await page.evaluate(() => window.panelApi.openSource());
+      if (result.status === "opened") {
+        freshResult = result;
+        return "opened";
+      }
+      if (result.status === "failed" && result.error.code === "SOURCE_IMPORT_BUSY") {
+        return "busy";
+      }
+      return `${result.status}:unexpected`;
+    })
+    .toBe("opened");
+  expect(freshResult).toMatchObject({
+    status: "opened",
+    document: { displayName: "保真.c", origin: "dialog" },
+  });
+  await expect(page.locator("body")).not.toContainText(staleSentinel);
 });
 
 test("keeps native trust confirmation in main and rejects stale renderer acknowledgements", async () => {
@@ -215,12 +452,16 @@ test("opens the local desktop shell with a narrow preload API", async () => {
 
   const rendererBoundary = await page.evaluate(() => ({
     apiKeys: Object.keys(window.panelApi).sort(),
+    forbiddenApiKeys: ["readFile", "openPath", "getPathForFile", "path", "send", "on"].filter(
+      (key) => key in (window.panelApi as unknown as Record<string, unknown>),
+    ),
     hasNodeProcess: "process" in window,
     hasNodeRequire: "require" in window,
   }));
 
   expect(rendererBoundary).toEqual({
-    apiKeys: ["capabilities", "compile", "run"],
+    apiKeys: ["capabilities", "compile", "openDroppedSource", "openSource", "run"],
+    forbiddenApiKeys: [],
     hasNodeProcess: false,
     hasNodeRequire: false,
   });
@@ -321,6 +562,7 @@ test("uses the enforced BrowserWindow security preferences", async () => {
       nodeIntegration: preferences?.nodeIntegration,
       sandbox: preferences?.sandbox,
       webSecurity: preferences?.webSecurity,
+      navigateOnDragDrop: preferences?.navigateOnDragDrop,
       rendererProcessSandboxed: processMetric?.sandboxed,
       visible: mainWindow.isVisible(),
     };
@@ -331,6 +573,7 @@ test("uses the enforced BrowserWindow security preferences", async () => {
     nodeIntegration: false,
     sandbox: true,
     webSecurity: true,
+    navigateOnDragDrop: false,
     rendererProcessSandboxed: true,
     visible: true,
   });
@@ -338,4 +581,5 @@ test("uses the enforced BrowserWindow security preferences", async () => {
 
 test.afterAll(async () => {
   await electronApplication?.close();
+  await rm(importFixtureDirectory, { recursive: true, force: true });
 });

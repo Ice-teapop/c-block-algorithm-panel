@@ -88,7 +88,40 @@ export interface Capabilities {
   readonly requiresNativeTrustConfirmation: boolean;
 }
 
+export type SourceOrigin = "dialog" | "drop" | "paste";
+
+export type SourceImportErrorCode =
+  | "SOURCE_IMPORT_BUSY"
+  | "SOURCE_CONTEXT_CLOSED"
+  | "SOURCE_DIALOG_FAILED"
+  | "SOURCE_INVALID_DROP"
+  | "SOURCE_INVALID_REQUEST"
+  | "SOURCE_NOT_C_FILE"
+  | "SOURCE_NOT_REGULAR_FILE"
+  | "SOURCE_TOO_LARGE"
+  | "SOURCE_INVALID_UTF8"
+  | "SOURCE_CONTAINS_NUL"
+  | "SOURCE_READ_FAILED";
+
+export interface SourceImportError {
+  readonly code: SourceImportErrorCode;
+  readonly message: string;
+}
+
+export interface ImportedSource {
+  readonly source: string;
+  readonly displayName: string;
+  readonly origin: SourceOrigin;
+}
+
+export type SourceImportResult =
+  | { readonly status: "opened"; readonly document: ImportedSource }
+  | { readonly status: "cancelled" }
+  | { readonly status: "failed"; readonly error: SourceImportError };
+
 export interface PanelApi {
+  openSource(): Promise<SourceImportResult>;
+  openDroppedSource(file: File): Promise<SourceImportResult>;
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;
   run(request: RunRequest): Promise<RunResult>;

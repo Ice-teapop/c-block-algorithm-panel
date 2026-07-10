@@ -1,17 +1,16 @@
 import type { Node } from "web-tree-sitter";
 import { assertSourceDocInvariants, nonTriviaGaps } from "./invariants.js";
+import { projectSymbols } from "./symbols.js";
+import { projectStatementBlocks } from "./statement-projector.js";
 import {
   syntaxAnchor,
   textRange,
   utf16Offset,
-  type Block,
   type CommentAttachment,
   type CommentNode,
   type ParseSummary,
   type ProjectionIssue,
-  type RawReason,
   type SourceDoc,
-  type SyntaxBlock,
   type SyntaxAnchor,
   type TextRange,
 } from "./model.js";
@@ -37,7 +36,6 @@ const UNSUPPORTED_FUNCTION_NODE_TYPES = new Set([
   "ms_unaligned_ptr_modifier",
   "ms_unsigned_ptr_modifier",
 ]);
-const ASCII_C_TRIVIA_CHARACTER = /[ \t\r\n\f\v]/u;
 const NON_ASCII_C_TRIVIA_CHARACTER = /[^ \t\r\n\f\v]/u;
 const INTERNAL_COMMENT_CONTAINERS = new Set([
   "translation_unit",
@@ -88,24 +86,15 @@ interface TraversalEntry {
 export function projectCst(source: string, rootNode: Node): SourceDoc {
   const documentRange = textRange(0, source.length);
   const facts = collectNodeFacts(source, rootNode);
-  const syntaxBlocks = facts.functions.map<SyntaxBlock>((fact) =>
-    Object.freeze({
-      kind: "syntax",
-      role: "function",
-      nodeType: "function_definition",
-      range: fact.range,
-      children: Object.freeze([]),
-    }),
-  );
-  const blocks = partitionBlocks(
-    source,
-    syntaxBlocks,
-    facts.errorRanges,
-    facts.missingOffsets,
-    facts.unsupportedFunctions,
-  );
+  const blocks = projectStatementBlocks(source, rootNode, {
+    supportedFunctionRanges: facts.functions.map((fact) => fact.range),
+    unsupportedFunctionRanges: facts.unsupportedFunctions,
+    errorRanges: facts.errorRanges,
+    missingOffsets: facts.missingOffsets,
+  });
   const comments = buildComments(source, facts.comments, facts.anchors);
   const parse = makeParseSummary(rootNode.hasError, facts.errorRanges, facts.missingOffsets);
+  const symbolProjection = projectSymbols(source, rootNode);
   const issues: ProjectionIssue[] = [];
 
   for (const range of facts.errorRanges) {
@@ -113,7 +102,7 @@ export function projectCst(source: string, rootNode: Node): SourceDoc {
       Object.freeze({
         code: "parser-recovery",
         range,
-        message: "tree-sitter 在此处进行了错误恢复；完整子函数仍会被单独投影。",
+        message: "tree-sitter 在此处进行了错误恢复；可确认完整的子结构仍会被单独投影。",
       }),
     );
   }
@@ -122,7 +111,7 @@ export function projectCst(source: string, rootNode: Node): SourceDoc {
       Object.freeze({
         code: "unsupported-function",
         range,
-        message: "该函数含 M1 尚不承诺结构化的扩展语法，已保留为原始 C。",
+        message: "该函数含当前结构化层不承诺的扩展语法，已保留为原始 C。",
       }),
     );
   }
@@ -134,6 +123,8 @@ export function projectCst(source: string, rootNode: Node): SourceDoc {
     comments,
     parse,
     issues: Object.freeze(issues),
+    concerns: symbolProjection.concerns,
+    symbols: symbolProjection.snapshot,
   });
   const gaps = nonTriviaGaps(preliminary);
   if (gaps.length > 0) {
@@ -289,100 +280,6 @@ function removeOverlappingFunctions(functions: readonly FunctionFact[]): readonl
     }
   }
   return accepted;
-}
-
-function partitionBlocks(
-  source: string,
-  syntaxBlocks: readonly SyntaxBlock[],
-  errorRanges: readonly TextRange[],
-  missingOffsets: readonly number[],
-  unsupportedRanges: readonly TextRange[],
-): readonly Block[] {
-  const blocks: Block[] = [];
-  let cursor = 0;
-  for (const syntaxBlock of syntaxBlocks) {
-    appendRawBlock(
-      source,
-      cursor,
-      syntaxBlock.range.from,
-      errorRanges,
-      missingOffsets,
-      unsupportedRanges,
-      blocks,
-    );
-    blocks.push(syntaxBlock);
-    cursor = syntaxBlock.range.to;
-  }
-  appendRawBlock(
-    source,
-    cursor,
-    source.length,
-    errorRanges,
-    missingOffsets,
-    unsupportedRanges,
-    blocks,
-  );
-  return Object.freeze(blocks);
-}
-
-function appendRawBlock(
-  source: string,
-  intervalFrom: number,
-  intervalTo: number,
-  errorRanges: readonly TextRange[],
-  missingOffsets: readonly number[],
-  unsupportedRanges: readonly TextRange[],
-  destination: Block[],
-): void {
-  let from = intervalFrom;
-  let to = intervalTo;
-  while (from < to && isSkippableGapCharacter(source, from)) {
-    from += 1;
-  }
-  while (to > from && isSkippableGapCharacter(source, to - 1)) {
-    to -= 1;
-  }
-  if (from >= to) {
-    return;
-  }
-  const range = textRange(from, to);
-  destination.push(
-    Object.freeze({
-      kind: "raw",
-      reason: rawReason(range, errorRanges, missingOffsets, unsupportedRanges),
-      range,
-      children: Object.freeze([]),
-    }),
-  );
-}
-
-function isSkippableGapCharacter(source: string, index: number): boolean {
-  const character = source[index];
-  return (
-    (index === 0 && character === "\uFEFF") ||
-    (character !== undefined && ASCII_C_TRIVIA_CHARACTER.test(character))
-  );
-}
-
-function rawReason(
-  range: TextRange,
-  errorRanges: readonly TextRange[],
-  missingOffsets: readonly number[],
-  unsupportedRanges: readonly TextRange[],
-): RawReason {
-  const intersectsError = errorRanges.some(
-    (errorRange) => errorRange.from < range.to && errorRange.to > range.from,
-  );
-  const containsMissing = missingOffsets.some(
-    (offset) => offset >= range.from && offset <= range.to,
-  );
-  if (intersectsError || containsMissing) {
-    return "parse-error";
-  }
-  const intersectsUnsupported = unsupportedRanges.some(
-    (unsupportedRange) => unsupportedRange.from < range.to && unsupportedRange.to > range.from,
-  );
-  return intersectsUnsupported ? "unsupported-syntax" : "not-yet-structured";
 }
 
 function buildComments(

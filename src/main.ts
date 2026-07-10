@@ -1,99 +1,429 @@
-import { renderSourceDoc } from "./core/index.js";
+import {
+  createBlockIndex,
+  offsetToBlock,
+  renderSourceDoc,
+  symbolAt,
+  type Block,
+  type BlockIndex,
+  type BlockIndexEntry,
+  type CParser,
+  type SourceDoc,
+  type SymbolRecord,
+} from "./core/index.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
+import { importPastedSource } from "./shared/source-import.js";
+import type { ImportedSource, SourceImportResult } from "./shared/api.js";
+import { createBlockTree } from "./ui/block-tree.js";
+import { createCodePane, type CodeHighlight } from "./ui/code-pane.js";
+import { explainBlock } from "./ui/explanation.js";
+import { createRunPanel } from "./ui/run-panel.js";
+import { mountWorkbench } from "./ui/workbench-shell.js";
 
-const app = document.querySelector<HTMLElement>("#app");
+const INITIAL_SOURCE = [
+  "#include <stdio.h>",
+  "",
+  "int main(void) {",
+  "  int total = 0;",
+  "  for (int i = 0; i < 3; i++) {",
+  "    total += i;",
+  "  }",
+  '  printf("%d\\n", total);',
+  "  return 0;",
+  "}",
+  "",
+].join("\n");
 
-if (app === null) {
-  throw new Error("缺少应用挂载节点 #app");
+interface ReadySession {
+  readonly imported: ImportedSource;
+  readonly document: SourceDoc;
+  readonly blockIndex: BlockIndex;
 }
 
-app.innerHTML = `
-  <section class="shell" aria-labelledby="app-title">
-    <p class="eyebrow">M1 · 无损投影层</p>
-    <h1 id="app-title">C 积木算法面板</h1>
-    <p>安全桌面壳已加载。编译与运行只通过具名 IPC 能力进入本机受限运行器。</p>
-    <div class="capabilities" aria-label="桌面能力">
-      <span>compile</span>
-      <span>run</span>
-      <span>capabilities</span>
-    </div>
-    <div class="status-list">
-      <output id="service-status" class="status" aria-live="polite">正在检查运行器能力…</output>
-      <output id="parser-status" class="status" aria-live="polite" data-state="loading">正在加载 C 解析器…</output>
-    </div>
-    <aside class="safety" aria-labelledby="safety-title">
-      <strong id="safety-title">本地执行边界</strong>
-      <p id="safety-mode">正在检查 Seatbelt…</p>
-      <p>只运行你自己编写或已经逐行审阅过的 C 代码。本工具不提供运行任意恶意代码的安全保证。</p>
-    </aside>
-  </section>
-`;
+const app = document.querySelector<HTMLElement>("#app");
+if (app === null) throw new Error("缺少应用挂载节点 #app");
 
-const status = document.querySelector<HTMLOutputElement>("#service-status");
-const safetyMode = document.querySelector<HTMLParagraphElement>("#safety-mode");
-const parserStatus = document.querySelector<HTMLOutputElement>("#parser-status");
+const elements = mountWorkbench(app);
+let parser: CParser | null = null;
+let session: ReadySession | null = null;
+let selectedEntry: BlockIndexEntry | null = null;
+let selectedSymbol: SymbolRecord | null = null;
+let importRequestId = 0;
+let dragDepth = 0;
+let destroyed = false;
 
-let browserParser: Awaited<ReturnType<typeof createBrowserCParser>> | undefined;
+const codePane = createCodePane(elements.codePane, {
+  onSourceOffset: selectFromCode,
+});
+const blockTree = createBlockTree(elements.blockTree, (entry) => {
+  selectBlock(entry, true, null);
+});
+let runPanel = createCurrentRunPanel();
 
-void createBrowserCParser()
-  .then((parser) => {
-    browserParser = parser;
-    const hello = "int main(void) { return 0; }\n";
-    const projection = parser.project(hello);
-    const functions = projection.blocks.filter(
-      (block) => block.kind === "syntax" && block.role === "function",
-    );
-    if (functions.length !== 1 || renderSourceDoc(projection) !== hello) {
-      throw new Error("renderer WASM 冒烟未得到单一函数或逐字符重建失败");
+elements.openButton.addEventListener("click", openNativeSource);
+elements.pasteButton.addEventListener("click", showPasteDialog);
+elements.pasteConfirm.addEventListener("click", confirmPaste);
+elements.pasteDialog.addEventListener("close", clearPasteError);
+elements.shell.addEventListener("dragenter", onDragEnter);
+elements.shell.addEventListener("dragover", onDragOver);
+elements.shell.addEventListener("dragleave", onDragLeave);
+elements.shell.addEventListener("drop", onDrop);
+
+void initialize();
+
+async function initialize(): Promise<void> {
+  try {
+    const loadedParser = await createBrowserCParser();
+    if (destroyed) {
+      loadedParser.dispose();
+      return;
     }
-    if (parserStatus !== null) {
-      parserStatus.textContent = "C 解析器已加载 · 无损投影可用";
-      parserStatus.dataset.state = "ready";
-      parserStatus.dataset.rootType = "translation_unit";
-      parserStatus.dataset.functionCount = String(functions.length);
-      parserStatus.dataset.roundtrip = "true";
+    parser = loadedParser;
+    elements.openButton.disabled = false;
+    elements.pasteButton.disabled = false;
+    loadSource({ source: INITIAL_SOURCE, displayName: "algorithm-demo.c", origin: "paste" });
+    setImportStatus("示例已载入；可打开、拖入或粘贴自己的 .c 文件。", "ready");
+  } catch (error: unknown) {
+    elements.parserStatus.textContent = `C 解析器不可用：${errorMessage(error)}`;
+    elements.parserStatus.dataset.state = "error";
+    setImportStatus("解析器初始化失败，源码工作台已停用。", "error");
+  }
+}
+
+function loadSource(imported: ImportedSource): void {
+  if (parser === null) throw new Error("C 解析器尚未加载");
+  const document = parser.project(imported.source);
+  if (renderSourceDoc(document) !== imported.source) {
+    throw new Error("无损投影未能逐字符重建输入源码");
+  }
+  const blockIndex = createBlockIndex(document);
+  session = Object.freeze({ imported, document, blockIndex });
+  selectedEntry = null;
+  selectedSymbol = null;
+  runPanel.destroy();
+  runPanel = createCurrentRunPanel();
+
+  codePane.setSource(imported.source);
+  blockTree.setDocument(document, blockIndex);
+  elements.fileName.textContent = imported.displayName;
+  elements.sourceMeta.textContent = sourceMetadata(imported.source);
+
+  const functions = flattenBlocks(document.blocks).filter(
+    (block) => block.kind === "syntax" && block.role === "function",
+  );
+  elements.parserStatus.textContent = document.parse.hasError
+    ? `C 解析器就绪 · ${document.issues.length} 个恢复提示`
+    : "C 解析器已加载 · 语句级无损投影可用";
+  elements.parserStatus.dataset.state = document.parse.hasError ? "warning" : "ready";
+  elements.parserStatus.dataset.rootType = "translation_unit";
+  elements.parserStatus.dataset.functionCount = String(functions.length);
+  elements.parserStatus.dataset.roundtrip = "true";
+
+  const firstFunction = blockIndex.entries.find(
+    (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
+  );
+  const firstBlock = blockIndex.entries.find((entry) => entry.kind === "block");
+  selectBlock(firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null, false, null);
+}
+
+function selectFromCode(sourceOffset: number): void {
+  if (session === null) return;
+  const symbol = symbolAt(session.document.symbols, sourceOffset);
+  const entry = offsetToBlock(session.blockIndex, sourceOffset);
+  selectBlock(entry, false, symbol);
+}
+
+function selectBlock(
+  entry: BlockIndexEntry | null,
+  reveal: boolean,
+  symbol: SymbolRecord | null,
+): void {
+  if (session === null) return;
+  selectedEntry = entry;
+  selectedSymbol = symbol;
+  blockTree.select(entry);
+
+  const highlights: CodeHighlight[] = [];
+  if (entry?.block !== null && entry?.block !== undefined) {
+    highlights.push({ range: entry.block.range, kind: "primary" });
+  }
+  if (symbol !== null) {
+    for (const occurrence of session.document.symbols.occurrences) {
+      if (occurrence.symbolId !== symbol.id) continue;
+      highlights.push({
+        range: occurrence.range,
+        kind: occurrence.role === "declaration" ? "symbol-declaration" : "symbol-use",
+        title: symbolTooltip(symbol, occurrence.role),
+      });
     }
-  })
-  .catch((error: unknown) => {
-    if (parserStatus !== null) {
-      parserStatus.textContent = `C 解析器不可用：${error instanceof Error ? error.message : "未知错误"}`;
-      parserStatus.dataset.state = "error";
+  }
+  codePane.setHighlights(highlights);
+  if (reveal && entry?.block !== null && entry?.block !== undefined) {
+    codePane.reveal(entry.block.range);
+  }
+  renderExplanation(entry?.block ?? null, symbol);
+}
+
+function renderExplanation(block: Block | null, focusedSymbol: SymbolRecord | null): void {
+  const current = session;
+  elements.explanation.replaceChildren();
+  if (current === null || block === null) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "这里是源码空白或注释区。选择一条语句积木查看作用。";
+    elements.explanation.append(empty);
+    return;
+  }
+
+  const explanation = explainBlock(current.document, block);
+  const title = document.createElement("h3");
+  title.className = "explanation__title";
+  title.textContent =
+    focusedSymbol === null ? explanation.title : `${explanation.title} · ${focusedSymbol.name}`;
+  const summary = document.createElement("p");
+  summary.className = "explanation__summary";
+  summary.textContent = explanation.summary;
+  elements.explanation.append(title, summary);
+
+  if (explanation.details.length > 0) {
+    const details = document.createElement("ul");
+    details.className = "explanation__details";
+    for (const detail of explanation.details) {
+      const item = document.createElement("li");
+      item.textContent = detail;
+      details.append(item);
     }
+    elements.explanation.append(details);
+  }
+
+  const symbols = [...explanation.symbols].sort((left, right) => {
+    const leftFocused = focusedSymbol?.name === left.name && focusedSymbol.kind === left.kind;
+    const rightFocused = focusedSymbol?.name === right.name && focusedSymbol.kind === right.kind;
+    return Number(rightFocused) - Number(leftFocused);
   });
+  if (symbols.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "explanation__symbols";
+    for (const symbol of symbols) {
+      const item = document.createElement("li");
+      item.className = "symbol-card";
+      if (focusedSymbol?.name === symbol.name && focusedSymbol.kind === symbol.kind) {
+        item.dataset.focused = "true";
+      }
+      const name = document.createElement("code");
+      name.textContent =
+        symbol.valueText === undefined ? symbol.name : `${symbol.name} = ${symbol.valueText}`;
+      const meta = document.createElement("span");
+      meta.className = "symbol-card__meta";
+      meta.textContent = [
+        symbolKindLabel(symbol.kind),
+        symbol.header,
+        `${symbol.usageCount} 处使用`,
+      ]
+        .filter((value): value is string => value !== undefined)
+        .join(" · ");
+      item.append(name, meta);
+      if (symbol.signatureText !== undefined) appendText(item, symbol.signatureText);
+      if (symbol.description !== undefined) appendText(item, symbol.description);
+      list.append(item);
+    }
+    elements.explanation.append(list);
+  }
+
+  if (explanation.concerns.length > 0) {
+    const concerns = document.createElement("ul");
+    concerns.className = "explanation__concerns";
+    for (const message of explanation.concerns) {
+      const item = document.createElement("li");
+      item.className = "concern-card";
+      item.textContent = `低置信度：${message}`;
+      concerns.append(item);
+    }
+    elements.explanation.append(concerns);
+  }
+}
+
+async function openNativeSource(): Promise<void> {
+  const requestId = ++importRequestId;
+  setImportStatus("正在等待系统文件选择器…", "loading");
+  try {
+    const result = await window.panelApi.openSource();
+    if (requestId === importRequestId) applyImportResult(result);
+  } catch {
+    if (requestId === importRequestId) setImportStatus("文件选择器 IPC 调用失败。", "error");
+  }
+}
+
+function showPasteDialog(): void {
+  clearPasteError();
+  elements.pasteSource.value = "";
+  elements.pasteDialog.showModal();
+  elements.pasteSource.focus();
+}
+
+function confirmPaste(): void {
+  const result = importPastedSource(elements.pasteSource.value);
+  if (result.status === "failed") {
+    elements.pasteError.textContent = result.error.message;
+    return;
+  }
+  if (result.status === "opened") {
+    importRequestId += 1;
+    applyImportResult(result);
+    elements.pasteDialog.close("loaded");
+  }
+}
+
+function createCurrentRunPanel() {
+  return createRunPanel(elements.runPanel, {
+    getSource: () => session?.imported.source ?? "",
+    getDisplayName: () => session?.imported.displayName ?? "main.c",
+  });
+}
+
+function clearPasteError(): void {
+  elements.pasteError.textContent = "";
+}
+
+function onDragEnter(event: DragEvent): void {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  dragDepth += 1;
+  elements.dropOverlay.hidden = false;
+}
+
+function onDragOver(event: DragEvent): void {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+}
+
+function onDragLeave(event: DragEvent): void {
+  if (!hasFiles(event)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) elements.dropOverlay.hidden = true;
+}
+
+function onDrop(event: DragEvent): void {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  dragDepth = 0;
+  elements.dropOverlay.hidden = true;
+  const files = event.dataTransfer?.files;
+  if (files === undefined || files.length !== 1 || files[0] === undefined) {
+    setImportStatus("请一次只拖入一个 .c 文件。", "error");
+    return;
+  }
+  const requestId = ++importRequestId;
+  setImportStatus("正在读取拖入的 C 文件…", "loading");
+  void window.panelApi
+    .openDroppedSource(files[0])
+    .then((result) => {
+      if (requestId === importRequestId) applyImportResult(result);
+    })
+    .catch(() => {
+      if (requestId === importRequestId) setImportStatus("拖拽导入 IPC 调用失败。", "error");
+    });
+}
+
+function applyImportResult(result: SourceImportResult): void {
+  if (result.status === "cancelled") {
+    setImportStatus("已取消文件选择，当前文档保持不变。", "ready");
+    return;
+  }
+  if (result.status === "failed") {
+    setImportStatus(`${result.error.code}：${result.error.message}`, "error");
+    return;
+  }
+  try {
+    loadSource(result.document);
+    setImportStatus(`已载入 ${result.document.displayName}。`, "ready");
+  } catch (error: unknown) {
+    setImportStatus(`源码解析失败：${errorMessage(error)}；当前文档保持不变。`, "error");
+  }
+}
+
+function setImportStatus(message: string, state: "loading" | "ready" | "error"): void {
+  elements.importStatus.textContent = message;
+  elements.importStatus.dataset.state = state;
+}
+
+function sourceMetadata(source: string): string {
+  const bytes = new TextEncoder().encode(source).byteLength;
+  return `${newlineLabel(source)} · ${bytes.toLocaleString("zh-CN")} B · UTF-8`;
+}
+
+function newlineLabel(source: string): string {
+  const withoutCrlf = source.replaceAll("\r\n", "");
+  const hasCrlf = source.includes("\r\n");
+  const hasLf = withoutCrlf.includes("\n");
+  const hasCr = withoutCrlf.includes("\r");
+  if (Number(hasCrlf) + Number(hasLf) + Number(hasCr) > 1) return "混合换行";
+  if (hasCrlf) return "CRLF";
+  if (hasCr) return "CR";
+  if (hasLf) return "LF";
+  return "单行";
+}
+
+function hasFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes("Files") === true;
+}
+
+function symbolTooltip(symbol: SymbolRecord, role: "declaration" | "use"): string {
+  const roleText = role === "declaration" ? "声明" : "使用";
+  return symbol.valueText === undefined
+    ? `${symbol.name} · ${roleText}`
+    : `${symbol.name} = ${symbol.valueText} · ${roleText}`;
+}
+
+function symbolKindLabel(kind: SymbolRecord["kind"]): string {
+  const labels: Readonly<Record<SymbolRecord["kind"], string>> = {
+    parameter: "参数",
+    "local-variable": "局部变量",
+    "file-variable": "文件变量",
+    "enum-constant": "枚举常量",
+    function: "函数",
+    typedef: "typedef",
+    "object-macro": "对象宏",
+    "builtin-function": "标准库函数",
+    "builtin-typedef": "标准 typedef",
+    "builtin-object-macro": "标准对象宏",
+    "unknown-external": "未知外部符号",
+  };
+  return labels[kind];
+}
+
+function appendText(parent: HTMLElement, text: string): void {
+  const paragraph = document.createElement("span");
+  paragraph.textContent = text;
+  parent.append(paragraph);
+}
+
+function flattenBlocks(blocks: readonly Block[]): readonly Block[] {
+  const flattened: Block[] = [];
+  const stack = [...blocks].reverse();
+  while (stack.length > 0) {
+    const block = stack.pop();
+    if (block === undefined) continue;
+    flattened.push(block);
+    stack.push(...[...block.children].reverse());
+  }
+  return flattened;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "未知错误";
+}
 
 window.addEventListener(
   "beforeunload",
   () => {
-    browserParser?.dispose();
-    browserParser = undefined;
+    destroyed = true;
+    importRequestId += 1;
+    parser?.dispose();
+    parser = null;
+    blockTree.destroy();
+    codePane.destroy();
+    runPanel.destroy();
   },
   { once: true },
 );
-
-void window.panelApi
-  .capabilities()
-  .then((capabilities) => {
-    if (status !== null) {
-      status.textContent = capabilities.runnerEnabled
-        ? `本地运行器已连接 · ${capabilities.mode}`
-        : `桌面壳已连接 · 运行器当前为 ${capabilities.mode}`;
-      status.dataset.state = capabilities.runnerEnabled ? "ready" : "offline";
-    }
-    if (safetyMode !== null) {
-      const seatbeltReady = capabilities.seatbeltProbe.status === "probe-succeeded";
-      safetyMode.textContent = seatbeltReady
-        ? `Seatbelt best-effort：${capabilities.seatbeltProbe.detail}`
-        : `无 Seatbelt 隔离：${capabilities.seatbeltProbe.detail}`;
-      safetyMode.dataset.state = seatbeltReady ? "seatbelt" : "trusted-only";
-    }
-  })
-  .catch(() => {
-    if (status !== null) {
-      status.textContent = "IPC 能力检查失败：编译与运行已停用";
-      status.dataset.state = "error";
-    }
-    if (safetyMode !== null) {
-      safetyMode.textContent = "无法确认运行隔离状态；编译与运行必须保持停用。";
-      safetyMode.dataset.state = "error";
-    }
-  });
