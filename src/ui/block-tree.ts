@@ -10,10 +10,14 @@ export interface BlockTree {
 export function createBlockTree(
   host: HTMLElement,
   onSelect: (entry: BlockIndexEntry) => void,
+  onMove?: (source: BlockIndexEntry, target: BlockIndexEntry) => void,
 ): BlockTree {
   let currentIndex: BlockIndex | null = null;
   let selectedButton: HTMLButtonElement | null = null;
   let buttons: HTMLButtonElement[] = [];
+  let draggedEntry: BlockIndexEntry | null = null;
+  let draggedButton: HTMLButtonElement | null = null;
+  let dropTargetButton: HTMLButtonElement | null = null;
   let interactionEnabled = true;
   let destroyed = false;
   const onClick = (event: Event) => {
@@ -39,12 +43,117 @@ export function createBlockTree(
     event.preventDefault();
     buttons[next]?.focus();
   };
+  const clearDragState = () => {
+    draggedButton?.classList.remove("is-dragging");
+    dropTargetButton?.classList.remove("is-drop-target");
+    draggedEntry = null;
+    draggedButton = null;
+    dropTargetButton = null;
+  };
+  const entryForEvent = (event: Event): BlockIndexEntry | null => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-block-index]",
+    );
+    if (button === null || button === undefined || currentIndex === null) return null;
+    const entryIndex = Number(button.dataset.blockIndex);
+    if (!Number.isSafeInteger(entryIndex)) return null;
+    const entry = currentIndex.entries[entryIndex];
+    return entry !== undefined && isMovableEntry(entry) ? entry : null;
+  };
+  const buttonForEvent = (event: Event): HTMLButtonElement | null => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-block-index]",
+    );
+    return button !== null && button !== undefined ? button : null;
+  };
+  const setDropTarget = (button: HTMLButtonElement | null) => {
+    if (dropTargetButton === button) return;
+    dropTargetButton?.classList.remove("is-drop-target");
+    dropTargetButton = button;
+    dropTargetButton?.classList.add("is-drop-target");
+  };
+  const onDragStart = (event: DragEvent) => {
+    if (!interactionEnabled) return;
+    clearDragState();
+    const entry = entryForEvent(event);
+    const button = buttonForEvent(event);
+    if (onMove === undefined || entry === null || button === null || !button.draggable) {
+      event.preventDefault();
+      return;
+    }
+    draggedEntry = entry;
+    draggedButton = button;
+    button.classList.add("is-dragging");
+    if (event.dataTransfer !== null) event.dataTransfer.effectAllowed = "move";
+  };
+  const onDragOver = (event: DragEvent) => {
+    if (!interactionEnabled) return;
+    const targetEntry = entryForEvent(event);
+    const targetButton = buttonForEvent(event);
+    if (
+      draggedEntry === null ||
+      targetEntry === null ||
+      targetButton === null ||
+      targetEntry === draggedEntry
+    ) {
+      setDropTarget(null);
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+    setDropTarget(targetButton);
+  };
+  const onDragLeave = (event: DragEvent) => {
+    if (!interactionEnabled) return;
+    const button = buttonForEvent(event);
+    if (button === null || button !== dropTargetButton) return;
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && button.contains(relatedTarget)) return;
+    setDropTarget(null);
+  };
+  const onDrop = (event: DragEvent) => {
+    if (!interactionEnabled) return;
+    const sourceEntry = draggedEntry;
+    const targetEntry = entryForEvent(event);
+    if (sourceEntry === null || targetEntry === null || sourceEntry === targetEntry) {
+      clearDragState();
+      return;
+    }
+    event.preventDefault();
+    clearDragState();
+    onMove?.(sourceEntry, targetEntry);
+  };
+  const onDragEnd = () => {
+    if (!interactionEnabled) {
+      clearDragState();
+      return;
+    }
+    clearDragState();
+  };
   host.addEventListener("click", onClick);
   host.addEventListener("keydown", onKeyDown);
+  host.addEventListener("dragstart", onDragStart);
+  host.addEventListener("dragover", onDragOver);
+  host.addEventListener("dragleave", onDragLeave);
+  host.addEventListener("drop", onDrop);
+  host.addEventListener("dragend", onDragEnd);
+
+  const refreshDraggability = () => {
+    for (const button of buttons) {
+      const entryIndex = Number(button.dataset.blockIndex);
+      const entry =
+        currentIndex !== null && Number.isSafeInteger(entryIndex)
+          ? currentIndex.entries[entryIndex]
+          : undefined;
+      button.draggable =
+        interactionEnabled && onMove !== undefined && entry !== undefined && isMovableEntry(entry);
+    }
+  };
 
   return Object.freeze({
     setDocument(sourceDoc: SourceDoc, index: BlockIndex) {
       assertActive(destroyed);
+      clearDragState();
       currentIndex = index;
       selectedButton = null;
       host.replaceChildren();
@@ -71,6 +180,7 @@ export function createBlockTree(
       for (const [position, button] of buttons.entries()) {
         button.tabIndex = position === 0 ? 0 : -1;
       }
+      refreshDraggability();
     },
     setInteractionEnabled(enabled: boolean) {
       assertActive(destroyed);
@@ -78,12 +188,14 @@ export function createBlockTree(
         throw new TypeError("enabled 必须是布尔值");
       }
       interactionEnabled = enabled;
+      clearDragState();
       host.inert = !enabled;
       if (enabled) {
         host.removeAttribute("aria-disabled");
       } else {
         host.setAttribute("aria-disabled", "true");
       }
+      refreshDraggability();
     },
     select(entry: BlockIndexEntry | null) {
       assertActive(destroyed);
@@ -105,8 +217,14 @@ export function createBlockTree(
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      clearDragState();
       host.removeEventListener("click", onClick);
       host.removeEventListener("keydown", onKeyDown);
+      host.removeEventListener("dragstart", onDragStart);
+      host.removeEventListener("dragover", onDragOver);
+      host.removeEventListener("dragleave", onDragLeave);
+      host.removeEventListener("drop", onDrop);
+      host.removeEventListener("dragend", onDragEnd);
       host.inert = false;
       host.removeAttribute("aria-disabled");
       host.replaceChildren();
@@ -115,6 +233,14 @@ export function createBlockTree(
       selectedButton = null;
     },
   });
+}
+
+function isMovableEntry(entry: BlockIndexEntry): boolean {
+  return (
+    entry.kind === "block" &&
+    entry.block?.kind === "syntax" &&
+    (entry.block.role === "statement" || entry.block.role === "declaration")
+  );
 }
 
 function assertActive(destroyed: boolean): void {

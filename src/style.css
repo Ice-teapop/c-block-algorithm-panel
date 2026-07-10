@@ -430,6 +430,30 @@ h2 {
   background: var(--surface-hover);
 }
 
+.block-card[draggable="true"] {
+  cursor: grab;
+}
+
+.block-card[draggable="true"]:active,
+.block-card.is-dragging {
+  cursor: grabbing;
+}
+
+.block-card.is-dragging {
+  opacity: 0.42;
+}
+
+.block-card.is-drop-target {
+  color: var(--ink);
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent-line);
+  outline-offset: -1px;
+}
+
+.block-card.is-drop-target .block-card__accent {
+  background: var(--accent);
+}
+
 .block-card.is-selected {
   color: var(--ink);
   background: var(--surface-active);
