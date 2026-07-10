@@ -74,6 +74,7 @@ const blockTree = createBlockTree(
     );
   },
   (sourceEntry, targetEntry) => {
+    elements.showInspector("edit");
     void requireStructureEdits().move(sourceEntry, targetEntry);
   },
 );
