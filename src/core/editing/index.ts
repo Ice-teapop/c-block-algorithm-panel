@@ -31,6 +31,7 @@ export {
   type LiteralKind,
 } from "./targets.js";
 export {
+  assertInsertableStatementFragment,
   extractStatementEditTargets,
   planStatementOperation,
   StatementOperationError,

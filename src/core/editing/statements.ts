@@ -299,7 +299,7 @@ function planInsertion(
       "无大括号控制体旁插入会改变控制流归属，必须先补大括号",
     );
   }
-  validateInsertedStatementText(request.statementText);
+  assertInsertableStatementFragment(request.statementText);
   const boundaryUnsafe =
     request.position === "before" ? target.beforeBoundaryUnsafe : target.afterBoundaryUnsafe;
   const position =
@@ -564,7 +564,7 @@ function assertTargetEditable(
   }
 }
 
-function validateInsertedStatementText(statementText: string): void {
+export function assertInsertableStatementFragment(statementText: string): void {
   if (
     typeof statementText !== "string" ||
     statementText.length === 0 ||
@@ -580,19 +580,13 @@ function validateInsertedStatementText(statementText: string): void {
 
   const physicalLines = statementText.split(/\r\n|\r|\n/u);
   for (const [index, line] of physicalLines.entries()) {
-    const firstPreprocessingToken = line.replace(
-      /^(?:[ \t\f\v]|\/\*[^\r\n]*?\*\/)+/u,
-      "",
-    );
+    const firstPreprocessingToken = line.replace(/^(?:[ \t\f\v]|\/\*[^\r\n]*?\*\/)+/u, "");
     if (
       ["#", "%:", "??="].some((token) => firstPreprocessingToken.startsWith(token)) ||
       /(?:\\|\?\?\/)[ \t\f\v]*$/u.test(line) ||
       (index === 0 && /^\/\//u.test(line))
     ) {
-      throw operationError(
-        "PREPROCESSOR_BOUNDARY",
-        "插入内容不能包含预处理、续行或以纯行注释开头",
-      );
+      throw operationError("PREPROCESSOR_BOUNDARY", "插入内容不能包含预处理、续行或以纯行注释开头");
     }
   }
 }

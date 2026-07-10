@@ -35,6 +35,7 @@ export {
 export {
   applyEditPlan,
   applyTextPatches,
+  assertInsertableStatementFragment,
   BINARY_OPERATORS,
   BINARY_OPERATOR_PRECEDENCE,
   createEditPlan,
