@@ -1,4 +1,4 @@
-import type { Capabilities, TerminationReason } from "../shared/api.js";
+import type { Capabilities, ClangDiagnostic, TerminationReason } from "../shared/api.js";
 
 const RUNNER_SOURCE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.c$/u;
 const MAX_RUNNER_SOURCE_NAME_LENGTH = 128;
@@ -10,10 +10,12 @@ let nextRunPanelId = 1;
 export interface RunPanelOptions {
   readonly getSource: () => string;
   readonly getDisplayName: () => string;
+  readonly onDiagnostics?: (source: string, diagnostics: readonly ClangDiagnostic[]) => void;
 }
 
 export interface RunPanel {
   refreshCapabilities(): Promise<void>;
+  invalidateSource(): void;
   destroy(): void;
 }
 
@@ -51,6 +53,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const runButton = createElement("button", "run-panel__run-button", "编译并运行");
   runButton.type = "button";
   runButton.disabled = true;
+  const diagnoseButton = createElement("button", "run-panel__diagnose-button", "静态诊断");
+  diagnoseButton.type = "button";
+  diagnoseButton.disabled = true;
+  const memoryButton = createElement("button", "run-panel__diagnose-button", "完整内存诊断");
+  memoryButton.type = "button";
+  memoryButton.disabled = true;
   const operationStatus = createElement(
     "output",
     "run-panel__operation-status",
@@ -58,7 +66,9 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   );
   operationStatus.setAttribute("aria-live", "polite");
   const action = createElement("div", "run-panel__action");
-  action.append(runButton, operationStatus);
+  const actionButtons = createElement("div", "run-panel__action-buttons");
+  actionButtons.append(runButton, diagnoseButton, memoryButton);
+  action.append(actionButtons, operationStatus);
 
   const capabilityDetails = createElement("details", "run-panel__capability-details");
   const capabilitySummary = createElement("summary", "run-panel__capability-summary", "运行环境");
@@ -82,6 +92,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const stdout = createOutputBlock("stdout", stdoutHeading, panelId);
   const stderrHeading = createElement("h4", "run-panel__section-title", "标准错误 stderr");
   const stderr = createOutputBlock("stderr", stderrHeading, panelId);
+  const sanitizerHeading = createElement("h4", "run-panel__section-title", "ASan / UBSan");
+  const sanitizer = createOutputBlock("sanitizer", sanitizerHeading, panelId);
+  const leaksHeading = createElement("h4", "run-panel__section-title", "独立 leaks");
+  const leaks = createOutputBlock("leaks", leaksHeading, panelId);
 
   const processList = createElement("dl", "run-panel__process-result");
   processList.hidden = true;
@@ -93,6 +107,8 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   setOutput(diagnosticsHeading, diagnostics, "");
   setOutput(stdoutHeading, stdout, "");
   setOutput(stderrHeading, stderr, "");
+  setOutput(sanitizerHeading, sanitizer, "");
+  setOutput(leaksHeading, leaks, "");
 
   result.append(
     resultHeading,
@@ -103,6 +119,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     stdout,
     stderrHeading,
     stderr,
+    sanitizerHeading,
+    sanitizer,
+    leaksHeading,
+    leaks,
     processList,
   );
   root.append(safetyNotice, action, capabilityDetails, result);
@@ -115,7 +135,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   let runRequestId = 0;
 
   function updateRunButton(): void {
-    runButton.disabled = destroyed || busy || capabilities?.runnerEnabled !== true;
+    const disabled = destroyed || busy || capabilities?.runnerEnabled !== true;
+    runButton.disabled = disabled;
+    diagnoseButton.disabled = disabled;
+    memoryButton.disabled = disabled;
   }
 
   function renderAvailability(): void {
@@ -136,7 +159,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     modeValue.textContent = runnerModeLabel(snapshot);
     seatbeltValue.textContent = seatbeltStatusLabel(snapshot);
     trustValue.textContent = snapshot.requiresNativeTrustConfirmation
-      ? "需要，每次编译和运行分别由原生确认框授权"
+      ? "需要；完整内存诊断整套流程仅确认一次"
       : "当前模式不需要原生可信确认";
   }
 
@@ -194,6 +217,8 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     setOutput(diagnosticsHeading, diagnostics, "");
     setOutput(stdoutHeading, stdout, "");
     setOutput(stderrHeading, stderr, "");
+    setOutput(sanitizerHeading, sanitizer, "");
+    setOutput(leaksHeading, leaks, "");
     processList.hidden = true;
     resetProcessDetails();
     updateRunButton();
@@ -224,6 +249,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       if (!isCurrentRun(requestId)) {
         return;
       }
+      if (!isCurrentSource(source)) {
+        finishStale(requestId);
+        return;
+      }
       setOutput(diagnosticsHeading, diagnostics, compileResult.diagnostics);
       if (!compileResult.ok) {
         finishFailure(
@@ -238,6 +267,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       resultStatus.textContent = "编译完成，正在运行…";
       const runResult = await window.panelApi.run({ artifactId: compileResult.artifactId });
       if (!isCurrentRun(requestId)) {
+        return;
+      }
+      if (!isCurrentSource(source)) {
+        finishStale(requestId);
         return;
       }
 
@@ -260,7 +293,104 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         finishFailure(requestId, `本次运行失败：${reason}`, "run-failed");
       }
     } catch {
-      finishFailure(requestId, "本次运行失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
+      if (isCurrentSource(source)) {
+        finishFailure(requestId, "本次运行失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
+      } else {
+        finishStale(requestId);
+      }
+    } finally {
+      finishRun(requestId);
+    }
+  }
+
+  async function diagnoseSource(includeMemory: boolean): Promise<void> {
+    if (destroyed || busy || capabilities?.runnerEnabled !== true) return;
+    busy = true;
+    const requestId = runRequestId + 1;
+    runRequestId = requestId;
+    root.dataset.state = "running";
+    delete root.dataset.failureReason;
+    operationStatus.textContent = includeMemory
+      ? "正在运行静态与双闸内存诊断…"
+      : "正在运行 clang 静态诊断…";
+    resultStatus.textContent = operationStatus.textContent;
+    result.hidden = false;
+    processList.hidden = true;
+    setOutput(diagnosticsHeading, diagnostics, "");
+    setOutput(stdoutHeading, stdout, "");
+    setOutput(stderrHeading, stderr, "");
+    setOutput(sanitizerHeading, sanitizer, "");
+    setOutput(leaksHeading, leaks, "");
+    updateRunButton();
+
+    let source: string;
+    let displayName: string;
+    try {
+      source = options.getSource();
+      displayName = options.getDisplayName();
+      if (typeof source !== "string" || typeof displayName !== "string") {
+        throw new TypeError("source callbacks must return strings");
+      }
+    } catch {
+      finishFailure(requestId, "诊断失败：无法取得当前源码。", "source-unavailable");
+      finishRun(requestId);
+      return;
+    }
+
+    try {
+      const diagnoseResult = await window.panelApi.diagnose({
+        source,
+        sourceName: toRunnerSourceName(displayName),
+        ...(includeMemory ? { runtime: {} } : {}),
+      });
+      if (!isCurrentRun(requestId)) return;
+      if (!isCurrentSource(source)) {
+        finishStale(requestId);
+        return;
+      }
+      setOutput(diagnosticsHeading, diagnostics, diagnoseResult.rawDiagnostics);
+      if (!diagnoseResult.ok) {
+        options.onDiagnostics?.(source, Object.freeze([]));
+        finishFailure(
+          requestId,
+          `诊断失败：${diagnoseResult.error.code}：${diagnoseResult.error.message}`,
+          "diagnose-failed",
+        );
+        return;
+      }
+      options.onDiagnostics?.(source, diagnoseResult.diagnostics);
+      const memory = diagnoseResult.memory;
+      if (memory?.status === "completed") {
+        setOutput(sanitizerHeading, sanitizer, memory.sanitizer.summary);
+        setOutput(leaksHeading, leaks, memory.leaks.summary);
+      }
+      const findingCount = diagnoseResult.diagnostics.filter(
+        (entry) => entry.severity !== "note",
+      ).length;
+      const memoryFinding =
+        memory?.status === "completed" &&
+        (memory.sanitizer.verdict !== "clean" || memory.leaks.verdict !== "clean");
+      const staticErrors = diagnoseResult.hasErrors;
+      if (staticErrors || memoryFinding) {
+        root.dataset.state = "finding";
+        operationStatus.textContent = staticErrors
+          ? includeMemory
+            ? `静态诊断完成：发现 ${String(findingCount)} 条问题；内存运行已跳过。`
+            : `静态诊断完成：发现 ${String(findingCount)} 条问题。`
+          : "完整诊断完成：内存风险面板发现需要检查的结果。";
+      } else {
+        root.dataset.state = "success";
+        operationStatus.textContent = includeMemory
+          ? `完整诊断完成：${String(findingCount)} 条 clang 提示，双闸未报告内存问题。`
+          : `静态诊断完成：${String(findingCount)} 条提示。`;
+      }
+      resultStatus.textContent = operationStatus.textContent;
+    } catch {
+      if (isCurrentSource(source)) {
+        finishFailure(requestId, "诊断失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
+      } else {
+        finishStale(requestId);
+      }
     } finally {
       finishRun(requestId);
     }
@@ -268,6 +398,24 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
 
   function isCurrentRun(requestId: number): boolean {
     return !destroyed && requestId === runRequestId;
+  }
+
+  function isCurrentSource(expectedSource: string): boolean {
+    if (destroyed) return false;
+    try {
+      return options.getSource() === expectedSource;
+    } catch {
+      return false;
+    }
+  }
+
+  function finishStale(requestId: number): void {
+    if (!isCurrentRun(requestId)) return;
+    root.dataset.state = capabilities?.runnerEnabled === true ? "ready" : "disabled";
+    delete root.dataset.failureReason;
+    operationStatus.textContent = "源码已改变；旧运行或诊断结果已丢弃。";
+    resultStatus.textContent = operationStatus.textContent;
+    result.hidden = true;
   }
 
   function finishFailure(requestId: number, message: string, reason: string): void {
@@ -299,11 +447,33 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const onRunClick = (): void => {
     void compileAndRun();
   };
+  const onDiagnoseClick = (): void => void diagnoseSource(false);
+  const onMemoryClick = (): void => void diagnoseSource(true);
   runButton.addEventListener("click", onRunClick);
+  diagnoseButton.addEventListener("click", onDiagnoseClick);
+  memoryButton.addEventListener("click", onMemoryClick);
   void refreshCapabilities();
 
   return Object.freeze({
     refreshCapabilities,
+    invalidateSource(): void {
+      if (destroyed) return;
+      result.hidden = true;
+      setOutput(diagnosticsHeading, diagnostics, "");
+      setOutput(stdoutHeading, stdout, "");
+      setOutput(stderrHeading, stderr, "");
+      setOutput(sanitizerHeading, sanitizer, "");
+      setOutput(leaksHeading, leaks, "");
+      processList.hidden = true;
+      resetProcessDetails();
+      if (busy) {
+        operationStatus.textContent = "源码已改变；当前任务结束后将丢弃旧结果。";
+      } else {
+        root.dataset.state = capabilities?.runnerEnabled === true ? "ready" : "disabled";
+        delete root.dataset.failureReason;
+        operationStatus.textContent = "源码已改变；旧运行或诊断结果已清除。";
+      }
+    },
     destroy(): void {
       if (destroyed) {
         return;
@@ -313,6 +483,8 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       runRequestId += 1;
       busy = false;
       runButton.removeEventListener("click", onRunClick);
+      diagnoseButton.removeEventListener("click", onDiagnoseClick);
+      memoryButton.removeEventListener("click", onMemoryClick);
       root.remove();
     },
   });

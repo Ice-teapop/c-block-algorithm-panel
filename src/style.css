@@ -618,6 +618,22 @@ h2 {
   white-space: nowrap;
 }
 
+.block-card__diagnostic {
+  padding: 1px 3px;
+  border: 1px solid var(--warning);
+  border-radius: 2px;
+  color: var(--warning);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.block-card__diagnostic[data-severity="error"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .code-pane {
   display: grid;
   min-height: 0;
@@ -720,6 +736,18 @@ h2 {
   border-radius: 1px;
   background: var(--accent-soft);
   box-shadow: inset 0 -1px 0 var(--accent-line);
+}
+
+.code-pane-highlight--diagnostic-warning {
+  border-radius: 1px;
+  background: var(--warning-soft);
+  box-shadow: inset 0 -1px 0 var(--warning);
+}
+
+.code-pane-highlight--diagnostic-error {
+  border-radius: 1px;
+  background: var(--danger-soft);
+  box-shadow: inset 0 -1px 0 var(--danger);
 }
 
 .inspector {
@@ -1195,6 +1223,40 @@ h2 {
   margin: 10px 0 0;
 }
 
+.explanation__analysis {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.explanation__analysis h4,
+.explanation__analysis h5 {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.explanation__data-flow,
+.explanation__memory-facts,
+.explanation__findings {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analysis-fact {
+  padding: 4px 5px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .explanation__details {
   display: grid;
   gap: 4px;
@@ -1284,7 +1346,14 @@ h2 {
   gap: 5px;
 }
 
-.run-panel__run-button {
+.run-panel__action-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.run-panel__run-button,
+.run-panel__diagnose-button {
   min-height: 30px;
   border: 1px solid var(--accent);
   border-radius: 2px;
@@ -1295,12 +1364,20 @@ h2 {
   cursor: pointer;
 }
 
-.run-panel__run-button:hover:not(:disabled) {
+.run-panel__diagnose-button {
+  border-color: var(--line-strong);
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+}
+
+.run-panel__run-button:hover:not(:disabled),
+.run-panel__diagnose-button:hover:not(:disabled) {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
 }
 
-.run-panel__run-button:disabled {
+.run-panel__run-button:disabled,
+.run-panel__diagnose-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
@@ -1379,6 +1456,11 @@ h2 {
 
 .run-panel[data-state="success"] .run-panel__result-status {
   color: var(--success);
+  font-weight: 650;
+}
+
+.run-panel[data-state="finding"] .run-panel__result-status {
+  color: var(--warning);
   font-weight: 650;
 }
 

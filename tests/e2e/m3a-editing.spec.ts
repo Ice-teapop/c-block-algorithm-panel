@@ -74,6 +74,12 @@ test("previews and cancels without mutation, then commits a literal with button 
   await expect(undoButton).toBeEnabled();
   await expect(redoButton).toBeDisabled();
 
+  await page.getByRole("tab", { name: "解释", exact: true }).click();
+  await expect(
+    page.getByRole("tabpanel", { name: "解释" }).locator(".explanation__title"),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "编辑", exact: true }).click();
+
   await undoButton.click();
   await expectEditorSource(LITERAL_SOURCE);
   await expect(redoButton).toHaveAttribute("aria-label", "重做，可用 1 步");

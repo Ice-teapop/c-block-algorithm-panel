@@ -12,6 +12,8 @@ import {
 import type {
   CompileRequest,
   CompileResult,
+  DiagnoseRequest,
+  DiagnoseResult,
   RunRequest,
   RunnerErrorCode,
   RunResult,
@@ -20,6 +22,7 @@ import type {
 import {
   compile,
   createTrustedExecutionGrant,
+  diagnose,
   describeTrustedRequest,
   disposeRunner,
   getCapabilities,
@@ -45,6 +48,7 @@ const IPC_CHANNELS = Object.freeze({
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
+  diagnose: "panel:diagnose",
 });
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -223,6 +227,14 @@ function runRequestFailure(code: RunnerErrorCode, message: string): RunResult {
   });
 }
 
+function diagnoseRequestFailure(code: RunnerErrorCode, message: string): DiagnoseResult {
+  return Object.freeze({
+    ok: false,
+    rawDiagnostics: "",
+    error: Object.freeze({ code, message }),
+  });
+}
+
 function acquireMainRunnerRequest(): (() => void) | null {
   if (runnerRequestInFlight) {
     return null;
@@ -268,8 +280,14 @@ async function authorizeTrustedFallback(
   senderWindow: BrowserWindow,
 ): Promise<AuthorizationResult>;
 async function authorizeTrustedFallback(
+  operation: "diagnose",
+  request: DiagnoseRequest,
+  event: IpcMainInvokeEvent,
+  senderWindow: BrowserWindow,
+): Promise<AuthorizationResult>;
+async function authorizeTrustedFallback(
   operation: TrustedOperation,
-  request: CompileRequest | RunRequest,
+  request: CompileRequest | RunRequest | DiagnoseRequest,
   event: IpcMainInvokeEvent,
   senderWindow: BrowserWindow,
 ): Promise<AuthorizationResult> {
@@ -286,7 +304,9 @@ async function authorizeTrustedFallback(
     summary =
       operation === "compile"
         ? describeTrustedRequest(operation, request as CompileRequest)
-        : describeTrustedRequest(operation, request as RunRequest);
+        : operation === "run"
+          ? describeTrustedRequest(operation, request as RunRequest)
+          : describeTrustedRequest(operation, request as DiagnoseRequest);
   } catch {
     // The runner returns the precise validation error without opening a dialog.
     return { state: "ready" };
@@ -300,7 +320,9 @@ async function authorizeTrustedFallback(
       message:
         operation === "compile"
           ? "嵌套沙箱不可用。是否编译这份可信代码？"
-          : "嵌套沙箱不可用。是否运行这个可信程序？",
+          : operation === "run"
+            ? "嵌套沙箱不可用。是否运行这个可信程序？"
+            : "嵌套沙箱不可用。是否执行这一次完整可信诊断？",
       detail: [
         "trusted-only 没有 Seatbelt 文件与网络隔离，只能用于你确认可信的代码。",
         "",
@@ -328,7 +350,9 @@ async function authorizeTrustedFallback(
   const grant =
     operation === "compile"
       ? createTrustedExecutionGrant(operation, request as CompileRequest)
-      : createTrustedExecutionGrant(operation, request as RunRequest);
+      : operation === "run"
+        ? createTrustedExecutionGrant(operation, request as RunRequest)
+        : createTrustedExecutionGrant(operation, request as DiagnoseRequest);
   return { state: "ready", grant };
 }
 
@@ -446,6 +470,31 @@ function registerIpcHandlers(): void {
         return runRequestFailure("RUNNER_SHUTTING_DOWN", "请求窗口已失效，运行已取消。");
       }
       return run(request, authorization.grant);
+    } finally {
+      releaseRequest();
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.diagnose, async (event, request: DiagnoseRequest) => {
+    const senderWindow = requireTrustedSenderWindow(event);
+    if (isShuttingDown) {
+      return diagnoseRequestFailure("RUNNER_SHUTTING_DOWN", "应用正在退出，拒绝新的诊断任务。");
+    }
+    const releaseRequest = acquireMainRunnerRequest();
+    if (releaseRequest === null) {
+      return diagnoseRequestFailure("RUNNER_BUSY", "运行器正忙；不会打开第二个可信确认框。");
+    }
+    try {
+      const authorization = await authorizeTrustedFallback(
+        "diagnose",
+        request,
+        event,
+        senderWindow,
+      );
+      if (authorization.state === "context-closed") {
+        return diagnoseRequestFailure("RUNNER_SHUTTING_DOWN", "请求窗口已失效，诊断已取消。");
+      }
+      return diagnose(request, authorization.grant);
     } finally {
       releaseRequest();
     }

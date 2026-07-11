@@ -18,13 +18,18 @@ import type {
   Capabilities,
   CompileRequest,
   CompileResult,
+  DiagnoseMemoryResult,
+  DiagnoseRequest,
+  DiagnoseResult,
   FixtureInput,
+  MemoryStageResult,
   RunRequest,
   RunnerError,
   RunnerMode,
   RunResult,
 } from "../../../src/shared/api.js";
 import { RUNNER_LIMITS, type RunnerLimits } from "../../../src/shared/limits.js";
+import { fingerprintSource } from "../../../src/shared/source-snapshot.js";
 import { ArtifactRegistry, type ArtifactRuntimeProfile } from "./artifact-registry.js";
 import { cleanupStaleWorkDirectories } from "./stale-cleanup.js";
 import {
@@ -42,6 +47,7 @@ import {
   type ToolchainDetector,
 } from "./capability.js";
 import { RunnerFailure } from "./errors.js";
+import { parseClangDiagnostics } from "./clang-diagnostics.js";
 import {
   SYSTEM_CLOCK,
   SystemProcessHost,
@@ -53,9 +59,11 @@ import {
 import { superviseProcess, type ProcessOutcome, type SupervisionLimits } from "./supervisor.js";
 import {
   validateCompileRequest,
+  validateDiagnoseRequest,
   validateRunRequest,
   validateWritableFiles,
   type ValidatedCompileRequest,
+  type ValidatedDiagnoseRequest,
   type ValidatedFixture,
   type ValidatedRunRequest,
 } from "./validation.js";
@@ -68,6 +76,8 @@ const TEMP_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_EXECUTABLE_MODE = 0o700;
 const LEAKS_PATH = "/usr/bin/leaks";
+const VERIFIABLE_NON_ZERO_LEAK_REPORT =
+  /\b[1-9][0-9]* leaks? for [1-9][0-9]* total leaked bytes\b/iu;
 
 const LIMITS_SCRIPT = `#!/bin/bash
 set -o errexit
@@ -81,7 +91,7 @@ exec "$@"
 `;
 
 type ExecutionStrategy = "seatbelt" | "trusted";
-export type TrustedOperation = "compile" | "run";
+export type TrustedOperation = "compile" | "run" | "diagnose";
 
 declare const trustedExecutionGrantBrand: unique symbol;
 
@@ -110,6 +120,7 @@ export interface VerificationRunRequest {
 export interface VerificationRunResult extends RunResult {
   readonly leakCheck?: {
     readonly ok: boolean;
+    readonly verdict: "clean" | "finding" | "tool-error";
     readonly summary: string;
   };
 }
@@ -194,27 +205,38 @@ export class Runner {
 
   describeTrustedRequest(operation: "compile", request: CompileRequest): TrustedRequestSummary;
   describeTrustedRequest(operation: "run", request: RunRequest): TrustedRequestSummary;
+  describeTrustedRequest(operation: "diagnose", request: DiagnoseRequest): TrustedRequestSummary;
   describeTrustedRequest(
     operation: TrustedOperation,
-    request: CompileRequest | RunRequest,
+    request: CompileRequest | RunRequest | DiagnoseRequest,
   ): TrustedRequestSummary {
     this.#assertAcceptingRequests();
-    return operation === "compile"
-      ? compileRequestSummary(validateCompileRequest(request, this.#limits))
-      : runRequestSummary(validateRunRequest(request, this.#limits));
+    if (operation === "compile") {
+      return compileRequestSummary(validateCompileRequest(request, this.#limits));
+    }
+    if (operation === "run") {
+      return runRequestSummary(validateRunRequest(request, this.#limits));
+    }
+    return diagnoseRequestSummary(validateDiagnoseRequest(request, this.#limits));
   }
 
   createTrustedExecutionGrant(operation: "compile", request: CompileRequest): TrustedExecutionGrant;
   createTrustedExecutionGrant(operation: "run", request: RunRequest): TrustedExecutionGrant;
   createTrustedExecutionGrant(
+    operation: "diagnose",
+    request: DiagnoseRequest,
+  ): TrustedExecutionGrant;
+  createTrustedExecutionGrant(
     operation: TrustedOperation,
-    request: CompileRequest | RunRequest,
+    request: CompileRequest | RunRequest | DiagnoseRequest,
   ): TrustedExecutionGrant {
     this.#assertAcceptingRequests();
     const requestDigest =
       operation === "compile"
         ? fingerprintCompileRequest(validateCompileRequest(request, this.#limits))
-        : fingerprintRunRequest(validateRunRequest(request, this.#limits));
+        : operation === "run"
+          ? fingerprintRunRequest(validateRunRequest(request, this.#limits))
+          : fingerprintDiagnoseRequest(validateDiagnoseRequest(request, this.#limits));
     const grant = Object.freeze({}) as TrustedExecutionGrant;
     this.#trustedGrants.set(grant, Object.freeze({ operation, requestDigest }));
     return grant;
@@ -271,6 +293,41 @@ export class Runner {
       );
     } catch (error) {
       return runFailure(error);
+    } finally {
+      releaseTask?.();
+    }
+  }
+
+  async diagnose(
+    request: DiagnoseRequest,
+    trustedGrant?: TrustedExecutionGrant,
+  ): Promise<DiagnoseResult> {
+    let releaseTask: (() => void) | undefined;
+    let rawDiagnostics = "";
+    try {
+      const validated = validateDiagnoseRequest(request, this.#limits);
+      const trustedAuthorized = this.#consumeTrustedGrant(
+        "diagnose",
+        fingerprintDiagnoseRequest(validated),
+        trustedGrant,
+      );
+      releaseTask = this.#acquireTask();
+      await this.#staleCleanupPromise;
+      const strategy = await this.#resolveExecutionStrategy(trustedAuthorized);
+      const syntax = await this.#diagnoseSyntaxValidated(validated, strategy);
+      rawDiagnostics = syntax.rawDiagnostics;
+      if (!syntax.ok) return syntax;
+      if (validated.runtime === null) return Object.freeze({ ...syntax, memory: null });
+      if (syntax.hasErrors) {
+        return Object.freeze({
+          ...syntax,
+          memory: Object.freeze({ status: "skipped" as const, reason: "static-errors" as const }),
+        });
+      }
+      const memory = await this.#runMemoryChecks(validated, strategy);
+      return Object.freeze({ ...syntax, memory });
+    } catch (error) {
+      return diagnoseFailure(error, rawDiagnostics);
     } finally {
       releaseTask?.();
     }
@@ -458,6 +515,12 @@ export class Runner {
       } finally {
         await lease.release();
       }
+      if (mode === "leaks" && artifactRuntimeProfile === "sanitizer") {
+        throw new RunnerFailure(
+          "INVALID_REQUEST",
+          "leaks 必须使用独立 plain 构建，拒绝 sanitizer 制品。",
+        );
+      }
 
       await this.#writeFixtures(workDirectory, fixtures);
       await this.#prepareWritableFiles(workDirectory, writableFiles);
@@ -501,7 +564,10 @@ export class Runner {
           (leakCheck !== undefined && !leakCheck.ok
             ? Object.freeze({
                 code: "LEAK_CHECK_FAILED" as const,
-                message: "leaks 检查未通过。",
+                message:
+                  leakCheck.verdict === "finding"
+                    ? "leaks 发现内存泄漏。"
+                    : "leaks 工具未正常完成。",
               })
             : undefined));
       const base = {
@@ -527,6 +593,176 @@ export class Runner {
     } finally {
       await removeDirectory(workDirectory);
       this.#activeWorkDirectories.delete(workDirectory);
+    }
+  }
+
+  async #diagnoseSyntaxValidated(
+    request: ValidatedDiagnoseRequest,
+    strategy: ExecutionStrategy,
+  ): Promise<DiagnoseResult> {
+    const workDirectory = await this.#createPrivateTempDirectory("diagnose-");
+    let rawDiagnostics = "";
+    try {
+      const sourcePath = join(workDirectory, request.sourceName);
+      const limitsScriptPath = join(workDirectory, LIMITS_SCRIPT_NAME);
+      await writeFile(sourcePath, request.source, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: PRIVATE_FILE_MODE,
+      });
+      await this.#writeLimitsScript(limitsScriptPath);
+      const specification = this.#buildSpawnSpecification(
+        workDirectory,
+        limitsScriptPath,
+        this.#clangPath,
+        syntaxCompilerArguments(request.sourceName, this.#sdkPath),
+        strategy,
+        COMPILE_EXECUTION_PROFILE,
+        Object.freeze({ TEMPROOT: this.#tempRoot }),
+      );
+      const outcome = await this.#superviseProcess(specification, new Uint8Array(), {
+        wallTimeMs: this.#limits.compileWallTimeMs,
+        maxOutputBytes: this.#limits.maxOutputBytes,
+        maxRssBytes: this.#limits.maxRssBytes,
+        maxProcessCount: this.#limits.maxProcessCount,
+        rssPollIntervalMs: this.#limits.rssPollIntervalMs,
+      });
+      rawDiagnostics = compilerDiagnostics(outcome);
+      const processError = processOutcomeError(outcome, "C 静态诊断失败。");
+      if (
+        processError !== undefined ||
+        outcome.termination !== "process-exit" ||
+        (outcome.exitCode !== 0 && outcome.exitCode !== 1)
+      ) {
+        return diagnoseFailure(
+          processError ?? new RunnerFailure("COMPILE_FAILED", "clang 静态诊断未正常完成。"),
+          rawDiagnostics,
+        );
+      }
+      const diagnostics = parseClangDiagnostics(rawDiagnostics, request.sourceName, request.source);
+      return Object.freeze({
+        ok: true,
+        sourceFingerprint: fingerprintSource(request.source),
+        compilerExitCode: outcome.exitCode,
+        hasErrors:
+          outcome.exitCode === 1 ||
+          diagnostics.some(
+            (diagnostic) =>
+              diagnostic.severity === "error" || diagnostic.severity === "fatal-error",
+          ),
+        diagnostics,
+        rawDiagnostics,
+        memory: null,
+      });
+    } catch (error) {
+      return diagnoseFailure(error, rawDiagnostics);
+    } finally {
+      await removeDirectory(workDirectory);
+      this.#activeWorkDirectories.delete(workDirectory);
+    }
+  }
+
+  async #runMemoryChecks(
+    request: ValidatedDiagnoseRequest,
+    strategy: ExecutionStrategy,
+  ): Promise<Extract<DiagnoseMemoryResult, { readonly status: "completed" }>> {
+    const runtime = request.runtime;
+    if (runtime === null) throw new TypeError("内存诊断缺少 runtime 输入");
+
+    const sanitizerCompile = await this.#compileValidated(
+      request.source,
+      request.sourceName,
+      strategy,
+      "asan-ubsan",
+    );
+    const sanitizerArtifactId = requireCompileArtifact(sanitizerCompile, "sanitizer 构建失败。");
+    let sanitizerRun: VerificationRunResult;
+    try {
+      sanitizerRun = await this.#runValidated(
+        sanitizerArtifactId,
+        runtime.args,
+        Buffer.from(runtime.stdin, "utf8"),
+        runtime.fixtures,
+        strategy,
+        "direct",
+        Object.freeze([]),
+      );
+    } finally {
+      await this.#artifactRegistry.discard(sanitizerArtifactId);
+    }
+    const sanitizer = memoryStageFromSanitizer(sanitizerRun);
+
+    await this.#assertLeaksPositiveControl(strategy);
+
+    const plainCompile = await this.#compileValidated(
+      request.source,
+      request.sourceName,
+      strategy,
+      "plain",
+    );
+    const plainArtifactId = requireCompileArtifact(plainCompile, "plain 泄漏检查构建失败。");
+    let leaksRun: VerificationRunResult;
+    try {
+      leaksRun = await this.#runValidated(
+        plainArtifactId,
+        runtime.args,
+        Buffer.from(runtime.stdin, "utf8"),
+        runtime.fixtures,
+        strategy,
+        "leaks",
+        Object.freeze([]),
+      );
+    } finally {
+      await this.#artifactRegistry.discard(plainArtifactId);
+    }
+    const leaks = Object.freeze({
+      ...memoryStageFromLeaks(leaksRun),
+      positiveControl: "passed" as const,
+    });
+    return Object.freeze({
+      status: "completed",
+      clean: sanitizer.verdict === "clean" && leaks.verdict === "clean",
+      sanitizer,
+      leaks,
+    });
+  }
+
+  async #assertLeaksPositiveControl(strategy: ExecutionStrategy): Promise<void> {
+    const source = [
+      "#include <stdlib.h>",
+      "int main(void) {",
+      "  void *p = malloc(32);",
+      "  return p == 0;",
+      "}",
+    ].join("\n");
+    const compiled = await this.#compileValidated(source, "leak-control.c", strategy, "plain");
+    const artifactId = requireCompileArtifact(compiled, "leaks 正控构建失败。");
+    let result: VerificationRunResult;
+    try {
+      result = await this.#runValidated(
+        artifactId,
+        Object.freeze([]),
+        new Uint8Array(),
+        Object.freeze([]),
+        strategy,
+        "leaks",
+        Object.freeze([]),
+      );
+    } finally {
+      await this.#artifactRegistry.discard(artifactId);
+    }
+    const leakCheck = result.leakCheck;
+    if (
+      result.termination !== "process-exit" ||
+      result.exitCode !== 1 ||
+      result.signal !== null ||
+      leakCheck?.verdict !== "finding" ||
+      !hasVerifiableNonZeroLeakReport(leakCheck.summary)
+    ) {
+      throw new RunnerFailure(
+        "LEAK_CHECK_FAILED",
+        "leaks 正控未检出故意泄漏，拒绝相信本次零泄漏结果。",
+      );
     }
   }
 
@@ -786,6 +1022,25 @@ function compilerArguments(
   ]);
 }
 
+function syntaxCompilerArguments(
+  sourceName: string,
+  sdkPath: string | undefined,
+): readonly string[] {
+  return Object.freeze([
+    "-std=c17",
+    "-fintegrated-cc1",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-fno-color-diagnostics",
+    "-O0",
+    "-g0",
+    ...(sdkPath === undefined ? [] : ["-isysroot", sdkPath]),
+    "-fsyntax-only",
+    sourceName,
+  ]);
+}
+
 function runtimeProfileForPreset(
   preset: "normal" | VerificationCompilePreset,
 ): ArtifactRuntimeProfile {
@@ -804,6 +1059,7 @@ function executionProfileForRun(
 
 function makeLeakCheck(outcome: ProcessOutcome): {
   readonly ok: boolean;
+  readonly verdict: "clean" | "finding" | "tool-error";
   readonly summary: string;
 } {
   const reportBytes = Buffer.concat([Buffer.from(outcome.stderr), Buffer.from(outcome.stdout)]);
@@ -812,13 +1068,89 @@ function makeLeakCheck(outcome: ProcessOutcome): {
   // successful --atExit runs can omit the numeric footer entirely, so the
   // exit status is the contract. The acceptance gate separately runs a known
   // leaking positive control so a broken/no-op analysis cannot pass silently.
+  const verdict =
+    outcome.termination === "process-exit" && !outcome.processControlFailed
+      ? outcome.exitCode === 0
+        ? "clean"
+        : outcome.exitCode === 1
+          ? "finding"
+          : "tool-error"
+      : "tool-error";
   return Object.freeze({
-    ok:
-      outcome.termination === "process-exit" &&
-      outcome.exitCode === 0 &&
-      !outcome.processControlFailed,
+    ok: verdict === "clean",
+    verdict,
     summary: summary.length > 0 ? summary : "leaks 未返回可验证报告。",
   });
+}
+
+function hasVerifiableNonZeroLeakReport(summary: string): boolean {
+  return VERIFIABLE_NON_ZERO_LEAK_REPORT.test(summary);
+}
+
+function requireCompileArtifact(result: CompileResult, message: string): string {
+  if (!result.ok) throw new RunnerFailure(result.error.code, `${message} ${result.error.message}`);
+  return result.artifactId;
+}
+
+function memoryStageFromSanitizer(result: VerificationRunResult): MemoryStageResult {
+  assertMemoryRunInfrastructure(result);
+  const stderr = decodeBytes(result.stderr);
+  const stdout = decodeBytes(result.stdout);
+  const report = [stderr, stdout].filter((part) => part.length > 0).join("\n");
+  const hasFinding = /(?:AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:)/u.test(stderr);
+  const verdict = hasFinding ? "finding" : result.exitCode === 0 ? "clean" : "inconclusive";
+  return Object.freeze({
+    verdict,
+    stdout: Uint8Array.from(result.stdout),
+    stderr: Uint8Array.from(result.stderr),
+    exitCode: result.exitCode,
+    signal: result.signal,
+    termination: result.termination,
+    durationMs: result.durationMs,
+    summary:
+      report.trim().length > 0
+        ? report.trim()
+        : verdict === "clean"
+          ? "ASan/UBSan 未报告内存或未定义行为问题。"
+          : "程序非零退出，但未出现可识别的 sanitizer 报告。",
+  });
+}
+
+function memoryStageFromLeaks(result: VerificationRunResult): MemoryStageResult {
+  assertMemoryRunInfrastructure(result);
+  const leakCheck = result.leakCheck;
+  if (leakCheck === undefined || leakCheck.verdict === "tool-error") {
+    throw new RunnerFailure("LEAK_CHECK_FAILED", "leaks 工具未正常完成。");
+  }
+  return Object.freeze({
+    verdict: leakCheck.verdict === "clean" ? "clean" : "finding",
+    stdout: Uint8Array.from(result.stdout),
+    stderr: Uint8Array.from(result.stderr),
+    exitCode: result.exitCode,
+    signal: result.signal,
+    termination: result.termination,
+    durationMs: result.durationMs,
+    summary: leakCheck.summary,
+  });
+}
+
+function assertMemoryRunInfrastructure(result: VerificationRunResult): void {
+  if (
+    result.termination !== "process-exit" ||
+    result.error?.code === "RESOURCE_LIMIT" ||
+    result.error?.code === "PROCESS_CONTROL_FAILED" ||
+    result.error?.code === "PROCESS_SPAWN_FAILED" ||
+    result.error?.code === "INTERNAL_ERROR"
+  ) {
+    throw new RunnerFailure(
+      result.error?.code ?? "INTERNAL_ERROR",
+      result.error?.message ?? "内存检查进程未正常完成。",
+    );
+  }
+}
+
+function decodeBytes(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 function compileRequestSummary(request: ValidatedCompileRequest): TrustedRequestSummary {
@@ -854,6 +1186,28 @@ function runRequestSummary(request: ValidatedRunRequest): TrustedRequestSummary 
   });
 }
 
+function diagnoseRequestSummary(request: ValidatedDiagnoseRequest): TrustedRequestSummary {
+  const requestDigest = fingerprintDiagnoseRequest(request);
+  const runtime = request.runtime;
+  return Object.freeze({
+    operation: "diagnose",
+    requestDigest,
+    detailLines: Object.freeze([
+      runtime === null ? "操作：clang 静态诊断" : "操作：完整诊断（clang + ASan/UBSan + leaks）",
+      `源文件：${request.sourceName}`,
+      `源码大小：${Buffer.byteLength(request.source, "utf8")} UTF-8 字节`,
+      ...(runtime === null
+        ? []
+        : [
+            `参数：${JSON.stringify(runtime.args)}`,
+            `标准输入：${Buffer.byteLength(runtime.stdin, "utf8")} UTF-8 字节`,
+            `fixtures：${String(runtime.fixtures.length)} 个`,
+          ]),
+      `请求 SHA-256：${requestDigest}`,
+    ]),
+  });
+}
+
 function fingerprintCompileRequest(request: ValidatedCompileRequest): string {
   const hash = createHash("sha256");
   updateFingerprint(hash, "compile");
@@ -875,6 +1229,25 @@ function fingerprintRunRequest(request: ValidatedRunRequest): string {
   for (const fixture of request.fixtures) {
     updateFingerprint(hash, fixture.path);
     updateFingerprint(hash, fixture.contents);
+  }
+  return hash.digest("hex");
+}
+
+function fingerprintDiagnoseRequest(request: ValidatedDiagnoseRequest): string {
+  const hash = createHash("sha256");
+  updateFingerprint(hash, "diagnose");
+  updateFingerprint(hash, request.sourceName);
+  updateFingerprint(hash, request.source);
+  updateFingerprint(hash, request.runtime === null ? "static" : "memory");
+  if (request.runtime !== null) {
+    updateFingerprint(hash, String(request.runtime.args.length));
+    request.runtime.args.forEach((argument) => updateFingerprint(hash, argument));
+    updateFingerprint(hash, request.runtime.stdin);
+    updateFingerprint(hash, String(request.runtime.fixtures.length));
+    for (const fixture of request.runtime.fixtures) {
+      updateFingerprint(hash, fixture.path);
+      updateFingerprint(hash, fixture.contents);
+    }
   }
   return hash.digest("hex");
 }
@@ -958,6 +1331,14 @@ function processOutcomeError(
 function compileFailure(error: unknown, diagnostics: string): CompileResult {
   const runnerError = toRunnerError(error);
   return Object.freeze({ ok: false, diagnostics, error: runnerError });
+}
+
+function diagnoseFailure(error: unknown, rawDiagnostics: string): DiagnoseResult {
+  return Object.freeze({
+    ok: false,
+    rawDiagnostics,
+    error: toRunnerError(error),
+  });
 }
 
 function runFailure(error: unknown): RunResult {

@@ -208,6 +208,35 @@ describe("block tree interaction gate", () => {
     expect(raw?.classList.contains("block-tree-node--raw")).toBe(true);
   });
 
+  it("attaches mapped clang diagnostics to the deepest block and clears stale badges", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn());
+    tree.setDocument(document, index);
+    const expression = buttonFor(host, "expression_statement");
+    const expressionRange = entryFor(index, expression).range;
+
+    tree.setDiagnostics([
+      { range: expressionRange, severity: "warning", message: "unused value" },
+      { range: expressionRange, severity: "error", message: "invalid operands" },
+    ]);
+    const badge = expression.children.find((child) =>
+      child.classList.contains("block-card__diagnostic"),
+    );
+    expect(badge?.textContent).toBe("错误 2");
+    expect(badge?.dataset.severity).toBe("error");
+    expect(badge?.title).toContain("unused value");
+    expect(badge?.title).toContain("invalid operands");
+
+    tree.setDiagnostics([]);
+    expect(
+      expression.children.some((child) => child.classList.contains("block-card__diagnostic")),
+    ).toBe(false);
+    tree.setDiagnostics([{ range: expressionRange, severity: "warning", message: "again" }]);
+    tree.setDocument(document, index);
+    expect(host.querySelectorAll<FakeElement>(".block-card__diagnostic")).toEqual([]);
+  });
+
   it("exposes the selected target for keyboard-accessible palette insertion", () => {
     const { document, index } = fixture();
     const host = fakeDocument.createElement("div");
@@ -539,7 +568,8 @@ class FakeElement {
       selector !== "button[data-block-index]" &&
       selector !== "[data-assembly-slot]" &&
       selector !== "[data-assembly-target-index]" &&
-      selector !== ".block-tree-node"
+      selector !== ".block-tree-node" &&
+      selector !== ".block-card__diagnostic"
     ) {
       return [];
     }
@@ -559,12 +589,16 @@ class FakeElement {
           child.dataset.assemblyTargetIndex !== undefined;
         const matchesTreeNode =
           selector === ".block-tree-node" && child.classList.contains("block-tree-node");
+        const matchesDiagnostic =
+          selector === ".block-card__diagnostic" &&
+          child.classList.contains("block-card__diagnostic");
         if (
           matchesBlock ||
           matchesButton ||
           matchesSlot ||
           matchesAssemblyTarget ||
-          matchesTreeNode
+          matchesTreeNode ||
+          matchesDiagnostic
         ) {
           matches.push(child as T);
         }
@@ -626,6 +660,14 @@ class FakeElement {
 
   removeCount(type: string): number {
     return this.removeCounts.get(type) ?? 0;
+  }
+
+  remove(): void {
+    const parent = this.parent;
+    if (parent === null) return;
+    const index = parent.children.indexOf(this);
+    if (index >= 0) parent.children.splice(index, 1);
+    this.parent = null;
   }
 
   focus(): void {}

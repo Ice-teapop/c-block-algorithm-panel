@@ -28,6 +28,31 @@ export interface RunRequest {
   readonly fixtures?: readonly FixtureInput[];
 }
 
+export interface DiagnoseRuntimeInput {
+  readonly args?: readonly string[];
+  readonly stdin?: string;
+  readonly fixtures?: readonly FixtureInput[];
+}
+
+export interface DiagnoseRequest extends CompileRequest {
+  /** Omit for clang-only diagnostics; provide an object to run both memory gates. */
+  readonly runtime?: DiagnoseRuntimeInput;
+}
+
+export type ClangDiagnosticSeverity = "fatal-error" | "error" | "warning" | "note";
+
+export interface ClangDiagnostic {
+  readonly id: string;
+  readonly severity: ClangDiagnosticSeverity;
+  readonly message: string;
+  readonly option: string | null;
+  readonly line: number;
+  /** One-based UTF-8 byte column reported by clang. */
+  readonly byteColumn: number;
+  /** Source UTF-16 range, or null when the byte column cannot be mapped exactly. */
+  readonly range: { readonly from: number; readonly to: number } | null;
+}
+
 export type RunnerErrorCode =
   | "INVALID_REQUEST"
   | "RUNNER_DISABLED"
@@ -87,6 +112,45 @@ export interface RunResult {
   readonly error?: RunnerError;
 }
 
+export interface MemoryStageResult {
+  readonly verdict: "clean" | "finding" | "inconclusive";
+  readonly stdout: Uint8Array;
+  readonly stderr: Uint8Array;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly termination: TerminationReason;
+  readonly durationMs: number;
+  readonly summary: string;
+}
+
+export type DiagnoseMemoryResult =
+  | { readonly status: "skipped"; readonly reason: "static-errors" }
+  | {
+      readonly status: "completed";
+      readonly clean: boolean;
+      readonly sanitizer: MemoryStageResult;
+      readonly leaks: MemoryStageResult & { readonly positiveControl: "passed" };
+    };
+
+export interface SuccessfulDiagnoseResult {
+  /** Tool execution completed; this does not mean the source is warning- or error-free. */
+  readonly ok: true;
+  readonly sourceFingerprint: string;
+  readonly compilerExitCode: 0 | 1;
+  readonly hasErrors: boolean;
+  readonly diagnostics: readonly ClangDiagnostic[];
+  readonly rawDiagnostics: string;
+  readonly memory: DiagnoseMemoryResult | null;
+}
+
+export interface FailedDiagnoseResult {
+  readonly ok: false;
+  readonly rawDiagnostics: string;
+  readonly error: RunnerError;
+}
+
+export type DiagnoseResult = SuccessfulDiagnoseResult | FailedDiagnoseResult;
+
 export interface Capabilities {
   readonly mode: RunnerMode;
   readonly runnerEnabled: boolean;
@@ -141,4 +205,5 @@ export interface PanelApi {
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;
   run(request: RunRequest): Promise<RunResult>;
+  diagnose(request: DiagnoseRequest): Promise<DiagnoseResult>;
 }

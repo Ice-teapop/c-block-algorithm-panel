@@ -2,6 +2,8 @@ import type {
   Capabilities,
   CompileRequest,
   CompileResult,
+  DiagnoseRequest,
+  DiagnoseResult,
   RunRequest,
   RunResult,
 } from "../../../src/shared/api.js";
@@ -36,13 +38,19 @@ export function describeTrustedRequest(
   request: RunRequest,
 ): TrustedRequestSummary;
 export function describeTrustedRequest(
+  operation: "diagnose",
+  request: DiagnoseRequest,
+): TrustedRequestSummary;
+export function describeTrustedRequest(
   operation: TrustedOperation,
-  request: CompileRequest | RunRequest,
+  request: CompileRequest | RunRequest | DiagnoseRequest,
 ): TrustedRequestSummary {
   const runner = getDefaultRunner();
-  return operation === "compile"
-    ? runner.describeTrustedRequest(operation, request as CompileRequest)
-    : runner.describeTrustedRequest(operation, request as RunRequest);
+  if (operation === "compile") {
+    return runner.describeTrustedRequest(operation, request as CompileRequest);
+  }
+  if (operation === "run") return runner.describeTrustedRequest(operation, request as RunRequest);
+  return runner.describeTrustedRequest(operation, request as DiagnoseRequest);
 }
 
 export function createTrustedExecutionGrant(
@@ -54,13 +62,21 @@ export function createTrustedExecutionGrant(
   request: RunRequest,
 ): TrustedExecutionGrant;
 export function createTrustedExecutionGrant(
+  operation: "diagnose",
+  request: DiagnoseRequest,
+): TrustedExecutionGrant;
+export function createTrustedExecutionGrant(
   operation: TrustedOperation,
-  request: CompileRequest | RunRequest,
+  request: CompileRequest | RunRequest | DiagnoseRequest,
 ): TrustedExecutionGrant {
   const runner = getDefaultRunner();
-  return operation === "compile"
-    ? runner.createTrustedExecutionGrant(operation, request as CompileRequest)
-    : runner.createTrustedExecutionGrant(operation, request as RunRequest);
+  if (operation === "compile") {
+    return runner.createTrustedExecutionGrant(operation, request as CompileRequest);
+  }
+  if (operation === "run") {
+    return runner.createTrustedExecutionGrant(operation, request as RunRequest);
+  }
+  return runner.createTrustedExecutionGrant(operation, request as DiagnoseRequest);
 }
 
 export async function compile(
@@ -75,6 +91,13 @@ export async function run(
   trustedGrant?: TrustedExecutionGrant,
 ): Promise<RunResult> {
   return getDefaultRunner().run(request, trustedGrant);
+}
+
+export async function diagnose(
+  request: DiagnoseRequest,
+  trustedGrant?: TrustedExecutionGrant,
+): Promise<DiagnoseResult> {
+  return getDefaultRunner().diagnose(request, trustedGrant);
 }
 
 export async function disposeRunner(): Promise<void> {

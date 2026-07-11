@@ -24,6 +24,16 @@ export interface ValidatedRunRequest {
   readonly fixtures: readonly ValidatedFixture[];
 }
 
+export interface ValidatedDiagnoseRuntimeInput {
+  readonly args: readonly string[];
+  readonly stdin: string;
+  readonly fixtures: readonly ValidatedFixture[];
+}
+
+export interface ValidatedDiagnoseRequest extends ValidatedCompileRequest {
+  readonly runtime: ValidatedDiagnoseRuntimeInput | null;
+}
+
 export function validateWritableFiles(value: unknown, limits: RunnerLimits): readonly string[] {
   if (!Array.isArray(value) || value.length > limits.maxFixtureCount) {
     throw invalid("writableFiles 必须是未超过数量限制的数组。");
@@ -99,6 +109,33 @@ export function validateRunRequest(value: unknown, limits: RunnerLimits): Valida
     stdin,
     fixtures,
   });
+}
+
+export function validateDiagnoseRequest(
+  value: unknown,
+  limits: RunnerLimits,
+): ValidatedDiagnoseRequest {
+  const request = requireRecord(value, "诊断请求必须是对象。");
+  assertOnlyKeys(request, ["source", "sourceName", "runtime"], "诊断请求包含不支持的字段。");
+  const compile = validateCompileRequest(
+    {
+      source: request.source,
+      ...(request.sourceName === undefined ? {} : { sourceName: request.sourceName }),
+    },
+    limits,
+  );
+  let runtime: ValidatedDiagnoseRuntimeInput | null = null;
+  if (request.runtime !== undefined) {
+    const input = requireRecord(request.runtime, "runtime 必须是对象。");
+    assertOnlyKeys(input, ["args", "stdin", "fixtures"], "runtime 包含不支持的字段。");
+    const args = validateArguments(input.args, limits);
+    const stdin =
+      input.stdin === undefined ? "" : requireString(input.stdin, "stdin 必须是字符串。");
+    assertByteLimit(stdin, limits.maxStdinBytes, "标准输入超过大小限制。");
+    if (stdin.includes("\0")) throw invalid("标准输入不能包含 NUL 字符。");
+    runtime = Object.freeze({ args, stdin, fixtures: validateFixtures(input.fixtures, limits) });
+  }
+  return Object.freeze({ ...compile, runtime }) satisfies ValidatedDiagnoseRequest;
 }
 
 function validateArguments(value: unknown, limits: RunnerLimits): readonly string[] {

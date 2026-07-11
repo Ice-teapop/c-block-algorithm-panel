@@ -129,6 +129,16 @@ export class ArtifactRegistry {
     return removed;
   }
 
+  async discard(id: string): Promise<void> {
+    const entry = this.#entries.get(id);
+    if (entry === undefined) return;
+    if (entry.activeLeases > 0) {
+      entry.expired = true;
+      return;
+    }
+    await this.#remove(entry, false);
+  }
+
   async dispose(): Promise<void> {
     const entries = [...this.#entries.values()];
     for (const entry of entries) {

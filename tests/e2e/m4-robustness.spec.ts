@@ -78,8 +78,8 @@ for (const corpusCase of corpusCases) {
       await page.locator("[role='tab'][data-workbench-page-id='build']").click();
       await page.locator("#open-source").click();
 
-      await expect(page.locator("#file-name")).toHaveText(corpusCase.name);
       await expect(page.locator("#import-status")).toHaveAttribute("data-state", "ready");
+      await expect(page.locator("#file-name")).toHaveText(corpusCase.name);
       const parserStatus = page.locator("#parser-status");
       await expect(parserStatus).toHaveAttribute(
         "data-state",

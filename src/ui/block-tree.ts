@@ -1,9 +1,24 @@
-import type { Block, BlockIndex, BlockIndexEntry, ParseConcern, SourceDoc } from "../core/index.js";
+import {
+  offsetToBlock,
+  type Block,
+  type BlockIndex,
+  type BlockIndexEntry,
+  type ParseConcern,
+  type SourceDoc,
+  type TextRange,
+} from "../core/index.js";
+
+export interface BlockDiagnosticMarker {
+  readonly range: TextRange;
+  readonly severity: "warning" | "error";
+  readonly message: string;
+}
 
 export interface BlockTree {
   setDocument(document: SourceDoc, index: BlockIndex): void;
   setInteractionEnabled(enabled: boolean): void;
   setTemplateDrag(templateId: string | null): void;
+  setDiagnostics(markers: readonly BlockDiagnosticMarker[]): void;
   getSelectedEntry(): BlockIndexEntry | null;
   select(entry: BlockIndexEntry | null): void;
   destroy(): void;
@@ -33,6 +48,7 @@ export function createBlockTree(
   let draggedTemplateId: string | null = null;
   let templateDropTarget: HTMLElement | null = null;
   let interactionEnabled = true;
+  let diagnosticMarkers: readonly BlockDiagnosticMarker[] = Object.freeze([]);
   let destroyed = false;
   const onClick = (event: Event) => {
     if (!interactionEnabled) return;
@@ -249,6 +265,7 @@ export function createBlockTree(
       assertActive(destroyed);
       clearDragState();
       currentIndex = index;
+      diagnosticMarkers = Object.freeze([]);
       selectedEntry = null;
       selectedButton = null;
       host.replaceChildren();
@@ -308,6 +325,19 @@ export function createBlockTree(
       if (draggedTemplateId === null) delete host.dataset.templateDrag;
       else host.dataset.templateDrag = "true";
     },
+    setDiagnostics(markers: readonly BlockDiagnosticMarker[]) {
+      assertActive(destroyed);
+      diagnosticMarkers = Object.freeze(
+        markers.map((marker) =>
+          Object.freeze({
+            range: Object.freeze({ ...marker.range }),
+            severity: marker.severity,
+            message: marker.message,
+          }),
+        ),
+      );
+      renderDiagnosticMarkers(host, currentIndex, diagnosticMarkers);
+    },
     getSelectedEntry() {
       assertActive(destroyed);
       return selectedEntry;
@@ -349,10 +379,48 @@ export function createBlockTree(
       host.replaceChildren();
       buttons = [];
       currentIndex = null;
+      diagnosticMarkers = Object.freeze([]);
       selectedEntry = null;
       selectedButton = null;
     },
   });
+}
+
+function renderDiagnosticMarkers(
+  host: HTMLElement,
+  index: BlockIndex | null,
+  markers: readonly BlockDiagnosticMarker[],
+): void {
+  host.querySelectorAll(".block-card__diagnostic").forEach((badge) => badge.remove());
+  if (index === null) return;
+  const grouped = new Map<number, BlockDiagnosticMarker[]>();
+  for (const marker of markers) {
+    if (
+      marker.range.from < index.range.from ||
+      marker.range.to > index.range.to ||
+      marker.range.to < marker.range.from
+    ) {
+      continue;
+    }
+    const entry = offsetToBlock(index, marker.range.from);
+    if (entry.kind !== "block") continue;
+    const values = grouped.get(entry.index) ?? [];
+    values.push(marker);
+    grouped.set(entry.index, values);
+  }
+  for (const [entryIndex, values] of grouped) {
+    const button = host.querySelector<HTMLButtonElement>(
+      `button[data-block-index="${String(entryIndex)}"]`,
+    );
+    if (button === null) continue;
+    const hasError = values.some((marker) => marker.severity === "error");
+    const badge = host.ownerDocument.createElement("span");
+    badge.className = "block-card__diagnostic";
+    badge.dataset.severity = hasError ? "error" : "warning";
+    badge.textContent = `${hasError ? "错误" : "警告"} ${String(values.length)}`;
+    badge.title = values.map((marker) => marker.message).join("\n");
+    button.append(badge);
+  }
 }
 
 function isMovableEntry(entry: BlockIndexEntry): boolean {

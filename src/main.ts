@@ -1,13 +1,16 @@
 import * as core from "./core/index.js";
+import { createDiagnosticRunPanel } from "./app/diagnostic-run-panel.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
 import { createLearningSurface, type LearningSurface } from "./app/learning-surface.js";
+import { analyzeProgramSnapshot, type ReadySession } from "./app/program-analysis-session.js";
 import { createProjectionPresenter, type ProjectionPresenter } from "./app/projection-presenter.js";
 import { sourceMetadata } from "./app/source-display.js";
 import { createSourceImportController } from "./app/source-import-controller.js";
+import { clearStaleSourcePresentation } from "./app/stale-source-presentation.js";
+import { symbolTooltip } from "./app/symbol-tooltip.js";
 import {
   createStructureEditController,
   type StructureEditController,
-  type StructureEditSession,
 } from "./app/structure-edit-controller.js";
 import { createSourceSyncController } from "./app/source-sync-controller.js";
 import {
@@ -26,18 +29,13 @@ import { createCodePane, type CodeHighlight, type CodeSourceChangeReason } from 
 import { createEditPanel, type EditPanel, type EditPanelRequest } from "./ui/edit-panel.js";
 import { renderExplanationView } from "./ui/explanation-view.js";
 import { createProjectionStatus } from "./ui/projection-status.js";
-import { createRunPanel } from "./ui/run-panel.js";
 import {
   createStructureEditPanel,
   type StructureEditPanel,
   type StructureEditSelection,
 } from "./ui/structure-edit-panel.js";
-
-type ReadySession = StructureEditSession & { readonly blockIndex: core.BlockIndex };
-
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
-
 const runtime = createWorkbenchRuntime(app);
 const { elements, startupLoader } = runtime;
 const explanationHost = elements.getInspectorHost("explanation");
@@ -101,7 +99,11 @@ structureEditPanel = createStructureEditPanel<core.M3bEditPlan>(elements.getInsp
   confirm: (plan) => requireEditPanel().confirmExternal(plan),
   commit: (plan) => requireStructureEdits().commit(plan),
 });
-const runPanel = createCurrentRunPanel();
+const runPanel = createDiagnosticRunPanel(elements.getInspectorHost("run"), codePane, blockTree, {
+  getSource: () => codePane.getSource(),
+  getAnalyzedSource: () => session?.imported.source ?? null,
+  getDisplayName: () => session?.imported.displayName ?? "main.c",
+});
 const workspaceController: WorkspaceController = createWorkspaceController({
   host: elements.getPageHost("dashboard"),
   api: window.panelApi,
@@ -170,7 +172,6 @@ learningSurface = createLearningSurface({
     sourceImport.setStatus(error.message, "error");
   },
 });
-
 void initialize();
 
 async function initialize(): Promise<void> {
@@ -229,7 +230,14 @@ function adoptAnalysis(
     throw new Error("CodeMirror 精确源码与分析快照不同步");
   }
   const blockIndex = core.createBlockIndex(document);
-  session = Object.freeze({ imported, analysis, blockIndex });
+  if (parser === null) throw new Error("C 解析器尚未加载");
+  const programAnalysis = analyzeProgramSnapshot(
+    parser,
+    imported.source,
+    analysis.editTargets.revision,
+    blockIndex.entries.length,
+  );
+  session = Object.freeze({ imported, analysis, blockIndex, programAnalysis });
 
   if (resetEditor) codePane.setSource(imported.source);
   blockTree.setDocument(document, blockIndex);
@@ -346,6 +354,8 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
 
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
   if (destroyed) return;
+  runPanel.invalidateSource();
+  if (session?.imported.source !== source) clearStaleSourcePresentation(codePane, explanationHost);
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   sourceSync.handleSourceChange(source, reason);
   workspaceController.handleSourceChange(source);
@@ -454,21 +464,13 @@ function selectBlock(
   if (reveal && entry?.block !== null && entry?.block !== undefined) {
     codePane.reveal(entry.block.range);
   }
-  renderExplanationView(explanationHost, sourceDocument, entry?.block ?? null, symbol);
-}
-
-function createCurrentRunPanel() {
-  return createRunPanel(elements.getInspectorHost("run"), {
-    getSource: () => codePane.getSource(),
-    getDisplayName: () => session?.imported.displayName ?? "main.c",
-  });
-}
-
-function symbolTooltip(symbol: core.SymbolRecord, role: "declaration" | "use"): string {
-  const roleText = role === "declaration" ? "声明" : "使用";
-  return symbol.valueText === undefined
-    ? `${symbol.name} · ${roleText}`
-    : `${symbol.name} = ${symbol.valueText} · ${roleText}`;
+  renderExplanationView(
+    explanationHost,
+    sourceDocument,
+    entry?.block ?? null,
+    symbol,
+    session.programAnalysis,
+  );
 }
 
 function destroyApplication(): void {

@@ -8,7 +8,8 @@ import {
   type Response,
 } from "@playwright/test";
 
-const DEVELOPMENT_SERVER_URL = "http://127.0.0.1:5173/";
+const DEVELOPMENT_SERVER_PORT = process.env.PANEL_E2E_PORT ?? "5173";
+const DEVELOPMENT_SERVER_URL = `http://127.0.0.1:${DEVELOPMENT_SERVER_PORT}/`;
 
 let electronApplication: ElectronApplication | undefined;
 let page: Page;
@@ -78,7 +79,7 @@ test("loads both WASM modules through the Vite HTTP development path", async () 
     for (const response of [...runtimeResponses, ...languageResponses]) {
       expect(response.ok()).toBe(true);
       expect(response.headers()["content-type"]).toContain("application/wasm");
-      expect(response.url()).toMatch(/^http:\/\/127\.0\.0\.1:5173\//u);
+      expect(response.url().startsWith(DEVELOPMENT_SERVER_URL)).toBe(true);
     }
     expect(runtimeFailures).toEqual([]);
   } finally {

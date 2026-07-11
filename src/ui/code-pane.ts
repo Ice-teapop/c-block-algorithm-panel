@@ -34,7 +34,8 @@ import {
   getExactSource,
 } from "./exact-source-history.js";
 
-export type CodeHighlightKind = "primary" | "symbol-declaration" | "symbol-use";
+export type CodeHighlightKind =
+  "primary" | "symbol-declaration" | "symbol-use" | "diagnostic-warning" | "diagnostic-error";
 
 export interface CodeHighlight {
   readonly range: TextRange;
@@ -70,7 +71,12 @@ export interface CodePane {
   redo(): boolean;
   getSource(): string;
   getHistoryDepth(): CodePaneHistoryDepth;
+  /** Selection and symbol layer; it never replaces diagnostics. */
   setHighlights(highlights: readonly CodeHighlight[]): void;
+  /** Diagnostic layer; it never replaces the current selection or symbol links. */
+  setDiagnosticHighlights(highlights: readonly CodeHighlight[]): void;
+  /** Clears both layers atomically after the exact source snapshot changes. */
+  clearHighlights(): void;
   reveal(sourceRange: TextRange): void;
   destroy(): void;
 }
@@ -132,6 +138,8 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   let offsetMap = createSourceOffsetMap(exactSource);
   let destroyed = false;
   let sourceNotification = 0;
+  let selectionHighlights: readonly CodeHighlight[] = Object.freeze([]);
+  let diagnosticHighlights: readonly CodeHighlight[] = Object.freeze([]);
 
   const mount = document.createElement("div");
   mount.className = "code-pane__editor";
@@ -182,6 +190,26 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   const state = createExactSourceState("", editorExtensions);
   const view = new EditorView({ state, parent: mount });
 
+  const renderHighlightLayers = (): void => {
+    const decorations = [...selectionHighlights, ...diagnosticHighlights].map((highlight) => {
+      const range = sourceRangeToEditorRange(offsetMap, highlight.range, false);
+      const attributes: Record<string, string> = {
+        "data-code-highlight": "true",
+        "data-code-highlight-kind": highlight.kind,
+        ...(highlight.title === undefined ? {} : { title: highlight.title }),
+      };
+      return Decoration.mark({
+        class: `code-pane-highlight code-pane-highlight--${highlight.kind}`,
+        attributes,
+      }).range(range.from, range.to);
+    });
+
+    view.dispatch({
+      effects: replaceHighlights.of(Decoration.set(decorations, true)),
+      annotations: [programmaticSelection.of(true), Transaction.addToHistory.of(false)],
+    });
+  };
+
   return {
     setSource(source) {
       assertActive(destroyed);
@@ -192,11 +220,17 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       exactSource = source;
       offsetMap = createSourceOffsetMap(source);
       sourceNotification += 1;
+      selectionHighlights = Object.freeze([]);
+      diagnosticHighlights = Object.freeze([]);
       view.setState(createExactSourceState(source, editorExtensions));
     },
 
     applyPatches(patches) {
       assertActive(destroyed);
+      if (diagnosticHighlights.length > 0) {
+        diagnosticHighlights = Object.freeze([]);
+        renderHighlightLayers();
+      }
       const before = getExactSource(view.state);
       view.dispatch(createExactSourceEdit(view.state, patches));
       return getExactSource(view.state) !== before;
@@ -227,28 +261,21 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
 
     setHighlights(highlights) {
       assertActive(destroyed);
-      const decorations = highlights.map((highlight) => {
-        assertHighlightKind(highlight.kind);
-        if (highlight.title !== undefined && typeof highlight.title !== "string") {
-          throw new TypeError("highlight.title 必须是字符串");
-        }
+      selectionHighlights = snapshotHighlights(highlights, "selection");
+      renderHighlightLayers();
+    },
 
-        const range = sourceRangeToEditorRange(offsetMap, highlight.range, false);
-        const attributes: Record<string, string> = {
-          "data-code-highlight": "true",
-          "data-code-highlight-kind": highlight.kind,
-          ...(highlight.title === undefined ? {} : { title: highlight.title }),
-        };
-        return Decoration.mark({
-          class: `code-pane-highlight code-pane-highlight--${highlight.kind}`,
-          attributes,
-        }).range(range.from, range.to);
-      });
+    setDiagnosticHighlights(highlights) {
+      assertActive(destroyed);
+      diagnosticHighlights = snapshotHighlights(highlights, "diagnostic");
+      renderHighlightLayers();
+    },
 
-      view.dispatch({
-        effects: replaceHighlights.of(Decoration.set(decorations, true)),
-        annotations: [programmaticSelection.of(true), Transaction.addToHistory.of(false)],
-      });
+    clearHighlights() {
+      assertActive(destroyed);
+      selectionHighlights = Object.freeze([]);
+      diagnosticHighlights = Object.freeze([]);
+      renderHighlightLayers();
     },
 
     reveal(sourceRange) {
@@ -330,9 +357,40 @@ export function sourceRangeToEditorRange(
 }
 
 function assertHighlightKind(kind: CodeHighlightKind): void {
-  if (kind !== "primary" && kind !== "symbol-declaration" && kind !== "symbol-use") {
+  if (
+    kind !== "primary" &&
+    kind !== "symbol-declaration" &&
+    kind !== "symbol-use" &&
+    kind !== "diagnostic-warning" &&
+    kind !== "diagnostic-error"
+  ) {
     throw new TypeError(`未知的 highlight kind: ${String(kind)}`);
   }
+}
+
+function snapshotHighlights(
+  highlights: readonly CodeHighlight[],
+  layer: "selection" | "diagnostic",
+): readonly CodeHighlight[] {
+  if (!Array.isArray(highlights)) throw new TypeError("highlights 必须是数组");
+  return Object.freeze(
+    highlights.map((highlight) => {
+      assertHighlightKind(highlight.kind);
+      const diagnosticKind =
+        highlight.kind === "diagnostic-warning" || highlight.kind === "diagnostic-error";
+      if ((layer === "diagnostic") !== diagnosticKind) {
+        throw new TypeError(`${layer} highlight layer 收到不匹配的 kind`);
+      }
+      if (highlight.title !== undefined && typeof highlight.title !== "string") {
+        throw new TypeError("highlight.title 必须是字符串");
+      }
+      return Object.freeze({
+        range: Object.freeze({ ...highlight.range }),
+        kind: highlight.kind,
+        ...(highlight.title === undefined ? {} : { title: highlight.title }),
+      });
+    }),
+  );
 }
 
 function assertActive(destroyed: boolean): void {

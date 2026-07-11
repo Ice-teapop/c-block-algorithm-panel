@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { analyzeProgramCst } from "../../src/analysis/index.js";
 import { textRange, type Block, type SourceDoc, type SymbolRecord } from "../../src/core/model.js";
 import { renderExplanationView } from "../../src/ui/explanation-view.js";
+import { createTestParser } from "../core/parser-fixture.js";
 
 describe("explanation view", () => {
   it("renders the existing empty-state copy without requiring application state", () => {
@@ -57,6 +59,7 @@ describe("explanation view", () => {
       "int printf(const char *format, ...)",
       "格式化输出",
     ]);
+    expect(fixture.root.findByClass("explanation__analysis")).toBeUndefined();
   });
 
   it("keeps source-derived strings as textContent and never parses them as markup", () => {
@@ -88,6 +91,121 @@ describe("explanation view", () => {
     expect(fixture.root.findByClass("concern-card")?.textContent).toBe(
       "低置信度：<svg onload=alert(1)>",
     );
+  });
+
+  it("renders conservative analysis groups and finding confidence through textContent", async () => {
+    const parser = await createTestParser();
+    const functionSource =
+      "int f(void) { int x = 0; int y = x; int *q = &x; int *p = malloc(4); (void)q; *p = 1; free(p); return *p + y; }";
+    const source = ["#include <stdlib.h>", functionSource].join("\n");
+
+    try {
+      const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>
+        Object.freeze({
+          document,
+          analysis: analyzeProgramCst({ source, revision: 1, rootNode, document }),
+        }),
+      ).result;
+      const block = findBlockByText(inspected.document, source, functionSource);
+      const fixture = fakeHost();
+
+      renderExplanationView(fixture.host, inspected.document, block, null, inspected.analysis);
+
+      expect(fixture.root.findByClass("explanation__analysis")?.children[0]?.textContent).toBe(
+        "程序分析事实",
+      );
+      expect(
+        fixture.root
+          .findByClass("explanation__data-flow")
+          ?.children.map((item) => item.textContent),
+      ).toEqual(["写入 · x", "读取 · x", "写入 · y", "逃逸 · x · 地址被存储", "读取 · y"]);
+      expect(
+        fixture.root
+          .findByClass("explanation__memory-facts")
+          ?.children.map((item) => item.textContent),
+      ).toEqual(["分配尝试 · p · malloc", "解引用 · p · *", "释放调用 · p", "解引用 · p · *"]);
+      expect(
+        fixture.root.findByClass("explanation__findings")?.children.map((item) => item.textContent),
+      ).toEqual(["提示 · 分配结果未经空值检查 · p", "确定 · 释放后使用 · p"]);
+
+      const injected = '<img src=x onerror="globalThis.pwned=true">';
+      const adversarial = Object.freeze({
+        ...inspected.analysis,
+        findings: Object.freeze(
+          inspected.analysis.findings.map((finding, index) =>
+            index === 0 ? Object.freeze({ ...finding, subject: injected }) : finding,
+          ),
+        ),
+      });
+      renderExplanationView(fixture.host, inspected.document, block, null, adversarial);
+
+      expect(fixture.root.findByClass("explanation__findings")?.children[0]?.textContent).toBe(
+        `提示 · 分配结果未经空值检查 · ${injected}`,
+      );
+      expect(fixture.document.createdTags).not.toContain("IMG");
+    } finally {
+      parser.dispose();
+    }
+  });
+
+  it("labels branch-body facts as conditional for a function selection but not their own statement", async () => {
+    const parser = await createTestParser();
+    const functionSource =
+      "int f(int c) { int x = 0; int y = 0; int *p = malloc(4); if (c) { y = x; free(p); } return y; }";
+    const source = ["#include <stdlib.h>", functionSource].join("\n");
+
+    try {
+      const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>
+        Object.freeze({
+          document,
+          analysis: analyzeProgramCst({ source, revision: 1, rootNode, document }),
+        }),
+      ).result;
+      const functionBlock = findBlockByText(inspected.document, source, functionSource);
+      const assignmentBlock = findBlockByText(inspected.document, source, "y = x;");
+      const freeBlock = findBlockByText(inspected.document, source, "free(p);");
+      const fixture = fakeHost();
+
+      renderExplanationView(
+        fixture.host,
+        inspected.document,
+        functionBlock,
+        null,
+        inspected.analysis,
+      );
+      const functionDataFlow = fixture.root
+        .findByClass("explanation__data-flow")
+        ?.children.map((item) => item.textContent);
+      const functionMemory = fixture.root
+        .findByClass("explanation__memory-facts")
+        ?.children.map((item) => item.textContent);
+      expect(functionDataFlow).toContain("读取 · x · 条件路径内");
+      expect(functionDataFlow).toContain("可能写入 · y · 条件路径内");
+      expect(functionDataFlow).toContain("读取 · c");
+      expect(functionMemory).toContain("释放调用 · p · 条件路径内");
+
+      renderExplanationView(
+        fixture.host,
+        inspected.document,
+        assignmentBlock,
+        null,
+        inspected.analysis,
+      );
+      expect(
+        fixture.root
+          .findByClass("explanation__data-flow")
+          ?.children.map((item) => item.textContent),
+      ).toEqual(["读取 · x", "写入 · y"]);
+
+      renderExplanationView(fixture.host, inspected.document, freeBlock, null, inspected.analysis);
+      expect(
+        fixture.root
+          .findByClass("explanation__memory-facts")
+          ?.children.map((item) => item.textContent),
+      ).toEqual(["释放调用 · p"]);
+    } finally {
+      parser.dispose();
+    }
   });
 });
 
@@ -225,4 +343,19 @@ function occurrence(
     role: "use",
     resolution: "local",
   });
+}
+
+function findBlockByText(document: SourceDoc, source: string, text: string): Block {
+  const matches: Block[] = [];
+  const visit = (blocks: readonly Block[]): void => {
+    for (const block of blocks) {
+      if (source.slice(block.range.from, block.range.to) === text) matches.push(block);
+      visit(block.children);
+    }
+  };
+  visit(document.blocks);
+  if (matches.length !== 1 || matches[0] === undefined) {
+    throw new Error(`block 数量异常：${JSON.stringify(text)}=${String(matches.length)}`);
+  }
+  return matches[0];
 }

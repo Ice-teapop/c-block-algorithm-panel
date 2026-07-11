@@ -6,6 +6,16 @@ import type {
   SymbolRecord,
   TextRange,
 } from "../core/model.js";
+import type {
+  AnalysisFindingConfidence,
+  AnalysisFindingReason,
+  AnalysisFindingRuleId,
+  DefUseFact,
+  DefUseVariable,
+  MemoryEventFact,
+  ProgramAnalysisSnapshot,
+} from "../analysis/model.js";
+import { fingerprintSource } from "../shared/source-snapshot.js";
 
 export interface ExplanationSymbol {
   readonly name: string;
@@ -17,12 +27,76 @@ export interface ExplanationSymbol {
   readonly usageCount: number;
 }
 
+interface ExplanationFactBase {
+  readonly variable: string;
+  readonly range: TextRange;
+  /** Whether this fact belongs to a deeper branch or loop body relative to the selected block. */
+  readonly control: "direct" | "conditional-path";
+}
+
+export interface ExplanationReadFact extends ExplanationFactBase {
+  readonly kind: "read";
+  readonly execution: "always" | "conditional";
+}
+
+export interface ExplanationWriteFact extends ExplanationFactBase {
+  readonly kind: "write";
+  readonly strength: "strong" | "weak";
+  readonly valueState: "written" | "maybe-written";
+}
+
+export interface ExplanationEscapeFact extends ExplanationFactBase {
+  readonly kind: "escape";
+  readonly origin: "stored-address" | "array-decay";
+}
+
+export type ExplanationDataFlowFact =
+  ExplanationReadFact | ExplanationWriteFact | ExplanationEscapeFact;
+
+interface ExplanationMemoryFactBase extends ExplanationFactBase {
+  readonly execution: "always" | "conditional";
+  readonly repeatable: boolean;
+}
+
+export interface ExplanationAllocationFact extends ExplanationMemoryFactBase {
+  readonly kind: "allocation";
+  readonly allocator: "malloc" | "calloc";
+}
+
+export interface ExplanationFreeFact extends ExplanationMemoryFactBase {
+  readonly kind: "free";
+}
+
+export interface ExplanationDereferenceFact extends ExplanationMemoryFactBase {
+  readonly kind: "dereference";
+  readonly form: "indirection" | "subscript" | "arrow";
+}
+
+export type ExplanationMemoryFact =
+  ExplanationAllocationFact | ExplanationFreeFact | ExplanationDereferenceFact;
+
+export interface ExplanationFinding {
+  readonly ruleId: AnalysisFindingRuleId;
+  readonly reason: AnalysisFindingReason;
+  readonly confidence: AnalysisFindingConfidence;
+  readonly subject: string | null;
+  readonly primaryRange: TextRange;
+}
+
+export interface ExplanationAnalysis {
+  readonly dataFlow: readonly ExplanationDataFlowFact[];
+  readonly memory: readonly ExplanationMemoryFact[];
+  readonly findings: readonly ExplanationFinding[];
+}
+
 export interface DeterministicExplanation {
   readonly title: string;
   readonly summary: string;
   readonly details: readonly string[];
   readonly symbols: readonly ExplanationSymbol[];
   readonly concerns: readonly string[];
+  /** Present only when an exact-source analysis snapshot was supplied. */
+  readonly analysis?: ExplanationAnalysis;
 }
 
 interface ExplanationTemplate {
@@ -37,13 +111,18 @@ interface SymbolAggregate {
   readonly usageCount: number;
 }
 
-/** Builds a deterministic, read-only explanation without AI or program analysis. */
-export function explainBlock(document: SourceDoc, block: Block): DeterministicExplanation {
+/** Builds a deterministic, read-only explanation without AI or algorithm recognition. */
+export function explainBlock(
+  document: SourceDoc,
+  block: Block,
+  analysis?: ProgramAnalysisSnapshot | null,
+): DeterministicExplanation {
   assertBlockRange(document.range, block.range);
   const template = templateForBlock(block);
   const details = Object.freeze([...template.details]);
   const symbols = collectSymbols(document, block.range);
   const concerns = collectConcerns(document, block.range);
+  const analysisFacts = collectAnalysis(document, block, analysis);
 
   return Object.freeze({
     title: template.title,
@@ -51,7 +130,193 @@ export function explainBlock(document: SourceDoc, block: Block): DeterministicEx
     details,
     symbols,
     concerns,
+    ...(analysisFacts === null ? {} : { analysis: analysisFacts }),
   });
+}
+
+function collectAnalysis(
+  document: SourceDoc,
+  block: Block,
+  analysis: ProgramAnalysisSnapshot | null | undefined,
+): ExplanationAnalysis | null {
+  if (
+    analysis === null ||
+    analysis === undefined ||
+    analysis.sourceLength !== document.source.length ||
+    analysis.sourceFingerprint !== fingerprintSource(document.source)
+  ) {
+    return null;
+  }
+  const blockRange = block.range;
+
+  const cfg = analysis.functions
+    .filter((candidate) => containsRange(candidate.range, blockRange))
+    .sort(
+      (left, right) =>
+        left.range.to - left.range.from - (right.range.to - right.range.from) ||
+        left.range.from - right.range.from ||
+        left.id.localeCompare(right.id),
+    )[0];
+  if (cfg === undefined) return freezeAnalysis([], [], []);
+
+  const defUse = analysis.defUse.find((candidate) => candidate.functionId === cfg.id);
+  const memoryEvents = analysis.memoryEvents.find((candidate) => candidate.functionId === cfg.id);
+  const variables = new Map(
+    (defUse?.variables ?? []).map((variable) => [variable.id, variable] as const),
+  );
+  const dataFlow =
+    defUse?.status === "complete" ? collectDataFlowFacts(defUse.facts, variables, block) : [];
+  const memory =
+    memoryEvents?.status === "complete"
+      ? collectMemoryFacts(memoryEvents.facts, variables, block)
+      : [];
+  const findings = analysis.findings
+    .filter(
+      (finding) => finding.functionId === cfg.id && containsRange(blockRange, finding.primaryRange),
+    )
+    .sort(
+      (left, right) =>
+        left.primaryRange.from - right.primaryRange.from ||
+        left.primaryRange.to - right.primaryRange.to ||
+        left.ruleId.localeCompare(right.ruleId) ||
+        left.id.localeCompare(right.id),
+    )
+    .map((finding): ExplanationFinding =>
+      Object.freeze({
+        ruleId: finding.ruleId,
+        reason: finding.reason,
+        confidence: finding.confidence,
+        subject: finding.subject,
+        primaryRange: freezeRange(finding.primaryRange),
+      }),
+    );
+
+  return freezeAnalysis(dataFlow, memory, findings);
+}
+
+function collectDataFlowFacts(
+  facts: readonly DefUseFact[],
+  variables: ReadonlyMap<string, DefUseVariable>,
+  block: Block,
+): ExplanationDataFlowFact[] {
+  return facts.flatMap((fact) => {
+    const control = controlForNestedFact(block, fact.nodeRange);
+    return fact.effects
+      .filter((effect) => containsRange(block.range, effect.range))
+      .flatMap((effect): ExplanationDataFlowFact[] => {
+        const variable = variables.get(effect.variableId);
+        if (variable === undefined) return [];
+        const base = { variable: variable.name, range: freezeRange(effect.range), control };
+        switch (effect.kind) {
+          case "use":
+            return [Object.freeze({ ...base, kind: "read", execution: effect.execution })];
+          case "def":
+            if (effect.valueState === "uninitialized") return [];
+            return [
+              Object.freeze({
+                ...base,
+                kind: "write",
+                strength: effect.strength,
+                valueState: effect.valueState,
+              }),
+            ];
+          case "escape":
+            return [Object.freeze({ ...base, kind: "escape", origin: effect.origin })];
+        }
+      });
+  });
+}
+
+function collectMemoryFacts(
+  facts: readonly MemoryEventFact[],
+  variables: ReadonlyMap<string, DefUseVariable>,
+  block: Block,
+): ExplanationMemoryFact[] {
+  return facts
+    .flatMap((fact) =>
+      fact.events.map((event) => ({
+        event,
+        control: controlForNestedFact(block, fact.nodeRange),
+      })),
+    )
+    .map((record, order) => ({ ...record, order }))
+    .filter(({ event }) => containsRange(block.range, event.range))
+    .sort(
+      (left, right) =>
+        left.event.range.from - right.event.range.from ||
+        left.event.range.to - right.event.range.to ||
+        left.order - right.order,
+    )
+    .flatMap(({ event, control }): ExplanationMemoryFact[] => {
+      const variable = variables.get(event.variableId);
+      if (variable === undefined) return [];
+      const base = {
+        variable: variable.name,
+        range: freezeRange(event.range),
+        control,
+        execution: event.execution,
+        repeatable: event.repeatable,
+      };
+      switch (event.kind) {
+        case "allocation":
+          return [Object.freeze({ ...base, kind: "allocation", allocator: event.allocator })];
+        case "free":
+          return [Object.freeze({ ...base, kind: "free" })];
+        case "dereference":
+          return [Object.freeze({ ...base, kind: "dereference", form: event.form })];
+        case "null-assignment":
+        case "null-guard":
+        case "escape":
+          return [];
+      }
+    });
+}
+
+const CONDITIONAL_CONTROL_NODE_TYPES = new Set([
+  "if_statement",
+  "switch_statement",
+  "case_statement",
+  "while_statement",
+  "for_statement",
+  "do_statement",
+]);
+
+function controlForNestedFact(
+  selectedBlock: Block,
+  nodeRange: TextRange,
+): ExplanationFactBase["control"] {
+  const path = containingBlockPath(selectedBlock, nodeRange);
+  if (path === null) return "direct";
+  return path
+    .slice(0, -1)
+    .some((block) => block.kind === "syntax" && CONDITIONAL_CONTROL_NODE_TYPES.has(block.nodeType))
+    ? "conditional-path"
+    : "direct";
+}
+
+function containingBlockPath(block: Block, range: TextRange): readonly Block[] | null {
+  if (!containsRange(block.range, range)) return null;
+  for (const child of block.children) {
+    const childPath = containingBlockPath(child, range);
+    if (childPath !== null) return [block, ...childPath];
+  }
+  return [block];
+}
+
+function freezeAnalysis(
+  dataFlow: readonly ExplanationDataFlowFact[],
+  memory: readonly ExplanationMemoryFact[],
+  findings: readonly ExplanationFinding[],
+): ExplanationAnalysis {
+  return Object.freeze({
+    dataFlow: Object.freeze([...dataFlow]),
+    memory: Object.freeze([...memory]),
+    findings: Object.freeze([...findings]),
+  });
+}
+
+function freezeRange(range: TextRange): TextRange {
+  return Object.freeze({ from: range.from, to: range.to });
 }
 
 function templateForBlock(block: Block): ExplanationTemplate {

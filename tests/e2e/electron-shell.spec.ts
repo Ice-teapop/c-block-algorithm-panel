@@ -465,6 +465,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "capabilities",
       "compile",
       "createWorkspaceDocument",
+      "diagnose",
       "listWorkspaceDocuments",
       "onWorkspaceCloseRequested",
       "openDroppedSource",

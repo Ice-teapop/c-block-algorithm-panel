@@ -486,7 +486,7 @@ describe("Runner sample verification path", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      leakCheck: { ok: true, summary: leaksReport.trim() },
+      leakCheck: { ok: true, verdict: "clean", summary: leaksReport.trim() },
     });
     expect(Buffer.concat(host.children[1]?.inputChunks ?? [])).toEqual(Buffer.from([0x00, 0xff]));
     await runner.dispose();
@@ -525,9 +525,68 @@ describe("Runner sample verification path", () => {
       }),
     ).resolves.toMatchObject({
       ok: false,
-      leakCheck: { ok: false, summary: leaksReport.trim() },
+      leakCheck: { ok: false, verdict: "finding", summary: leaksReport.trim() },
       error: { code: "LEAK_CHECK_FAILED" },
     });
+    await runner.dispose();
+  });
+
+  it("distinguishes a leaks tool error from a documented leak finding", async () => {
+    const host = new FakeProcessHost([
+      successfulCompile,
+      (_specification, child) => queueMicrotask(() => child.complete(2)),
+    ]);
+    const runner = createTestRunner({
+      mode: "seatbelt-best-effort",
+      processHost: host,
+      capabilityProbe: availableProbe(),
+    });
+    const compileResult = await runner.compileForVerification(
+      { source: "int main(void){return 0;}", sourceName: "main.c" },
+      "plain",
+    );
+    if (!compileResult.ok) throw new Error("verification compile fixture failed");
+
+    await expect(
+      runner.runForVerification({
+        artifactId: compileResult.artifactId,
+        stdin: new Uint8Array(),
+        writableFiles: Object.freeze([]),
+        mode: "leaks",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      leakCheck: { ok: false, verdict: "tool-error" },
+      error: { code: "LEAK_CHECK_FAILED", message: "leaks 工具未正常完成。" },
+    });
+    await runner.dispose();
+  });
+
+  it("refuses to run leaks against a sanitizer artifact", async () => {
+    const host = new FakeProcessHost([successfulCompile]);
+    const runner = createTestRunner({
+      mode: "seatbelt-best-effort",
+      processHost: host,
+      capabilityProbe: availableProbe(),
+    });
+    const compileResult = await runner.compileForVerification(
+      { source: "int main(void){return 0;}", sourceName: "main.c" },
+      "asan-ubsan",
+    );
+    if (!compileResult.ok) throw new Error("sanitizer compile fixture failed");
+
+    await expect(
+      runner.runForVerification({
+        artifactId: compileResult.artifactId,
+        stdin: new Uint8Array(),
+        writableFiles: Object.freeze([]),
+        mode: "leaks",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST" },
+    });
+    expect(host.specifications).toHaveLength(1);
     await runner.dispose();
   });
 });
@@ -645,7 +704,8 @@ function createTestRunner(options: RunnerOptions) {
 }
 
 async function waitForSpawn(host: FakeProcessHost): Promise<FakeChildProcess> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
     const child = host.children[0];
     if (child !== undefined) {
       return child;

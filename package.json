@@ -44,14 +44,19 @@
     "verify:m4": "vitest run tests/core/m4-corpus.test.ts tests/core/regressions.test.ts tests/core/generator-fuzz.test.ts",
     "verify:m5a:cfg": "npm run typecheck && npm run deps:check && vitest run tests/core/parser-inspection.test.ts tests/analysis/cfg-foundation.test.ts tests/analysis/cfg-gold.test.ts",
     "verify:m5a:analysis": "npm run typecheck && npm run deps:check && vitest run tests/core/parser-inspection.test.ts tests/analysis",
+    "verify:m5b": "npm run typecheck && npm run deps:check && vitest run tests/runner tests/ui/run-panel.test.ts tests/ui/block-tree-interaction.test.ts tests/ui/explanation.test.ts tests/ui/explanation-view.test.ts",
     "test:e2e:m3b": "npm run build && playwright test tests/e2e/m3b-editing.spec.ts",
     "test:e2e:m4": "npm run build && playwright test tests/e2e/m4-assembly.spec.ts tests/e2e/m4-robustness.spec.ts",
+    "test:e2e:m5": "npm run build && playwright test tests/e2e/m5-diagnostics.spec.ts",
     "accept:m0": "node scripts/accept-m0.mjs",
     "accept:m1": "node scripts/accept-m1.mjs",
     "accept:m2": "node scripts/accept-m2.mjs",
     "accept:m3a": "node scripts/accept-m3a.mjs",
     "accept:m3": "node scripts/accept-m3.mjs",
-    "accept:m4": "node scripts/accept-m4.mjs"
+    "accept:m4": "node scripts/accept-m4.mjs",
+    "accept:m5a": "node scripts/accept-m5a.mjs",
+    "accept:m5b": "node scripts/accept-m5b.mjs",
+    "accept:m5": "node scripts/accept-m5.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "6.10.4",

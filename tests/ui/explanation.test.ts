@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { analyzeProgramCst } from "../../src/analysis/index.js";
 import { textRange, type Block, type SourceDoc, type SymbolRecord } from "../../src/core/model.js";
 import { explainBlock } from "../../src/ui/explanation.js";
+import { createTestParser } from "../core/parser-fixture.js";
 
 describe("M2 deterministic explanation", () => {
   it("explains a for block and exposes only in-range printf/NULL metadata", () => {
@@ -160,6 +162,124 @@ describe("M2 deterministic explanation", () => {
     expect(explanation.symbols.every(Object.isFrozen)).toBe(true);
     expect(Object.isFrozen(explanation.concerns)).toBe(true);
   });
+
+  it("injects exact-source def-use, memory, and finding facts while preserving v1 fallback", async () => {
+    const parser = await createTestParser();
+    const functionSource =
+      "int f(void) { int x = 0; int y = x; int *q = &x; int *p = malloc(4); (void)q; *p = 1; free(p); return *p + y; }";
+    const source = ["#include <stdlib.h>", functionSource].join("\n");
+
+    try {
+      const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>
+        Object.freeze({
+          document,
+          analysis: analyzeProgramCst({ source, revision: 1, rootNode, document }),
+        }),
+      ).result;
+      const functionBlock = findBlockByText(inspected.document, source, functionSource);
+      const returnBlock = findBlockByText(inspected.document, source, "return *p + y;");
+      const explanation = explainBlock(inspected.document, functionBlock, inspected.analysis);
+
+      expect(
+        explanation.analysis?.dataFlow.map(({ kind, variable }) => `${kind}:${variable}`),
+      ).toEqual(["write:x", "read:x", "write:y", "escape:x", "read:y"]);
+      expect(
+        explanation.analysis?.memory.map(({ kind, variable }) => `${kind}:${variable}`),
+      ).toEqual(["allocation:p", "dereference:p", "free:p", "dereference:p"]);
+      expect(
+        explanation.analysis?.findings.map(({ ruleId, confidence, subject }) => ({
+          ruleId,
+          confidence,
+          subject,
+        })),
+      ).toEqual([
+        { ruleId: "unchecked-allocation", confidence: "hint", subject: "p" },
+        { ruleId: "use-after-free", confidence: "certain", subject: "p" },
+      ]);
+      expect(
+        explanation.analysis?.memory.map(({ range }) => source.slice(range.from, range.to)),
+      ).toEqual(["malloc(4)", "*p", "free(p)", "*p"]);
+      expect(deeplyFrozen(explanation)).toBe(true);
+
+      const returnExplanation = explainBlock(inspected.document, returnBlock, inspected.analysis);
+      expect(
+        returnExplanation.analysis?.dataFlow.map(({ kind, variable }) => `${kind}:${variable}`),
+      ).toEqual(["read:y"]);
+      expect(returnExplanation.analysis?.memory.map(({ kind }) => kind)).toEqual(["dereference"]);
+      expect(returnExplanation.analysis?.findings.map(({ ruleId }) => ruleId)).toEqual([
+        "use-after-free",
+      ]);
+
+      const legacy = explainBlock(inspected.document, returnBlock);
+      const stale = Object.freeze({ ...inspected.analysis, sourceFingerprint: "stale" });
+      expect(Object.hasOwn(legacy, "analysis")).toBe(false);
+      expect(explainBlock(inspected.document, returnBlock, stale)).toEqual(legacy);
+    } finally {
+      parser.dispose();
+    }
+  });
+
+  it("marks facts in nested branch bodies as conditional only from an enclosing selection", async () => {
+    const parser = await createTestParser();
+    const functionSource =
+      "int f(int c) { int x = 0; int y = 0; int *p = malloc(4); if (c) { y = x; free(p); } return y; }";
+    const source = ["#include <stdlib.h>", functionSource].join("\n");
+
+    try {
+      const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>
+        Object.freeze({
+          document,
+          analysis: analyzeProgramCst({ source, revision: 1, rootNode, document }),
+        }),
+      ).result;
+      const functionBlock = findBlockByText(inspected.document, source, functionSource);
+      const assignmentBlock = findBlockByText(inspected.document, source, "y = x;");
+      const freeBlock = findBlockByText(inspected.document, source, "free(p);");
+      const functionExplanation = explainBlock(
+        inspected.document,
+        functionBlock,
+        inspected.analysis,
+      );
+
+      const nestedRead = functionExplanation.analysis?.dataFlow.find(
+        (fact) => fact.kind === "read" && fact.variable === "x",
+      );
+      const nestedWrite = functionExplanation.analysis?.dataFlow.find(
+        (fact) =>
+          fact.kind === "write" &&
+          fact.variable === "y" &&
+          fact.range.from >= assignmentBlock.range.from &&
+          fact.range.to <= assignmentBlock.range.to,
+      );
+      const conditionRead = functionExplanation.analysis?.dataFlow.find(
+        (fact) => fact.kind === "read" && fact.variable === "c",
+      );
+      const nestedFree = functionExplanation.analysis?.memory.find((fact) => fact.kind === "free");
+      const directAllocation = functionExplanation.analysis?.memory.find(
+        (fact) => fact.kind === "allocation",
+      );
+
+      expect(nestedRead?.control).toBe("conditional-path");
+      expect(nestedWrite?.control).toBe("conditional-path");
+      expect(conditionRead?.control).toBe("direct");
+      expect(nestedFree?.control).toBe("conditional-path");
+      expect(directAllocation?.control).toBe("direct");
+      expect(
+        explainBlock(
+          inspected.document,
+          assignmentBlock,
+          inspected.analysis,
+        ).analysis?.dataFlow.map((fact) => fact.control),
+      ).toEqual(["direct", "direct"]);
+      expect(
+        explainBlock(inspected.document, freeBlock, inspected.analysis).analysis?.memory.map(
+          (fact) => fact.control,
+        ),
+      ).toEqual(["direct"]);
+    } finally {
+      parser.dispose();
+    }
+  });
 });
 
 interface SnapshotOverrides {
@@ -230,4 +350,26 @@ function occurrence(
   length = 1,
 ): SourceDoc["symbols"]["occurrences"][number] {
   return Object.freeze({ symbolId, range: textRange(from, from + length), role, resolution });
+}
+
+function findBlockByText(document: SourceDoc, source: string, text: string): Block {
+  const matches: Block[] = [];
+  const visit = (blocks: readonly Block[]): void => {
+    for (const block of blocks) {
+      if (source.slice(block.range.from, block.range.to) === text) matches.push(block);
+      visit(block.children);
+    }
+  };
+  visit(document.blocks);
+  if (matches.length !== 1 || matches[0] === undefined) {
+    throw new Error(`block 数量异常：${JSON.stringify(text)}=${String(matches.length)}`);
+  }
+  return matches[0];
+}
+
+function deeplyFrozen(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value !== "object" || seen.has(value)) return true;
+  if (!Object.isFrozen(value)) return false;
+  seen.add(value);
+  return Object.values(value).every((child) => deeplyFrozen(child, seen));
 }

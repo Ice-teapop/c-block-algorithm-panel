@@ -3,6 +3,8 @@ import type {
   Capabilities,
   CompileRequest,
   CompileResult,
+  DiagnoseRequest,
+  DiagnoseResult,
   PanelApi,
   RunRequest,
   RunResult,
@@ -29,6 +31,7 @@ const IPC_CHANNELS = Object.freeze({
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
+  diagnose: "panel:diagnose",
 });
 
 let workspaceCloseHandler: (() => Promise<void>) | null = null;
@@ -113,6 +116,8 @@ const panelApi: PanelApi = Object.freeze({
     (await ipcRenderer.invoke(IPC_CHANNELS.compile, request)) as CompileResult,
   run: async (request: RunRequest): Promise<RunResult> =>
     (await ipcRenderer.invoke(IPC_CHANNELS.run, request)) as RunResult,
+  diagnose: async (request: DiagnoseRequest): Promise<DiagnoseResult> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.diagnose, request)) as DiagnoseResult,
 });
 
 contextBridge.exposeInMainWorld("panelApi", panelApi);
