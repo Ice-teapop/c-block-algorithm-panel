@@ -13,6 +13,7 @@ import type {
   FunctionMemoryTypestate,
   ReachingDefinitionUse,
 } from "./model.js";
+import { collectArrayBoundFindings } from "./array-bound-findings.js";
 import { collectFunctionMemoryFindings } from "./memory-findings.js";
 
 export interface FunctionFindingsInput {
@@ -38,6 +39,7 @@ export function collectFunctionFindings(input: FunctionFindingsInput): readonly 
     ...collectUnreachableFindings(input.cfg),
     ...collectUninitializedReadFindings(input, nodesById, variablesById, definitionsById),
     ...collectLiteralOutOfBoundsFindings(input, nodesById, variablesById),
+    ...collectArrayBoundFindings(input),
     ...collectFunctionMemoryFindings(input),
   ].sort(compareFindings);
   return Object.freeze(findings);
@@ -53,7 +55,7 @@ function collectLiteralOutOfBoundsFindings(
   );
   const findings: AnalysisFinding[] = [];
   for (const access of input.defUse.arrayAccesses) {
-    if (access.execution !== "always") continue;
+    if (access.execution !== "always" || access.control !== "definite") continue;
     const node = nodesById.get(access.nodeId);
     const shape = shapesByVariableId.get(access.variableId);
     const variable = variablesById.get(access.variableId);

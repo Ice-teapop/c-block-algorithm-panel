@@ -1,0 +1,474 @@
+{
+  "schemaVersion": 1,
+  "caseId": "38-array-bound-rules",
+  "sourceSha256": "bbb3be2b6c86e96f5dff9fe7492864332a0c5187da70518dc73b89cb4e63c5b8",
+  "sourceLengthUtf16": 400,
+  "tags": ["for", "array-bounds"],
+  "functions": [
+    {
+      "key": "fn:off_by_one:0:129",
+      "name": "off_by_one",
+      "range": [0, 129],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 129],
+          "ownerRange": [0, 129],
+          "reachable": true,
+          "text": "int off_by_one(void) {\n  int values[3];\n  int sum = 0;\n  for (int i = 0; i <= 3; i++) {\n    sum += values[i];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 129],
+          "ownerRange": [0, 129],
+          "reachable": true,
+          "text": "int off_by_one(void) {\n  int values[3];\n  int sum = 0;\n  for (int i = 0; i <= 3; i++) {\n    sum += values[i];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "n:control:for_initializer:62:72",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [62, 72],
+          "ownerRange": [57, 113],
+          "reachable": true,
+          "text": "int i = 0;"
+        },
+        {
+          "key": "n:control:for_update:81:84",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [81, 84],
+          "ownerRange": [57, 113],
+          "reachable": true,
+          "text": "i++"
+        },
+        {
+          "key": "n:syntax:declaration:25:39",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [25, 39],
+          "ownerRange": [25, 39],
+          "reachable": true,
+          "text": "int values[3];"
+        },
+        {
+          "key": "n:syntax:declaration:42:54",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [42, 54],
+          "ownerRange": [42, 54],
+          "reachable": true,
+          "text": "int sum = 0;"
+        },
+        {
+          "key": "n:syntax:expression_statement:92:109",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [92, 109],
+          "ownerRange": [92, 109],
+          "reachable": true,
+          "text": "sum += values[i];"
+        },
+        {
+          "key": "n:syntax:for_statement:57:113",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [57, 113],
+          "ownerRange": [57, 113],
+          "reachable": true,
+          "text": "for (int i = 0; i <= 3; i++) {\n    sum += values[i];\n  }"
+        },
+        {
+          "key": "n:syntax:return_statement:116:127",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [116, 127],
+          "ownerRange": [116, 127],
+          "reachable": true,
+          "text": "return sum;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:25:39"
+        },
+        {
+          "from": "n:control:for_initializer:62:72",
+          "kind": "next",
+          "to": "n:syntax:for_statement:57:113"
+        },
+        {
+          "from": "n:control:for_update:81:84",
+          "kind": "next",
+          "to": "n:syntax:for_statement:57:113"
+        },
+        {
+          "from": "n:syntax:declaration:25:39",
+          "kind": "next",
+          "to": "n:syntax:declaration:42:54"
+        },
+        {
+          "from": "n:syntax:declaration:42:54",
+          "kind": "next",
+          "to": "n:control:for_initializer:62:72"
+        },
+        {
+          "from": "n:syntax:expression_statement:92:109",
+          "kind": "next",
+          "to": "n:control:for_update:81:84"
+        },
+        {
+          "from": "n:syntax:for_statement:57:113",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:116:127"
+        },
+        {
+          "from": "n:syntax:for_statement:57:113",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:92:109"
+        },
+        {
+          "from": "n:syntax:return_statement:116:127",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    },
+    {
+      "key": "fn:mismatch:131:265",
+      "name": "mismatch",
+      "range": [131, 265],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [131, 265],
+          "ownerRange": [131, 265],
+          "reachable": true,
+          "text": "int mismatch(int n, int j) {\n  int values[8];\n  int sum = 0;\n  for (int i = 0; i < n; i++) {\n    sum += values[j];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [131, 265],
+          "ownerRange": [131, 265],
+          "reachable": true,
+          "text": "int mismatch(int n, int j) {\n  int values[8];\n  int sum = 0;\n  for (int i = 0; i < n; i++) {\n    sum += values[j];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "n:control:for_initializer:199:209",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [199, 209],
+          "ownerRange": [194, 249],
+          "reachable": true,
+          "text": "int i = 0;"
+        },
+        {
+          "key": "n:control:for_update:217:220",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [217, 220],
+          "ownerRange": [194, 249],
+          "reachable": true,
+          "text": "i++"
+        },
+        {
+          "key": "n:syntax:declaration:162:176",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [162, 176],
+          "ownerRange": [162, 176],
+          "reachable": true,
+          "text": "int values[8];"
+        },
+        {
+          "key": "n:syntax:declaration:179:191",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [179, 191],
+          "ownerRange": [179, 191],
+          "reachable": true,
+          "text": "int sum = 0;"
+        },
+        {
+          "key": "n:syntax:expression_statement:228:245",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [228, 245],
+          "ownerRange": [228, 245],
+          "reachable": true,
+          "text": "sum += values[j];"
+        },
+        {
+          "key": "n:syntax:for_statement:194:249",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [194, 249],
+          "ownerRange": [194, 249],
+          "reachable": true,
+          "text": "for (int i = 0; i < n; i++) {\n    sum += values[j];\n  }"
+        },
+        {
+          "key": "n:syntax:return_statement:252:263",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [252, 263],
+          "ownerRange": [252, 263],
+          "reachable": true,
+          "text": "return sum;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:162:176"
+        },
+        {
+          "from": "n:control:for_initializer:199:209",
+          "kind": "next",
+          "to": "n:syntax:for_statement:194:249"
+        },
+        {
+          "from": "n:control:for_update:217:220",
+          "kind": "next",
+          "to": "n:syntax:for_statement:194:249"
+        },
+        {
+          "from": "n:syntax:declaration:162:176",
+          "kind": "next",
+          "to": "n:syntax:declaration:179:191"
+        },
+        {
+          "from": "n:syntax:declaration:179:191",
+          "kind": "next",
+          "to": "n:control:for_initializer:199:209"
+        },
+        {
+          "from": "n:syntax:expression_statement:228:245",
+          "kind": "next",
+          "to": "n:control:for_update:217:220"
+        },
+        {
+          "from": "n:syntax:for_statement:194:249",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:252:263"
+        },
+        {
+          "from": "n:syntax:for_statement:194:249",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:228:245"
+        },
+        {
+          "from": "n:syntax:return_statement:252:263",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    },
+    {
+      "key": "fn:runtime_bound:267:399",
+      "name": "runtime_bound",
+      "range": [267, 399],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [267, 399],
+          "ownerRange": [267, 399],
+          "reachable": true,
+          "text": "int runtime_bound(int n) {\n  int values[4];\n  int sum = 0;\n  for (int i = 0; i < n; i++) {\n    sum += values[i];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [267, 399],
+          "ownerRange": [267, 399],
+          "reachable": true,
+          "text": "int runtime_bound(int n) {\n  int values[4];\n  int sum = 0;\n  for (int i = 0; i < n; i++) {\n    sum += values[i];\n  }\n  return sum;\n}"
+        },
+        {
+          "key": "n:control:for_initializer:333:343",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [333, 343],
+          "ownerRange": [328, 383],
+          "reachable": true,
+          "text": "int i = 0;"
+        },
+        {
+          "key": "n:control:for_update:351:354",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [351, 354],
+          "ownerRange": [328, 383],
+          "reachable": true,
+          "text": "i++"
+        },
+        {
+          "key": "n:syntax:declaration:296:310",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [296, 310],
+          "ownerRange": [296, 310],
+          "reachable": true,
+          "text": "int values[4];"
+        },
+        {
+          "key": "n:syntax:declaration:313:325",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [313, 325],
+          "ownerRange": [313, 325],
+          "reachable": true,
+          "text": "int sum = 0;"
+        },
+        {
+          "key": "n:syntax:expression_statement:362:379",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [362, 379],
+          "ownerRange": [362, 379],
+          "reachable": true,
+          "text": "sum += values[i];"
+        },
+        {
+          "key": "n:syntax:for_statement:328:383",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [328, 383],
+          "ownerRange": [328, 383],
+          "reachable": true,
+          "text": "for (int i = 0; i < n; i++) {\n    sum += values[i];\n  }"
+        },
+        {
+          "key": "n:syntax:return_statement:386:397",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [386, 397],
+          "ownerRange": [386, 397],
+          "reachable": true,
+          "text": "return sum;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:296:310"
+        },
+        {
+          "from": "n:control:for_initializer:333:343",
+          "kind": "next",
+          "to": "n:syntax:for_statement:328:383"
+        },
+        {
+          "from": "n:control:for_update:351:354",
+          "kind": "next",
+          "to": "n:syntax:for_statement:328:383"
+        },
+        {
+          "from": "n:syntax:declaration:296:310",
+          "kind": "next",
+          "to": "n:syntax:declaration:313:325"
+        },
+        {
+          "from": "n:syntax:declaration:313:325",
+          "kind": "next",
+          "to": "n:control:for_initializer:333:343"
+        },
+        {
+          "from": "n:syntax:expression_statement:362:379",
+          "kind": "next",
+          "to": "n:control:for_update:351:354"
+        },
+        {
+          "from": "n:syntax:for_statement:328:383",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:386:397"
+        },
+        {
+          "from": "n:syntax:for_statement:328:383",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:362:379"
+        },
+        {
+          "from": "n:syntax:return_statement:386:397",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

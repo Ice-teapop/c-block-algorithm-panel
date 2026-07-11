@@ -3,6 +3,7 @@ import { textRange, type SourceDoc, type TextRange } from "../core/model.js";
 import { buildFunctionVariableBindings } from "./function-bindings.js";
 import type {
   ArrayAccessFact,
+  ArrayAccessControl,
   ArrayAccessIndexFact,
   ArrayDimensionFact,
   ArrayShapeFact,
@@ -107,12 +108,9 @@ function collectAccess(
   shapesByVariableId: ReadonlyMap<string, ArrayShapeFact>,
   sourceLength: number,
 ): ArrayAccessFact | null {
-  if (
-    hasUnevaluatedAncestor(node) ||
-    hasUnsupportedOrDeadControlAncestor(node, variableByOccurrenceRange, sourceLength)
-  ) {
-    return null;
-  }
+  if (hasUnevaluatedAncestor(node)) return null;
+  const control = accessControl(node, variableByOccurrenceRange, sourceLength);
+  if (control === null) return null;
   const argument = node.childForFieldName("argument");
   const index = node.childForFieldName("index");
   if (argument === null || index === null) return null;
@@ -127,6 +125,7 @@ function collectAccess(
     dimension: 0,
     indexRange: checkedNodeRange(index, sourceLength),
     literalIndex: parseSignedDecimalLiteral(index),
+    directVariableId: directScalarVariableId(index, variableByOccurrenceRange, sourceLength),
   });
   return Object.freeze({
     id: `array-access:${String(expressionRange.from)}:${String(expressionRange.to)}:${variable.id}`,
@@ -135,6 +134,7 @@ function collectAccess(
     expressionRange: Object.freeze({ ...expressionRange }),
     mode: explicitAddressMode(node) ? "address" : "value",
     execution: isConditionallyEvaluated(node) ? "conditional" : "always",
+    control,
     indices: Object.freeze([indexFact]),
   });
 }
@@ -282,15 +282,16 @@ function hasUnevaluatedAncestor(node: Node): boolean {
   return false;
 }
 
-function hasUnsupportedOrDeadControlAncestor(
+function accessControl(
   node: Node,
   variableByOccurrenceRange: ReadonlyMap<string, DefUseVariable>,
   sourceLength: number,
-): boolean {
+): ArrayAccessControl | null {
+  let control: ArrayAccessControl = "definite";
   let current = node;
   while (current.parent !== null && current.parent.type !== "function_definition") {
     const parent = current.parent;
-    if (parent.type === "switch_statement") return true;
+    if (parent.type === "switch_statement") return null;
     if (parent.type === "if_statement") {
       const condition = parent.childForFieldName("condition");
       const consequence = parent.childForFieldName("consequence");
@@ -301,13 +302,10 @@ function hasUnsupportedOrDeadControlAncestor(
           : controlTruthiness(condition, variableByOccurrenceRange, sourceLength);
       const inConsequence = consequence !== null && containsNode(consequence, current);
       const inAlternative = alternative !== null && containsNode(alternative, current);
-      if (
-        (truth === "unsupported" && (inConsequence || inAlternative)) ||
-        (truth === false && inConsequence) ||
-        (truth === true && inAlternative)
-      ) {
-        return true;
+      if ((truth === false && inConsequence) || (truth === true && inAlternative)) {
+        return null;
       }
+      if (truth === "unsupported" && (inConsequence || inAlternative)) control = "conditional";
     }
     if (parent.type === "while_statement" || parent.type === "for_statement") {
       const condition = parent.childForFieldName("condition");
@@ -319,13 +317,36 @@ function hasUnsupportedOrDeadControlAncestor(
           : controlTruthiness(condition, variableByOccurrenceRange, sourceLength);
       const inBody = body !== null && containsNode(body, current);
       const inUpdate = update !== null && containsNode(update, current);
-      if ((truth === "unsupported" || truth === false) && (inBody || inUpdate)) {
-        return true;
+      if (truth === false && (inBody || inUpdate)) return null;
+      if ((inBody || inUpdate) && control !== "conditional") control = "loop-dependent";
+    }
+    if (parent.type === "do_statement") {
+      const body = parent.childForFieldName("body");
+      const condition = parent.childForFieldName("condition");
+      if (
+        ((body !== null && containsNode(body, current)) ||
+          (condition !== null && containsNode(condition, current))) &&
+        control !== "conditional"
+      ) {
+        control = "loop-dependent";
       }
     }
     current = parent;
   }
-  return false;
+  return control;
+}
+
+function directScalarVariableId(
+  node: Node,
+  variableByOccurrenceRange: ReadonlyMap<string, DefUseVariable>,
+  sourceLength: number,
+): string | null {
+  const candidate = unwrapParentheses(node);
+  if (candidate.type !== "identifier") return null;
+  const variable = variableByOccurrenceRange.get(
+    rangeKey(checkedNodeRange(candidate, sourceLength)),
+  );
+  return variable?.storage === "scalar" && variable.tracking === "precise" ? variable.id : null;
 }
 
 type ControlTruth = boolean | "unsupported";

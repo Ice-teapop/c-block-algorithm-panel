@@ -8,6 +8,7 @@ import {
 } from "../core/model.js";
 import { collectFunctionArrayFacts } from "./array-facts.js";
 import { collectFunctionEffects } from "./def-use-effects.js";
+import { collectLoopConditionFacts } from "./loop-condition-facts.js";
 import { collectLoopPredicates } from "./loop-predicates.js";
 import { collectLoopRegions } from "./loop-regions.js";
 import { collectReachingDefinitions } from "./reaching-definitions.js";
@@ -161,6 +162,18 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
       status === "complete"
         ? collectLoopPredicates({
             cfg: input.cfg,
+            variables: outputVariables,
+            facts,
+            reachingDefinitions,
+            loopRegions,
+          })
+        : Object.freeze([]),
+    loopConditions:
+      status === "complete"
+        ? collectLoopConditionFacts({
+            functionNode: input.functionNode,
+            cfg: input.cfg,
+            document: input.document,
             variables: outputVariables,
             facts,
             reachingDefinitions,

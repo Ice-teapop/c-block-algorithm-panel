@@ -62,6 +62,11 @@ const REQUIRED_MEMORY_FINDING_RULES = [
 const REQUIRED_MEMORY_FINDING_RULE_SET = new Set<AnalysisFindingRuleId>(
   REQUIRED_MEMORY_FINDING_RULES,
 );
+const REQUIRED_ARRAY_BOUND_FINDING_RULES = [
+  "loop-off-by-one",
+  "loop-index-mismatch",
+  "runtime-bound-check",
+] as const satisfies readonly AnalysisFindingRuleId[];
 const REQUIRED_MEMORY_CONFIDENCE = [
   "certain",
   "likely",
@@ -125,6 +130,15 @@ describe("M5a CFG gold corpus contract", () => {
     expect(findings.some((finding) => finding.ruleId === "unreachable-code")).toBe(true);
     expect(findings.some((finding) => finding.ruleId === "uninitialized-read")).toBe(true);
     expect(findings.some((finding) => finding.ruleId === "literal-out-of-bounds")).toBe(true);
+    expect(
+      [...new Set(findings.map((finding) => finding.ruleId))]
+        .filter((ruleId) =>
+          REQUIRED_ARRAY_BOUND_FINDING_RULES.includes(
+            ruleId as (typeof REQUIRED_ARRAY_BOUND_FINDING_RULES)[number],
+          ),
+        )
+        .sort(),
+    ).toEqual([...REQUIRED_ARRAY_BOUND_FINDING_RULES].sort());
     const memoryFindings = findings.filter((finding) =>
       REQUIRED_MEMORY_FINDING_RULE_SET.has(finding.ruleId),
     );

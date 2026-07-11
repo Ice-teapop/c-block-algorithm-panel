@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 2,
+  "sourceSha256": "bbb3be2b6c86e96f5dff9fe7492864332a0c5187da70518dc73b89cb4e63c5b8",
+  "findings": [
+    {
+      "function": "fn:mismatch:131:265",
+      "ruleId": "loop-index-mismatch",
+      "reason": "loop-condition-does-not-constrain-index",
+      "confidence": "hint",
+      "primaryRange": [242, 243],
+      "ownerNode": "n:syntax:expression_statement:228:245",
+      "subject": "values",
+      "evidence": [
+        {
+          "role": "condition",
+          "range": [210, 215]
+        },
+        {
+          "role": "index",
+          "range": [242, 243]
+        }
+      ]
+    },
+    {
+      "function": "fn:off_by_one:0:129",
+      "ruleId": "loop-off-by-one",
+      "reason": "inclusive-bound-reaches-fixed-extent",
+      "confidence": "certain",
+      "primaryRange": [75, 77],
+      "ownerNode": "n:syntax:for_statement:57:113",
+      "subject": "values",
+      "evidence": [
+        {
+          "role": "bound",
+          "range": [36, 37]
+        },
+        {
+          "role": "definition",
+          "range": [70, 71]
+        },
+        {
+          "role": "condition",
+          "range": [73, 79]
+        },
+        {
+          "role": "index",
+          "range": [106, 107]
+        },
+        {
+          "role": "use",
+          "range": [99, 108]
+        },
+        {
+          "role": "definition",
+          "range": [81, 84]
+        }
+      ]
+    },
+    {
+      "function": "fn:runtime_bound:267:399",
+      "ruleId": "runtime-bound-check",
+      "reason": "runtime-index-without-proven-bound",
+      "confidence": "hint",
+      "primaryRange": [376, 377],
+      "ownerNode": "n:syntax:expression_statement:362:379",
+      "subject": "values",
+      "evidence": [
+        {
+          "role": "bound",
+          "range": [307, 308]
+        },
+        {
+          "role": "definition",
+          "range": [289, 290]
+        },
+        {
+          "role": "condition",
+          "range": [344, 349]
+        },
+        {
+          "role": "index",
+          "range": [376, 377]
+        }
+      ]
+    }
+  ]
+}

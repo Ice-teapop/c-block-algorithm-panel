@@ -176,7 +176,11 @@ export interface ArrayAccessIndexFact {
   readonly indexRange: TextRange;
   /** Exact safe integer for a single literal with optional unary sign; otherwise null. */
   readonly literalIndex: number | null;
+  /** Binding identity for a parenthesized direct precise scalar identifier; otherwise null. */
+  readonly directVariableId: string | null;
 }
+
+export type ArrayAccessControl = "definite" | "loop-dependent" | "conditional";
 
 export interface ArrayAccessFact {
   readonly id: string;
@@ -184,7 +188,10 @@ export interface ArrayAccessFact {
   readonly nodeId: string;
   readonly expressionRange: TextRange;
   readonly mode: "value" | "address";
+  /** Expression-level conditional evaluation, excluding enclosing statement control flow. */
   readonly execution: "always" | "conditional";
+  /** Enclosing statement control after definitely-dead and unsupported switch paths are omitted. */
+  readonly control: ArrayAccessControl;
   readonly indices: readonly ArrayAccessIndexFact[];
 }
 
@@ -395,6 +402,45 @@ export interface LoopPredicateFact {
   readonly variables: readonly LoopVariablePredicateFact[];
 }
 
+export type LoopConditionOperator = "<" | "<=" | ">" | ">=";
+
+export type LoopConditionOperand =
+  | {
+      readonly kind: "variable";
+      readonly variableId: string;
+      readonly range: TextRange;
+    }
+  | {
+      readonly kind: "literal";
+      readonly value: number;
+      readonly range: TextRange;
+    };
+
+export interface LoopConditionComparisonFact {
+  readonly range: TextRange;
+  readonly operator: LoopConditionOperator;
+  readonly operatorRange: TextRange;
+  readonly left: LoopConditionOperand;
+  readonly right: LoopConditionOperand;
+}
+
+export interface LoopZeroInitializerFact {
+  readonly variableId: string;
+  readonly definitionEffectId: string;
+  readonly valueRange: TextRange;
+}
+
+export interface LoopConditionFact {
+  readonly loopId: string;
+  readonly conditionRange: TextRange | null;
+  /** Direct comparisons from a bare comparison or top-level && conjuncts, in source order. */
+  readonly comparisons: readonly LoopConditionComparisonFact[];
+  /** Unique external reaching plain-int definitions whose exact RHS is decimal zero. */
+  readonly zeroInitializers: readonly LoopZeroInitializerFact[];
+  /** Straight-line excludes nested control statements, transfers, and calls in the loop body. */
+  readonly bodyControl: "straight-line" | "complex";
+}
+
 export type AnalysisFindingConfidence = "certain" | "likely" | "hint";
 export type AnalysisFindingReason =
   | "no-entry-path"
@@ -475,6 +521,8 @@ export interface FunctionDefUse {
   readonly loopRegions: readonly LoopRegion[];
   /** One predicate fact per loop region in the same order. */
   readonly loopPredicates: readonly LoopPredicateFact[];
+  /** One syntax-level condition fact per loop region in the same order. */
+  readonly loopConditions: readonly LoopConditionFact[];
   /** Exact literal extents for direct rank-one automatic local arrays only. */
   readonly arrayShapes: readonly ArrayShapeFact[];
   /** Evaluated direct accesses to published array shapes, in source order. */

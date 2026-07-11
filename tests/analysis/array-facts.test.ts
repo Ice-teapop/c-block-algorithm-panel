@@ -41,6 +41,64 @@ describe("M5a fixed-array facts and literal bounds", () => {
     ]);
   });
 
+  it("publishes binding identity only for a parenthesized direct precise scalar index", () => {
+    const analysis = inspect(
+      parser,
+      "int f(int i) { int a[4]; return a[i] + a[(i)] + a[i + 1] + a[1]; }",
+    );
+    const defUse = onlyDefUse(analysis.snapshot);
+    const indexVariable = defUse.variables.find((variable) => variable.name === "i");
+    if (indexVariable === undefined) throw new Error("fixture 缺少下标变量");
+
+    expect(
+      defUse.arrayAccesses.map((access) => access.indices[0]?.directVariableId ?? null),
+    ).toEqual([indexVariable.id, indexVariable.id, null, null]);
+    expect(
+      defUse.arrayAccesses.map((access) => {
+        const index = access.indices[0];
+        if (index === undefined) throw new Error("fixture 缺少数组下标");
+        return analysis.source.slice(index.indexRange.from, index.indexRange.to);
+      }),
+    ).toEqual(["i", "(i)", "i + 1", "1"]);
+  });
+
+  it("retains canonical loop bodies and separates statement control from expression execution", () => {
+    const analysis = inspect(
+      parser,
+      [
+        "int f(int c, int n, int i) {",
+        "  int a[4];",
+        "  int x = a[i];",
+        "  for (int j = 0; j < n; j++) x += a[j];",
+        "  int k = 0;",
+        "  while (k < n) { x += a[k]; k++; }",
+        "  if (c) x += a[i];",
+        "  return x + (c && a[i]);",
+        "}",
+      ].join("\n"),
+    );
+    const defUse = onlyDefUse(analysis.snapshot);
+    const variableNameById = new Map(
+      defUse.variables.map((variable) => [variable.id, variable.name]),
+    );
+
+    expect(
+      defUse.arrayAccesses.map((access) => ({
+        index:
+          variableNameById.get(access.indices[0]?.directVariableId ?? "") ??
+          access.indices[0]?.directVariableId,
+        control: access.control,
+        execution: access.execution,
+      })),
+    ).toEqual([
+      { index: "i", control: "definite", execution: "always" },
+      { index: "j", control: "loop-dependent", execution: "always" },
+      { index: "k", control: "loop-dependent", execution: "always" },
+      { index: "i", control: "conditional", execution: "always" },
+      { index: "i", control: "definite", execution: "conditional" },
+    ]);
+  });
+
   it("allows an exact one-past address but rejects addresses beyond either end", () => {
     const analysis = inspect(
       parser,
@@ -115,7 +173,7 @@ describe("M5a fixed-array facts and literal bounds", () => {
     expect(literalFindings(analysis.snapshot)).toEqual([]);
   });
 
-  it("omits unevaluated, expression-conditional and definitely dead accesses", () => {
+  it("omits unevaluated and definitely dead accesses while retaining conservative candidates", () => {
     const analysis = inspect(
       parser,
       [
@@ -147,15 +205,23 @@ describe("M5a fixed-array facts and literal bounds", () => {
     );
 
     expect(literalFindings(analysis.snapshot)).toEqual([]);
-    expect(analysis.snapshot.defUse.flatMap((defUse) => defUse.arrayAccesses)).toHaveLength(2);
-    expect(
-      analysis.snapshot.defUse
-        .flatMap((defUse) => defUse.arrayAccesses)
-        .every((access) => access.execution === "conditional"),
-    ).toBe(true);
+    const accesses = analysis.snapshot.defUse.flatMap((defUse) => defUse.arrayAccesses);
+    expect(accesses).toHaveLength(10);
+    expect(accesses.map(({ control, execution }) => ({ control, execution }))).toEqual([
+      { control: "definite", execution: "conditional" },
+      { control: "definite", execution: "conditional" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "conditional", execution: "always" },
+    ]);
   });
 
-  it("fails closed for parameter-controlled branches with or without later definitions", () => {
+  it("retains parameter-controlled branches as conditional without publishing certain findings", () => {
     const analyses = [
       "int f(int c) { int a[3]; if (c) return a[3]; return 0; }",
       "int f(int c) { int a[3]; c = 0; if (c) return a[3]; return 0; }",
@@ -173,13 +239,42 @@ describe("M5a fixed-array facts and literal bounds", () => {
       analyses.map((analysis) => ({
         status: onlyDefUse(analysis.snapshot).status,
         shapes: onlyDefUse(analysis.snapshot).arrayShapes.length,
+        accesses: onlyDefUse(analysis.snapshot).arrayAccesses.map((access) => access.control),
       })),
     ).toEqual([
-      { status: "complete", shapes: 1 },
-      { status: "complete", shapes: 1 },
-      { status: "complete", shapes: 1 },
-      { status: "complete", shapes: 1 },
+      { status: "complete", shapes: 1, accesses: ["conditional"] },
+      { status: "complete", shapes: 1, accesses: ["conditional"] },
+      { status: "complete", shapes: 1, accesses: ["conditional"] },
+      { status: "complete", shapes: 1, accesses: ["conditional"] },
     ]);
+  });
+
+  it("omits definitely dead while bodies and switch-controlled accesses", () => {
+    const analysis = inspect(
+      parser,
+      "int f(int i) { int a[3]; while (0) a[i] = 1; switch (i) { case 0: return a[i]; default: return 0; } }",
+    );
+
+    expect(onlyDefUse(analysis.snapshot).arrayAccesses).toEqual([]);
+    expect(literalFindings(analysis.snapshot)).toEqual([]);
+  });
+
+  it("keeps literal OOB certain only for definite and unconditionally evaluated accesses", () => {
+    const analysis = inspect(
+      parser,
+      "int f(int c, int n) { int a[3]; int x = a[3]; if (c) x += a[3]; for (int i = 0; i < n; i++) x += a[3]; return x + (c && a[3]); }",
+    );
+    const accesses = onlyDefUse(analysis.snapshot).arrayAccesses;
+    const findings = literalFindings(analysis.snapshot);
+
+    expect(accesses.map(({ control, execution }) => ({ control, execution }))).toEqual([
+      { control: "definite", execution: "always" },
+      { control: "conditional", execution: "always" },
+      { control: "loop-dependent", execution: "always" },
+      { control: "definite", execution: "conditional" },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.primaryRange).toEqual(accesses[0]?.indices[0]?.indexRange);
   });
 
   it("uses binding identity for shadowed arrays and points to the matching bound", () => {
