@@ -95,6 +95,14 @@ export type DefUseEffectOrigin =
   | "array-element"
   | "call-argument";
 
+export interface DefUseStepEvidence {
+  readonly operator: "add" | "subtract";
+  /** Positive safe-integer magnitude. */
+  readonly delta: number;
+  readonly form: "prefix" | "postfix" | "compound" | "self-assignment";
+  readonly expressionRange: TextRange;
+}
+
 interface DefUseEffectBase {
   readonly id: string;
   readonly variableId: string;
@@ -112,6 +120,7 @@ export interface DefUseDefinitionEffect extends DefUseEffectBase {
   readonly strength: "strong" | "weak";
   readonly valueState: "written" | "uninitialized" | "maybe-written";
   readonly origin: DefUseEffectOrigin;
+  readonly step?: DefUseStepEvidence;
 }
 
 export interface DefUseEscapeEffect extends DefUseEffectBase {

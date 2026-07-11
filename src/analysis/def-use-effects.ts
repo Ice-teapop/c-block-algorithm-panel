@@ -7,6 +7,7 @@ import type {
   DefUseEffect,
   DefUseEscapeEffect,
   DefUseFact,
+  DefUseStepEvidence,
   DefUseUseEffect,
   DefUseVariable,
   FunctionCfg,
@@ -593,7 +594,13 @@ function collectAssignment(
       : operator === "="
         ? "assignment"
         : "compound-assignment";
-  return appendLValueWrite(operands, lvalue, context, origin);
+  return appendLValueWrite(
+    operands,
+    lvalue,
+    context,
+    origin,
+    stepEvidenceForAssignment(node, left, right, operator, lvalue, context),
+  );
 }
 
 function collectUpdate(node: Node, context: ExtractionContext, options: ValueOptions): EffectPlan {
@@ -606,7 +613,173 @@ function collectUpdate(node: Node, context: ExtractionContext, options: ValueOpt
     lvalue,
     context,
     lvalue.target.storage === "array" ? "array-element" : "update",
+    stepEvidenceForUpdate(node, argument, lvalue, context),
   );
+}
+
+function stepEvidenceForUpdate(
+  node: Node,
+  argument: Node,
+  lvalue: LValuePlan,
+  context: ExtractionContext,
+): DefUseStepEvidence | undefined {
+  if (!isCleanIntegerStepTarget(argument, lvalue, context)) return undefined;
+  const operator = node.childForFieldName("operator")?.text;
+  if (operator !== "++" && operator !== "--") return undefined;
+  return freezeStepEvidence(
+    operator === "++" ? "add" : "subtract",
+    1,
+    node.startIndex < argument.startIndex ? "prefix" : "postfix",
+    node,
+    context,
+  );
+}
+
+function stepEvidenceForAssignment(
+  node: Node,
+  left: Node,
+  right: Node,
+  operator: string,
+  lvalue: LValuePlan,
+  context: ExtractionContext,
+): DefUseStepEvidence | undefined {
+  if (!isCleanIntegerStepTarget(left, lvalue, context)) return undefined;
+  if (operator === "+=" || operator === "-=") {
+    const delta = positiveIntegerLiteral(right);
+    return delta === null
+      ? undefined
+      : freezeStepEvidence(
+          operator === "+=" ? "add" : "subtract",
+          delta,
+          "compound",
+          node,
+          context,
+        );
+  }
+  if (operator !== "=" || lvalue.target === null) return undefined;
+  const value = unwrapParentheses(right);
+  if (value.type !== "binary_expression") return undefined;
+  const binaryOperator = value.childForFieldName("operator")?.text;
+  const binaryLeft = value.childForFieldName("left");
+  const binaryRight = value.childForFieldName("right");
+  if (binaryLeft === null || binaryRight === null) return undefined;
+  if (binaryOperator === "+") {
+    const rightDelta = positiveIntegerLiteral(binaryRight);
+    if (sameTargetIdentifier(binaryLeft, lvalue.target, context) && rightDelta !== null) {
+      return freezeStepEvidence("add", rightDelta, "self-assignment", node, context);
+    }
+    const leftDelta = positiveIntegerLiteral(binaryLeft);
+    if (leftDelta !== null && sameTargetIdentifier(binaryRight, lvalue.target, context)) {
+      return freezeStepEvidence("add", leftDelta, "self-assignment", node, context);
+    }
+  }
+  if (binaryOperator === "-") {
+    const delta = positiveIntegerLiteral(binaryRight);
+    if (sameTargetIdentifier(binaryLeft, lvalue.target, context) && delta !== null) {
+      return freezeStepEvidence("subtract", delta, "self-assignment", node, context);
+    }
+  }
+  return undefined;
+}
+
+function isCleanIntegerStepTarget(
+  node: Node,
+  lvalue: LValuePlan,
+  context: ExtractionContext,
+): boolean {
+  if (
+    lvalue.target === null ||
+    lvalue.target.storage !== "scalar" ||
+    lvalue.target.tracking !== "precise" ||
+    lvalue.hazardTargetId !== undefined ||
+    (lvalue.additionalHazardTargetIds?.length ?? 0) > 0
+  ) {
+    return false;
+  }
+  const targetNode = unwrapParentheses(node);
+  return (
+    targetNode.type === "identifier" &&
+    variableForNode(targetNode, context)?.id === lvalue.target.id &&
+    isKnownIntegerVariable(lvalue.target, context)
+  );
+}
+
+function isKnownIntegerVariable(variable: DefUseVariable, context: ExtractionContext): boolean {
+  const declaration = variable.declarationRanges[0];
+  const nameNode =
+    declaration === undefined
+      ? undefined
+      : context.bindings.declarationNodeByRange.get(rangeKey(declaration));
+  if (nameNode === undefined) return false;
+  let owner = nameNode.parent;
+  while (owner !== null && owner.type !== "declaration" && owner.type !== "parameter_declaration") {
+    if (owner.type === "function_definition") return false;
+    owner = owner.parent;
+  }
+  if (owner === null) return false;
+  if (
+    owner
+      .descendantsOfType("type_qualifier")
+      .some(
+        (qualifier) =>
+          qualifier.text === "const" ||
+          qualifier.text === "volatile" ||
+          qualifier.text === "_Atomic",
+      )
+  ) {
+    return false;
+  }
+  const type = owner.childForFieldName("type");
+  if (type === null || type.type === "atomic_type_specifier") return false;
+  if (type.type === "enum_specifier") return true;
+  const integerWords = new Set(["_Bool", "char", "short", "int", "long", "signed", "unsigned"]);
+  const words = type.text.match(/[A-Za-z_]\w*/g) ?? [];
+  return words.length > 0 && words.every((word) => integerWords.has(word));
+}
+
+function sameTargetIdentifier(
+  node: Node,
+  variable: DefUseVariable,
+  context: ExtractionContext,
+): boolean {
+  const candidate = unwrapParentheses(node);
+  return candidate.type === "identifier" && variableForNode(candidate, context)?.id === variable.id;
+}
+
+function positiveIntegerLiteral(node: Node): number | null {
+  const candidate = unwrapParentheses(node);
+  if (candidate.type !== "number_literal") return null;
+  const literal = candidate.text.replace(/[uUlL]+$/u, "");
+  let value: bigint;
+  try {
+    if (/^0[xX][0-9a-fA-F]+$/u.test(literal) || /^0[bB][01]+$/u.test(literal)) {
+      value = BigInt(literal);
+    } else if (/^0[0-7]*$/u.test(literal)) {
+      value = literal === "0" ? 0n : BigInt(`0o${literal.slice(1)}`);
+    } else if (/^[1-9][0-9]*$/u.test(literal)) {
+      value = BigInt(literal);
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return value > 0n && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
+}
+
+function freezeStepEvidence(
+  operator: DefUseStepEvidence["operator"],
+  delta: number,
+  form: DefUseStepEvidence["form"],
+  node: Node,
+  context: ExtractionContext,
+): DefUseStepEvidence {
+  return Object.freeze({
+    operator,
+    delta,
+    form,
+    expressionRange: checkedNodeRange(node, context.sourceLength),
+  });
 }
 
 function collectFieldRead(
@@ -1420,6 +1593,7 @@ function definitionEffect(
   node: Node,
   context: ExtractionContext,
   origin: DefUseDefinitionEffect["origin"],
+  step?: DefUseStepEvidence,
 ): DraftDefinitionEffect {
   return {
     kind: "def",
@@ -1428,6 +1602,7 @@ function definitionEffect(
     strength: variable.storage === "array" ? "weak" : "strong",
     valueState: "written",
     origin,
+    ...(step === undefined ? {} : { step }),
   };
 }
 
@@ -1561,9 +1736,10 @@ function appendVariableWrite(
   context: ExtractionContext,
   origin: DefUseDefinitionEffect["origin"],
   hazardTargetId?: string,
+  step?: DefUseStepEvidence,
 ): EffectPlan {
   if (variable.tracking !== "untracked") {
-    return appendEffect(candidate, definitionEffect(variable, node, context, origin));
+    return appendEffect(candidate, definitionEffect(variable, node, context, origin, step));
   }
   return appendVariableHazardWrite(candidate, hazardTargetId ?? variable.id);
 }
@@ -1573,6 +1749,7 @@ function appendLValueWrite(
   lvalue: LValuePlan,
   context: ExtractionContext,
   origin: DefUseDefinitionEffect["origin"],
+  step?: DefUseStepEvidence,
 ): EffectPlan {
   if (lvalue.target === null || lvalue.targetNode === null) return candidate;
   let output = appendVariableWrite(
@@ -1582,6 +1759,7 @@ function appendLValueWrite(
     context,
     origin,
     lvalue.hazardTargetId,
+    step,
   );
   for (const hazardId of lvalue.additionalHazardTargetIds ?? []) {
     if (hazardId !== lvalue.hazardTargetId) {

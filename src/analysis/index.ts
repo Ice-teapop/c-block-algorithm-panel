@@ -14,6 +14,7 @@ export type {
   DefUseEffectOrigin,
   DefUseEscapeEffect,
   DefUseFact,
+  DefUseStepEvidence,
   DefUseTrackingMode,
   DefUseUseEffect,
   DefUseVariable,
