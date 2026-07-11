@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "caseId": "03-for-continue",
+  "sourceSha256": "e0bd2b1175bf5d1a85b5a243bc0a6e4eb2c98beb9ed8395e2554d84dd76ae626",
+  "sourceLengthUtf16": 86,
+  "tags": ["for", "continue", "nested-if"],
+  "functions": [
+    {
+      "key": "fn:f:0:85",
+      "name": "f",
+      "range": [0, 85],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 85],
+          "ownerRange": [0, 85],
+          "reachable": true,
+          "text": "int f(int n) { for (int i = 0; i < n; i++) { if (i == 2) continue; n--; } return n; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 85],
+          "ownerRange": [0, 85],
+          "reachable": true,
+          "text": "int f(int n) { for (int i = 0; i < n; i++) { if (i == 2) continue; n--; } return n; }"
+        },
+        {
+          "key": "n:control:for_initializer:20:30",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [20, 30],
+          "ownerRange": [15, 73],
+          "reachable": true,
+          "text": "int i = 0;"
+        },
+        {
+          "key": "n:control:for_update:38:41",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [38, 41],
+          "ownerRange": [15, 73],
+          "reachable": true,
+          "text": "i++"
+        },
+        {
+          "key": "n:syntax:continue_statement:57:66",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "continue_statement",
+          "range": [57, 66],
+          "ownerRange": [57, 66],
+          "reachable": true,
+          "text": "continue;"
+        },
+        {
+          "key": "n:syntax:expression_statement:67:71",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [67, 71],
+          "ownerRange": [67, 71],
+          "reachable": true,
+          "text": "n--;"
+        },
+        {
+          "key": "n:syntax:for_statement:15:73",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [15, 73],
+          "ownerRange": [15, 73],
+          "reachable": true,
+          "text": "for (int i = 0; i < n; i++) { if (i == 2) continue; n--; }"
+        },
+        {
+          "key": "n:syntax:if_statement:45:66",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [45, 66],
+          "ownerRange": [45, 66],
+          "reachable": true,
+          "text": "if (i == 2) continue;"
+        },
+        {
+          "key": "n:syntax:return_statement:74:83",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [74, 83],
+          "ownerRange": [74, 83],
+          "reachable": true,
+          "text": "return n;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:control:for_initializer:20:30"
+        },
+        {
+          "from": "n:control:for_initializer:20:30",
+          "kind": "next",
+          "to": "n:syntax:for_statement:15:73"
+        },
+        {
+          "from": "n:control:for_update:38:41",
+          "kind": "next",
+          "to": "n:syntax:for_statement:15:73"
+        },
+        {
+          "from": "n:syntax:continue_statement:57:66",
+          "kind": "continue",
+          "to": "n:control:for_update:38:41"
+        },
+        {
+          "from": "n:syntax:expression_statement:67:71",
+          "kind": "next",
+          "to": "n:control:for_update:38:41"
+        },
+        {
+          "from": "n:syntax:for_statement:15:73",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:74:83"
+        },
+        {
+          "from": "n:syntax:for_statement:15:73",
+          "kind": "branch-true",
+          "to": "n:syntax:if_statement:45:66"
+        },
+        {
+          "from": "n:syntax:if_statement:45:66",
+          "kind": "branch-false",
+          "to": "n:syntax:expression_statement:67:71"
+        },
+        {
+          "from": "n:syntax:if_statement:45:66",
+          "kind": "branch-true",
+          "to": "n:syntax:continue_statement:57:66"
+        },
+        {
+          "from": "n:syntax:return_statement:74:83",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

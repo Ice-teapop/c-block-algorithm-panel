@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "caseId": "01-sequence-return",
+  "sourceSha256": "abe87369307d7f1b26d03f4fdcfb79a7c6d786ea6e5e799ad52b29e6edfa5a45",
+  "sourceLengthUtf16": 42,
+  "tags": ["sequence", "declaration", "return"],
+  "functions": [
+    {
+      "key": "fn:f:0:41",
+      "name": "f",
+      "range": [0, 41],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 41],
+          "ownerRange": [0, 41],
+          "reachable": true,
+          "text": "int f(void) { int x = 0; x++; return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 41],
+          "ownerRange": [0, 41],
+          "reachable": true,
+          "text": "int f(void) { int x = 0; x++; return x; }"
+        },
+        {
+          "key": "n:syntax:declaration:14:24",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [14, 24],
+          "ownerRange": [14, 24],
+          "reachable": true,
+          "text": "int x = 0;"
+        },
+        {
+          "key": "n:syntax:expression_statement:25:29",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [25, 29],
+          "ownerRange": [25, 29],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:return_statement:30:39",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [30, 39],
+          "ownerRange": [30, 39],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:14:24"
+        },
+        {
+          "from": "n:syntax:declaration:14:24",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:25:29"
+        },
+        {
+          "from": "n:syntax:expression_statement:25:29",
+          "kind": "next",
+          "to": "n:syntax:return_statement:30:39"
+        },
+        {
+          "from": "n:syntax:return_statement:30:39",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

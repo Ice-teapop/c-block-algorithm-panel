@@ -2,6 +2,7 @@ import type { SourceDoc, TextRange } from "../core/model.js";
 
 export type CfgNodeKind = "entry" | "exit" | "syntax" | "control";
 export type CfgNodeRole = "boundary" | "statement" | "declaration" | "control";
+export type CfgNodeOwnership = "boundary" | "primary" | "auxiliary";
 export type CfgEdgeKind =
   | "entry"
   | "next"
@@ -21,6 +22,8 @@ export interface CfgNode {
   readonly id: string;
   readonly kind: CfgNodeKind;
   readonly role: CfgNodeRole;
+  /** Whether this node owns a projected block or only refines its internal control flow. */
+  readonly ownership: CfgNodeOwnership;
   readonly nodeType: string | null;
   readonly range: TextRange;
   readonly ownerBlockRange: TextRange;

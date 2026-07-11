@@ -42,7 +42,7 @@
     "verify:m3a": "npm run typecheck && npm run deps:check && vitest run tests/core/editing tests/ui/exact-source-history.test.ts tests/ui/edit-panel.test.ts tests/renderer/source-offset-map.test.ts",
     "verify:m3b": "npm run typecheck && npm run deps:check && vitest run tests/core/editing/m3b-engine.test.ts tests/core/editing/statements.test.ts tests/core/editing/rename.test.ts tests/app/parse-stability.test.ts tests/app/source-sync-controller.test.ts tests/app/projection-presenter.test.ts tests/app/structure-edit-controller.test.ts tests/app/structure-edit-selection.test.ts tests/ui/exact-source-history.test.ts tests/ui/code-pane-direct-input-contract.test.ts tests/ui/edit-panel-external-confirm.test.ts tests/ui/structure-edit-panel.test.ts tests/ui/block-tree-interaction.test.ts",
     "verify:m4": "vitest run tests/core/m4-corpus.test.ts tests/core/regressions.test.ts tests/core/generator-fuzz.test.ts",
-    "verify:m5a:cfg": "npm run typecheck && npm run deps:check && vitest run tests/core/parser-inspection.test.ts tests/analysis/cfg-foundation.test.ts",
+    "verify:m5a:cfg": "npm run typecheck && npm run deps:check && vitest run tests/core/parser-inspection.test.ts tests/analysis/cfg-foundation.test.ts tests/analysis/cfg-gold.test.ts",
     "test:e2e:m3b": "npm run build && playwright test tests/e2e/m3b-editing.spec.ts",
     "test:e2e:m4": "npm run build && playwright test tests/e2e/m4-assembly.spec.ts tests/e2e/m4-robustness.spec.ts",
     "accept:m0": "node scripts/accept-m0.mjs",

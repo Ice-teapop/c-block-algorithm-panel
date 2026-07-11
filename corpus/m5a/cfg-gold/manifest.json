@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "expectedFixtureCount": 4,
+  "expectedFunctionCount": 4,
+  "requiredTags": ["sequence", "if", "for", "switch-no-default"],
+  "fixtures": ["01-sequence-return", "02-if-else", "03-for-continue", "04-switch-no-default"]
+}

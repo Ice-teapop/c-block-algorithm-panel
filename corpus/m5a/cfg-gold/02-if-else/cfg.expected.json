@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "caseId": "02-if-else",
+  "sourceSha256": "4554034487a1a46a1b45ac58ba3fe0ae1d8cc27e54034491256d2416bed1eb74",
+  "sourceLengthUtf16": 53,
+  "tags": ["if", "else", "join"],
+  "functions": [
+    {
+      "key": "fn:f:0:52",
+      "name": "f",
+      "range": [0, 52],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 52],
+          "ownerRange": [0, 52],
+          "reachable": true,
+          "text": "int f(int x) { if (x > 0) x++; else x--; return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 52],
+          "ownerRange": [0, 52],
+          "reachable": true,
+          "text": "int f(int x) { if (x > 0) x++; else x--; return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:26:30",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [26, 30],
+          "ownerRange": [26, 30],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:expression_statement:36:40",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [36, 40],
+          "ownerRange": [36, 40],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:if_statement:15:40",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [15, 40],
+          "ownerRange": [15, 40],
+          "reachable": true,
+          "text": "if (x > 0) x++; else x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:41:50",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [41, 50],
+          "ownerRange": [41, 50],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:if_statement:15:40"
+        },
+        {
+          "from": "n:syntax:expression_statement:26:30",
+          "kind": "next",
+          "to": "n:syntax:return_statement:41:50"
+        },
+        {
+          "from": "n:syntax:expression_statement:36:40",
+          "kind": "next",
+          "to": "n:syntax:return_statement:41:50"
+        },
+        {
+          "from": "n:syntax:if_statement:15:40",
+          "kind": "branch-false",
+          "to": "n:syntax:expression_statement:36:40"
+        },
+        {
+          "from": "n:syntax:if_statement:15:40",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:26:30"
+        },
+        {
+          "from": "n:syntax:return_statement:41:50",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

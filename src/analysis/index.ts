@@ -4,6 +4,7 @@ export type {
   CfgEdgeKind,
   CfgNode,
   CfgNodeKind,
+  CfgNodeOwnership,
   CfgNodeRole,
   CfgPartialReason,
   CfgPartialReasonCode,
