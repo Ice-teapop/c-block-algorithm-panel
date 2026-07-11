@@ -9,12 +9,17 @@ import type {
   DefUseVariable,
   FunctionCfg,
   FunctionDefUse,
+  FunctionMemoryEvents,
+  FunctionMemoryTypestate,
   ReachingDefinitionUse,
 } from "./model.js";
+import { collectFunctionMemoryFindings } from "./memory-findings.js";
 
 export interface FunctionFindingsInput {
   readonly cfg: FunctionCfg;
   readonly defUse: FunctionDefUse;
+  readonly memoryEvents: FunctionMemoryEvents;
+  readonly memoryTypestate: FunctionMemoryTypestate;
 }
 
 export function collectFunctionFindings(input: FunctionFindingsInput): readonly AnalysisFinding[] {
@@ -33,6 +38,7 @@ export function collectFunctionFindings(input: FunctionFindingsInput): readonly 
     ...collectUnreachableFindings(input.cfg),
     ...collectUninitializedReadFindings(input, nodesById, variablesById, definitionsById),
     ...collectLiteralOutOfBoundsFindings(input, nodesById, variablesById),
+    ...collectFunctionMemoryFindings(input),
   ].sort(compareFindings);
   return Object.freeze(findings);
 }
@@ -77,6 +83,7 @@ function collectLiteralOutOfBoundsFindings(
         functionId: input.cfg.id,
         ruleId: "literal-out-of-bounds",
         reason: negative ? "negative-literal-index" : "literal-index-not-less-than-extent",
+        confidence: "certain",
         primaryRange: index.indexRange,
         ownerNodeId: owner.id,
         subject: variable.name,
@@ -115,6 +122,7 @@ function collectUnreachableFindings(cfg: FunctionCfg): readonly AnalysisFinding[
       functionId: cfg.id,
       ruleId: "unreachable-code",
       reason: "no-entry-path",
+      confidence: "certain",
       primaryRange: range,
       ownerNodeId: node.id,
       subject: null,
@@ -181,6 +189,7 @@ function collectUninitializedReadFindings(
           functionId: input.cfg.id,
           ruleId: "uninitialized-read",
           reason: uninitialized.reason,
+          confidence: "certain",
           primaryRange: effect.range,
           ownerNodeId: owner.id,
           subject: variable.name,
@@ -261,6 +270,7 @@ function freezeFinding(input: {
   readonly functionId: string;
   readonly ruleId: AnalysisFindingRuleId;
   readonly reason: AnalysisFindingReason;
+  readonly confidence: AnalysisFinding["confidence"];
   readonly primaryRange: AnalysisFinding["primaryRange"];
   readonly ownerNodeId: string;
   readonly subject: string | null;
@@ -273,7 +283,7 @@ function freezeFinding(input: {
     functionId: input.functionId,
     ruleId: input.ruleId,
     reason: input.reason,
-    confidence: "certain",
+    confidence: input.confidence,
     primaryRange: Object.freeze({ ...input.primaryRange }),
     ownerNodeId: input.ownerNodeId,
     subject: input.subject,

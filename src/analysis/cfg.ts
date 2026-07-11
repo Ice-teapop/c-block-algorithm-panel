@@ -109,7 +109,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
         document: input.document,
       });
       const memoryTypestate = collectFunctionMemoryTypestate({ cfg, memoryEvents });
-      const findings = collectFunctionFindings({ cfg, defUse });
+      const findings = collectFunctionFindings({ cfg, defUse, memoryEvents, memoryTypestate });
       return Object.freeze({ cfg, defUse, memoryEvents, memoryTypestate, findings });
     })
     .sort(
