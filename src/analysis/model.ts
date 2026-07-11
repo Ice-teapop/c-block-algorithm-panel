@@ -149,6 +149,23 @@ export interface ReachingDefinitionFact {
   readonly uses: readonly ReachingDefinitionUse[];
 }
 
+export type LoopKind = "while" | "do-while" | "for";
+export type LoopAvailability = "analyzable" | "unreachable" | "unsupported-control-flow";
+
+export interface LoopRegion {
+  readonly id: string;
+  readonly kind: LoopKind;
+  readonly range: TextRange;
+  readonly conditionNodeId: string;
+  readonly entryNodeId: string;
+  readonly initializerNodeId: string | null;
+  readonly updateNodeId: string | null;
+  readonly parentLoopId: string | null;
+  /** CFG order; excludes this loop's own for initializer but includes nested loop initializers. */
+  readonly nodeIds: readonly string[];
+  readonly availability: LoopAvailability;
+}
+
 export interface FunctionDefUse {
   readonly functionId: string;
   readonly functionRange: TextRange;
@@ -159,6 +176,8 @@ export interface FunctionDefUse {
   readonly facts: readonly DefUseFact[];
   /** Complete functions contain one reaching-definition fact per CFG node; disabled functions none. */
   readonly reachingDefinitions: readonly ReachingDefinitionFact[];
+  /** Source-ordered loop regions derived only for complete functions. */
+  readonly loopRegions: readonly LoopRegion[];
 }
 
 export interface ProgramAnalysisSnapshot {

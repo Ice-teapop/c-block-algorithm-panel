@@ -7,6 +7,7 @@ import {
   type TextRange,
 } from "../core/model.js";
 import { collectFunctionEffects } from "./def-use-effects.js";
+import { collectLoopRegions } from "./loop-regions.js";
 import { collectReachingDefinitions } from "./reaching-definitions.js";
 import type {
   DefUseDisabledReasonCode,
@@ -142,6 +143,7 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
       status === "complete"
         ? collectReachingDefinitions({ cfg: input.cfg, facts })
         : Object.freeze([]),
+    loopRegions: status === "complete" ? collectLoopRegions(input.cfg) : Object.freeze([]),
   });
 }
 
