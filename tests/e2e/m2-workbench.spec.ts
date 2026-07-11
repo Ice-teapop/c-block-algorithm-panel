@@ -299,7 +299,7 @@ test("keeps CodeMirror editable and injects nonce-bearing styles without CSP vio
   expect(violations).toEqual([]);
 });
 
-test("keeps the compact three-column workbench usable at the minimum window size", async () => {
+test("keeps the resizable free-canvas workbench usable at the minimum window size", async () => {
   await loadFixtureThroughOpenButton();
   await getElectronApplication().evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.setSize(860, 600);
@@ -325,25 +325,31 @@ test("keeps the compact three-column workbench usable at the minimum window size
     await page.getByRole("tab", { name: "搭建", exact: true }).click();
     await expect(page.locator("#block-palette")).toBeVisible();
     await expect(page.locator("#block-tree")).toBeVisible();
+    await expect(page.locator("#flow-canvas")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
     const viewport = await page.evaluate(() => {
       const statusBar = document.querySelector(".status-bar")?.getBoundingClientRect();
       const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
-      const workbench = document.querySelector(".workbench")?.getBoundingClientRect();
-      const panels = [...document.querySelectorAll<HTMLElement>(".workbench > .panel")].map(
-        (panel) => {
-          const rectangle = panel.getBoundingClientRect();
-          const style = getComputedStyle(panel);
-          return {
+      const workbench = document.querySelector("#build-layout")?.getBoundingClientRect();
+      const regions = ["#left-pane", "#center-pane", "#right-pane"].flatMap((selector) => {
+        const panel = document.querySelector<HTMLElement>(selector);
+        if (panel === null) return [];
+        const rectangle = panel.getBoundingClientRect();
+        const style = getComputedStyle(panel);
+        return [
+          {
             left: rectangle.left,
             right: rectangle.right,
             top: rectangle.top,
             bottom: rectangle.bottom,
             borderRadius: style.borderRadius,
             boxShadow: style.boxShadow,
-          };
-        },
-      );
+          },
+        ];
+      });
+      const splitters = [
+        ...document.querySelectorAll<HTMLElement>("#build-layout > .resizable-layout__splitter"),
+      ].map((splitter) => splitter.getBoundingClientRect());
       return {
         clientHeight: document.documentElement.clientHeight,
         scrollHeight: document.documentElement.scrollHeight,
@@ -366,33 +372,45 @@ test("keeps the compact three-column workbench usable at the minimum window size
                 top: workbench.top,
                 bottom: workbench.bottom,
               },
-        panels,
+        regions,
+        splitters: splitters.map((splitter) => ({
+          left: splitter.left,
+          right: splitter.right,
+          top: splitter.top,
+          bottom: splitter.bottom,
+        })),
       };
     });
     expect(viewport.scrollHeight).toBe(viewport.clientHeight);
     expect(viewport.scrollWidth).toBe(viewport.clientWidth);
     expect(viewport.bodyScrollHeight).toBe(viewport.bodyClientHeight);
     expect(viewport.bodyScrollWidth).toBe(viewport.bodyClientWidth);
-    expect(viewport.codePaneHeight).toBeGreaterThan(400);
-    expect(viewport.statusHeight).toBe(24);
+    expect(viewport.codePaneHeight).toBeGreaterThan(100);
+    expect(viewport.statusHeight).toBe(22);
     expect(viewport.statusTop).toBeGreaterThanOrEqual(0);
     expect(viewport.statusBottom).toBeLessThanOrEqual(viewport.clientHeight);
-    expect(viewport.panels).toHaveLength(3);
+    expect(viewport.regions).toHaveLength(3);
+    expect(viewport.splitters).toHaveLength(2);
     expect(viewport.workbench).toBeDefined();
-    const [blocksPanel, codePanel, inspectorPanel] = viewport.panels;
+    const [leftRegion, centerRegion, rightRegion] = viewport.regions;
+    const [leftSplitter, centerSplitter] = viewport.splitters;
     if (
       viewport.workbench === undefined ||
-      blocksPanel === undefined ||
-      codePanel === undefined ||
-      inspectorPanel === undefined
+      leftRegion === undefined ||
+      centerRegion === undefined ||
+      rightRegion === undefined ||
+      leftSplitter === undefined ||
+      centerSplitter === undefined
     ) {
-      throw new Error("860×600 工业三栏工作面未完整渲染");
+      throw new Error("860×600 工业自由画布工作面未完整渲染");
     }
-    expect(blocksPanel.left).toBeCloseTo(viewport.workbench.left, 1);
-    expect(blocksPanel.right).toBeCloseTo(codePanel.left, 1);
-    expect(codePanel.right).toBeCloseTo(inspectorPanel.left, 1);
-    expect(inspectorPanel.right).toBeCloseTo(viewport.workbench.right, 1);
-    for (const panel of viewport.panels) {
+    expect(leftRegion.left).toBeCloseTo(viewport.workbench.left, 1);
+    expect(leftRegion.right).toBeCloseTo(leftSplitter.left, 1);
+    expect(leftSplitter.right).toBeCloseTo(centerRegion.left, 1);
+    expect(centerRegion.right).toBeCloseTo(centerSplitter.left, 1);
+    expect(centerSplitter.right).toBeCloseTo(rightRegion.left, 1);
+    expect(rightRegion.right).toBeCloseTo(viewport.workbench.right, 1);
+    for (const panel of viewport.regions) {
       expect(panel.top).toBeCloseTo(viewport.workbench.top, 1);
       expect(panel.bottom).toBeCloseTo(viewport.workbench.bottom, 1);
       expect(panel.borderRadius).toBe("0px");
@@ -405,46 +423,34 @@ test("keeps the compact three-column workbench usable at the minimum window size
   }
 });
 
-test("switches every Dock page with global keyboard navigation", async () => {
-  const dashboardTab = page.getByRole("tab", { name: "Dashboard", exact: true });
-  const buildTab = page.getByRole("tab", { name: "搭建", exact: true });
-  const libraryTab = page.getByRole("tab", { name: "Library", exact: true });
-  const forwardPages = [
-    { tab: buildTab, panel: "#build-panel" },
-    {
-      tab: page.getByRole("tab", { name: "积木管理", exact: true }),
-      panel: "#block-library-panel",
-    },
-    { tab: page.getByRole("tab", { name: "解释", exact: true }), panel: "#explanation-panel" },
-    { tab: page.getByRole("tab", { name: "编辑", exact: true }), panel: "#edit-panel" },
-    { tab: page.getByRole("tab", { name: "运行", exact: true }), panel: "#run-panel" },
-    { tab: libraryTab, panel: "#software-library-panel" },
-  ] as const;
-
-  await dashboardTab.focus();
-  await expect(dashboardTab).toHaveAttribute("aria-selected", "true");
-  for (const dockPage of forwardPages) {
+test("navigates the four Dock roots and their branches entirely by keyboard", async () => {
+  const roots = ["设置", "预设块", "Library", "面板预览"].map(menuTrigger);
+  await roots[0]?.focus();
+  await expect(roots[0]!).toBeFocused();
+  for (const root of roots.slice(1)) {
     await page.keyboard.press("ArrowRight");
-    await expect(dockPage.tab).toBeFocused();
-    await expect(dockPage.tab).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(dockPage.panel)).toBeVisible();
+    await expect(root).toBeFocused();
   }
-
   await page.keyboard.press("ArrowRight");
-  await expect(dashboardTab).toBeFocused();
-  await expect(page.locator("#dashboard-panel")).toBeVisible();
-
+  await expect(roots[0]!).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(libraryTab).toBeFocused();
-  await expect(page.locator("#software-library-panel")).toBeVisible();
-
+  await expect(roots[3]!).toBeFocused();
   await page.keyboard.press("Home");
-  await expect(dashboardTab).toBeFocused();
-  await expect(page.locator("#dashboard-panel")).toBeVisible();
-
+  await expect(roots[0]!).toBeFocused();
   await page.keyboard.press("End");
-  await expect(libraryTab).toBeFocused();
-  await expect(page.locator("#software-library-panel")).toBeVisible();
+  await expect(roots[3]!).toBeFocused();
+
+  await page.keyboard.press("ArrowDown");
+  const previewMenu = page.getByRole("menu", { name: "面板预览" });
+  await expect(previewMenu).toBeVisible();
+  await expect(previewMenu.getByRole("menuitem", { name: "项目", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const settingsMenu = page.getByRole("menu", { name: "设置" });
+  await expect(settingsMenu).toBeVisible();
+  await expect(settingsMenu.getByRole("menuitem", { name: "外观", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(roots[0]!).toBeFocused();
+  await expect(settingsMenu).toBeHidden();
 });
 
 test("switches and persists the industrial color theme", async () => {
@@ -453,42 +459,40 @@ test("switches and persists the industrial color theme", async () => {
 
   const root = page.locator("html");
   try {
-    const toLightButton = page.getByRole("button", { name: "切换为浅色主题" });
-    await expect(root).toHaveAttribute("data-theme", "dark");
-    await expect(toLightButton).toBeVisible();
-    const darkBackground = await page
+    await expect(root).toHaveAttribute("data-theme", "light");
+    const lightBackground = await page
       .locator("body")
       .evaluate((body) => getComputedStyle(body).backgroundColor);
 
-    await toLightButton.click();
-    await expect(root).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: "切换为深色主题" })).toBeVisible();
-    const lightBackground = await page
+    await openMenuBranch("设置", "外观");
+    const toDarkButton = page.getByRole("button", { name: "切换为深色主题" });
+    await expect(toDarkButton).toBeVisible();
+    await toDarkButton.click();
+    await expect(root).toHaveAttribute("data-theme", "dark");
+    const darkBackground = await page
       .locator("body")
       .evaluate((body) => getComputedStyle(body).backgroundColor);
     expect(lightBackground).not.toBe(darkBackground);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(root).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: "切换为深色主题" })).toBeVisible();
+    await expect(root).toHaveAttribute("data-theme", "dark");
     expect(
       await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor),
-    ).toBe(lightBackground);
+    ).toBe(darkBackground);
 
-    await page.getByRole("button", { name: "切换为深色主题" }).click();
-    await expect(root).toHaveAttribute("data-theme", "dark");
-    await expect(page.getByRole("button", { name: "切换为浅色主题" })).toBeVisible();
+    await openMenuBranch("设置", "外观");
+    await page.getByRole("button", { name: "切换为浅色主题" }).click();
+    await expect(root).toHaveAttribute("data-theme", "light");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(root).toHaveAttribute("data-theme", "dark");
-    await expect(page.getByRole("button", { name: "切换为浅色主题" })).toBeVisible();
+    await expect(root).toHaveAttribute("data-theme", "light");
   } finally {
     if (!page.isClosed()) {
       await page.evaluate(({ storageKey, theme }) => localStorage.setItem(storageKey, theme), {
         storageKey: THEME_STORAGE_KEY,
-        theme: "dark",
+        theme: "light",
       });
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(root).toHaveAttribute("data-theme", "dark");
+      await expect(root).toHaveAttribute("data-theme", "light");
     }
   }
 });
@@ -522,6 +526,18 @@ async function editorText(): Promise<string> {
   return page
     .locator(".cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
+}
+
+function menuTrigger(name: string) {
+  return page.locator(`[data-menu-root-trigger]`).filter({ hasText: name });
+}
+
+async function openMenuBranch(rootName: string, branchName: string): Promise<void> {
+  const trigger = menuTrigger(rootName);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  const menu = page.getByRole("menu", { name: rootName });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: branchName, exact: true }).click();
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {

@@ -4,6 +4,10 @@ import type {
   WorkspaceListResult,
   WorkspaceSaveResult,
 } from "../../src/shared/workspace.js";
+import type {
+  WorkspaceSidecarReadResult,
+  WorkspaceSidecarSaveResult,
+} from "../../src/shared/workspace-sidecar.js";
 import { workspaceFailure } from "../../src/shared/workspace.js";
 import type { WorkspaceStore } from "./workspace-store.js";
 
@@ -12,6 +16,8 @@ export const WORKSPACE_IPC_CHANNELS = Object.freeze({
   create: "workspace:create",
   open: "workspace:open",
   saveSource: "workspace:save-source",
+  readSidecar: "workspace:read-sidecar",
+  saveSidecar: "workspace:save-sidecar",
   closeRequest: "workspace:close-request",
   closeResponse: "workspace:close-response",
 });
@@ -58,6 +64,24 @@ export function registerWorkspaceIpcHandlers(options: WorkspaceIpcOptions): void
       if (options.isShuttingDown()) return contextClosed();
       if (args.length !== 1) return invalidRequest();
       return options.store.save(args[0]);
+    },
+  );
+  options.ipcMain.handle(
+    WORKSPACE_IPC_CHANNELS.readSidecar,
+    async (event, ...args): Promise<WorkspaceSidecarReadResult> => {
+      options.authorize(event);
+      if (options.isShuttingDown()) return contextClosed();
+      if (args.length !== 1) return invalidRequest();
+      return options.store.readSidecar(args[0]);
+    },
+  );
+  options.ipcMain.handle(
+    WORKSPACE_IPC_CHANNELS.saveSidecar,
+    async (event, ...args): Promise<WorkspaceSidecarSaveResult> => {
+      options.authorize(event);
+      if (options.isShuttingDown()) return contextClosed();
+      if (args.length !== 1) return invalidRequest();
+      return options.store.saveSidecar(args[0]);
     },
   );
 }

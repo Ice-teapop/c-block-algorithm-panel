@@ -70,6 +70,16 @@ module.exports = {
       to: { path: "^(?:\\.dependency-cruiser-build/)?src/workbench/" },
     },
     {
+      // ADR-0003: flow is a pure projection/intent domain. It may consume
+      // immutable core/analysis facts, but never UI, Electron or patch writers.
+      name: "flow-domain-cannot-import-ui-or-write-paths",
+      severity: "error",
+      from: { path: "^(?:\\.dependency-cruiser-build/)?src/flow/" },
+      to: {
+        path: "^(?:\\.dependency-cruiser-build/)?(?:electron/|src/(?:ui|app|workbench|core/(?:editing|emitter|patch))(?:/|\\.|$))",
+      },
+    },
+    {
       name: "ai-cannot-import-core-write-interfaces",
       severity: "error",
       from: { path: "^(?:\\.dependency-cruiser-build/)?src/ai/" },

@@ -1,12 +1,23 @@
 {
   "name": "c-block-algorithm-panel",
-  "version": "0.0.0",
+  "version": "0.1.0-beta.1",
+  "description": "A local, source-authoritative C algorithm learning and visual assembly workbench.",
   "private": true,
+  "license": "MIT",
+  "author": "HAN Chen",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ice-teapop/c-block-algorithm-panel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ice-teapop/c-block-algorithm-panel/issues"
+  },
+  "homepage": "https://github.com/Ice-teapop/c-block-algorithm-panel#readme",
   "type": "module",
   "main": "dist-electron/electron/main/index.js",
   "packageManager": "npm@11.11.0",
   "engines": {
-    "node": ">=25.8.1 <26"
+    "node": ">=24.0.0 <25"
   },
   "scripts": {
     "dev": "concurrently --kill-others --success first --names web,electron \"npm:dev:web\" \"npm:dev:electron\"",
@@ -18,13 +29,15 @@
     "build:electron": "tsc -p tsconfig.electron.json && npm run build:preload",
     "build:preload": "vite build --mode electron-preload",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --dir",
-    "dist:mac": "npm run build && electron-builder --mac",
+    "pack": "npm run build && electron-builder --config build/electron-builder.beta.json --dir --publish never",
+    "dist:mac": "npm run dist:mac:beta",
+    "dist:mac:beta": "npm run build && electron-builder --config build/electron-builder.beta.json --mac --publish never",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run deps:check",
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "fuzz": "node scripts/fuzz.mjs",
+    "fuzz:m4": "node scripts/generator-fuzz.mjs --runs 5000",
     "deps:prepare": "tsc -p tsconfig.deps.json",
     "deps:check": "npm run deps:prepare && depcruise --config .dependency-cruiser.cjs '.dependency-cruiser-build/**/*.js' && npm run architecture:check",
     "architecture:check": "vitest run tests/config/workbench-boundary.test.ts",
@@ -34,6 +47,7 @@
     "test:e2e:m2": "npm run build && playwright test tests/e2e/m2-workbench.spec.ts",
     "test:e2e:m3a": "npm run build && playwright test tests/e2e/m3a-editing.spec.ts",
     "verify:toolchain": "node scripts/verify-toolchain.mjs",
+    "verify:installed-dmg": "node scripts/verify-installed-dmg.mjs",
     "verify:samples": "node scripts/verify-samples.mjs",
     "verify:wasm-assets": "node scripts/verify-wasm-assets.mjs",
     "verify:roundtrip": "node scripts/roundtrip.mjs",
@@ -56,7 +70,13 @@
     "accept:m4": "node scripts/accept-m4.mjs",
     "accept:m5a": "node scripts/accept-m5a.mjs",
     "accept:m5b": "node scripts/accept-m5b.mjs",
-    "accept:m5": "node scripts/accept-m5.mjs"
+    "accept:m5": "node scripts/accept-m5.mjs",
+    "accept:m0-m5-regression": "node scripts/accept-m0-m5-regression.mjs",
+    "accept:m6": "node scripts/accept-m6.mjs",
+    "accept:m7": "node scripts/accept-m7.mjs",
+    "accept:m8": "node scripts/accept-m8.mjs",
+    "accept:m6-m8": "node scripts/accept-m6-m8.mjs",
+    "accept:m9": "node scripts/accept-m9.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "6.10.4",
@@ -64,10 +84,9 @@
     "@codemirror/language": "6.12.4",
     "@codemirror/state": "6.7.0",
     "@codemirror/view": "6.43.6",
-    "@playwright/test": "1.61.1",
-    "@types/node": "25.9.2",
-    "@typescript/typescript-darwin-arm64": "7.0.2",
     "@lezer/highlight": "1.2.3",
+    "@playwright/test": "1.61.1",
+    "@types/node": "24.13.3",
     "codemirror": "6.0.2",
     "concurrently": "10.0.3",
     "dependency-cruiser": "17.4.3",
@@ -82,23 +101,9 @@
     "web-tree-sitter": "0.26.10"
   },
   "build": {
-    "appId": "io.han.c-block-algorithm-panel",
-    "productName": "C 积木算法面板",
-    "asar": true,
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "package.json"
-    ],
+    "extends": "file:build/electron-builder.beta.json",
     "mac": {
-      "category": "public.app-category.education",
-      "icon": "build/icon.icns",
-      "target": [
-        "dmg"
-      ]
+      "icon": "build/icon.icns"
     }
   }
 }

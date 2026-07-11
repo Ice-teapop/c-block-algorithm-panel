@@ -130,4 +130,79 @@ describe("Documents workspace store", () => {
     });
     expect(await readFile(outside, "utf8")).toBe("sentinel");
   });
+
+  it("persists versioned sidecars without changing main.c", async () => {
+    const store = createWorkspaceStore(rootPath);
+    const created = await store.create({ kind: "project", title: "Flow Layout" });
+    if (created.status !== "opened") throw new Error("项目创建失败");
+    const entryId = created.document.entry.id;
+
+    await expect(store.readSidecar({ entryId, kind: "flow-view" })).resolves.toEqual({
+      status: "missing",
+      kind: "flow-view",
+    });
+    const saved = await store.saveSidecar({
+      entryId,
+      kind: "flow-view",
+      expectedRevision: null,
+      sourceFingerprint: "34:abc:def",
+      serialized: JSON.stringify({ schemaVersion: 1, viewport: { x: 4, y: 8, zoom: 1 } }),
+    });
+    expect(saved).toMatchObject({
+      status: "saved",
+      document: { kind: "flow-view", revision: 0, sourceFingerprint: "34:abc:def" },
+    });
+    if (saved.status !== "saved") throw new Error("sidecar 保存失败");
+    await expect(store.readSidecar({ entryId, kind: "flow-view" })).resolves.toEqual({
+      status: "ready",
+      document: saved.document,
+    });
+
+    const directory = join(rootPath, "Projects", entryId);
+    expect(JSON.parse(await readFile(join(directory, "flow-view.json"), "utf8"))).toMatchObject({
+      schemaVersion: 1,
+      kind: "flow-view",
+      revision: 0,
+      payload: { schemaVersion: 1, viewport: { x: 4, y: 8, zoom: 1 } },
+    });
+    expect(await readFile(join(directory, "main.c"), "utf8")).toBe(created.document.source);
+  });
+
+  it("serializes sidecar saves and rejects stale or malformed documents", async () => {
+    const store = createWorkspaceStore(rootPath);
+    const created = await store.create({ kind: "sandbox", title: "Sidecar Race" });
+    if (created.status !== "opened") throw new Error("沙箱创建失败");
+    const entryId = created.document.entry.id;
+    const request = {
+      entryId,
+      kind: "scenarios" as const,
+      expectedRevision: null,
+      sourceFingerprint: "source:one",
+    };
+    const [first, stale] = await Promise.all([
+      store.saveSidecar({ ...request, serialized: '{"schemaVersion":1,"items":[]}' }),
+      store.saveSidecar({ ...request, serialized: '{"schemaVersion":1,"items":[1]}' }),
+    ]);
+    expect(first).toMatchObject({ status: "saved", document: { revision: 0 } });
+    expect(stale).toMatchObject({ status: "failed", error: { code: "WORKSPACE_CONFLICT" } });
+
+    await expect(
+      store.saveSidecar({
+        entryId,
+        kind: "run-history",
+        expectedRevision: null,
+        sourceFingerprint: "source:one",
+        serialized: "not-json",
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_INVALID_SIDECAR" },
+    });
+    await expect(
+      store.readSidecar({ entryId, kind: "flow-view", extra: true }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_INVALID_REQUEST" },
+    });
+  });
 });

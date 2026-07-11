@@ -37,24 +37,26 @@ test.afterAll(async () => {
 });
 
 test("prioritizes the assembly canvas and switches extension pages from the top Dock", async () => {
-  const canvas = page.locator("#block-tree").locator("..");
-  const code = page.locator("#code-pane").locator("..");
+  const canvas = page.locator("#center-pane");
+  const code = page.locator("#right-pane");
   const [canvasBox, codeBox] = await Promise.all([canvas.boundingBox(), code.boundingBox()]);
   if (canvasBox === null || codeBox === null) throw new Error("工作台列不可见");
   expect(canvasBox.width).toBeGreaterThan(codeBox.width * 1.35);
 
-  const dockLabels = await page.getByRole("tab").allTextContents();
-  expect(dockLabels).toEqual(["Dashboard", "搭建", "积木管理", "解释", "编辑", "运行", "Library"]);
+  const dockLabels = await page.locator("[data-menu-root-trigger]").allTextContents();
+  expect(dockLabels).toEqual(["设置", "预设块", "Library", "面板预览"]);
   await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toHaveCount(0);
-  await dock("积木管理").click();
-  await expect(page.getByRole("tabpanel", { name: "积木管理" })).toBeVisible();
-  await expect(page.getByRole("tabpanel", { name: "搭建" })).toBeHidden();
-  await dock("Library").click();
-  await page.getByRole("button", { name: "打开此功能" }).click();
+  await openMenuBranch("预设块", "自定义块生命周期");
+  await expect(page.locator("#block-library-panel")).toBeVisible();
+  await expect(page.locator("#build-panel")).toBeHidden();
+  await openMenuBranch("Library", "完整软件手册");
+  await expect(page.locator("#software-library-panel")).toBeVisible();
+  await expect(page.locator("#workbench-shell")).toHaveAttribute("data-library-branch", "manual");
+  await expect(
+    page.locator("[data-library-branch-id='manual'][aria-current='true']"),
+  ).toBeVisible();
+  await dock("Dashboard").click();
   await expect(dock("Dashboard")).toHaveAttribute("aria-selected", "true");
-  await expect
-    .poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.tourTarget))
-    .toBe("dashboard");
   await dock("搭建").click();
   await expect(page.getByRole("tabpanel", { name: "搭建" })).toBeVisible();
 });
@@ -77,13 +79,18 @@ test("drags a multiline preset into a real slot and synchronizes exact C", async
 });
 
 test("creates, uses, deprecates and retires a custom block without deleting generated C", async () => {
-  await dock("积木管理").click();
+  await openMenuBranch("预设块", "自定义块生命周期");
   await page.getByRole("textbox", { name: "积木名称" }).fill("我的累加");
   await page.getByRole("textbox", { name: "分类" }).fill("custom");
   await page.getByRole("combobox", { name: "学习阶段" }).selectOption("c.basics");
   await page.getByRole("textbox", { name: "C 源码片段" }).fill("total += 10;");
   await page.getByRole("button", { name: "保存自定义积木" }).click();
   await expect(page.locator(".block-library-manager__status")).toContainText("已创建");
+  expect(
+    await page.evaluate(() =>
+      globalThis.localStorage.getItem("c-block-algorithm-panel.learning-catalog"),
+    ),
+  ).toBeNull();
 
   await dock("搭建").click();
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
@@ -93,7 +100,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   await confirmVisibleDiff();
   await expect.poll(editorText).toContain("  total += 10;\n  return 0;");
 
-  await dock("积木管理").click();
+  await openMenuBranch("预设块", "自定义块生命周期");
   let customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "弃用" }).click();
   await expect(customEntry).toHaveAttribute("data-lifecycle", "deprecated");
@@ -103,7 +110,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
     page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" }),
   ).toHaveCount(0);
 
-  await dock("积木管理").click();
+  await openMenuBranch("预设块", "自定义块生命周期");
   customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "恢复" }).click();
   customEntry = customLibraryEntry();
@@ -117,16 +124,10 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
 });
 
 test("routes the visual guide through every mainstream surface and supports skip", async () => {
-  await dock("Library").click();
+  await openMenuBranch("Library", "新手引导");
   await page.getByRole("button", { name: "重新开始视觉引导" }).click();
   const tour = page.getByRole("dialog", { name: "功能引导" });
   await expectTour(tour, "dashboard", "dashboard");
-  const libraryBounds = await dock("Library").boundingBox();
-  if (libraryBounds === null) throw new Error("Library Dock 不可见");
-  await page.mouse.click(
-    libraryBounds.x + libraryBounds.width / 2,
-    libraryBounds.y + libraryBounds.height / 2,
-  );
   await expect(dock("Dashboard")).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Shift+Tab");
   await expect(tour.getByRole("button", { name: "跳过" })).toBeFocused();
@@ -137,20 +138,38 @@ test("routes the visual guide through every mainstream surface and supports skip
 
   for (const [pageId, targetId] of [
     ["dashboard", "create-entry"],
-    ["dashboard", "dock"],
+    ["dashboard", "dock-panels-branches"],
     ["dashboard", "import-actions"],
     ["build", "preset-blocks"],
     ["build", "assembly-canvas"],
+    ["build", "node-detail"],
     ["build", "code-pane"],
-    ["build", "local-save"],
-    ["explanation", "explanation"],
-    ["edit", "edit"],
-    ["run", "run"],
+    ["build", "layout-resize"],
+    ["build", "runtime-flow"],
+    ["build", "runtime-metrics"],
+    ["build", "runtime-diagnostics"],
+    ["build", "mentor-hints"],
     ["block-library", "block-library-lifecycle"],
-    ["software-library", "software-library"],
+    ["software-library", "software-library-content"],
   ] as const) {
     await tour.getByRole("button", { name: "下一步" }).click();
     await expectTour(tour, pageId, targetId);
+    if (targetId === "dock-panels-branches") {
+      await expect(page.getByRole("menu", { name: "面板预览" })).toBeVisible();
+    } else if (targetId === "node-detail") {
+      await expect(page.locator(".flow-detail[data-flow-detail-window]")).toBeVisible();
+      await expect(page.locator("#inspector-stack[data-tour-target='node-detail']")).toHaveCount(0);
+    } else if (targetId === "runtime-metrics") {
+      await expect(page.getByRole("tab", { name: "指标", exact: true })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    } else if (targetId === "runtime-diagnostics") {
+      await expect(page.getByRole("tab", { name: "诊断", exact: true })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    }
   }
   await tour.getByRole("button", { name: "完成引导" }).click();
   await expect(tour).toBeHidden();
@@ -160,7 +179,7 @@ test("routes the visual guide through every mainstream surface and supports skip
   await expectTour(tour, "dashboard", "dashboard");
   await tour.getByRole("button", { name: "跳过" }).click();
   await expect(tour).toBeHidden();
-  await expect(dock("Library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#software-library-panel")).toBeVisible();
   await expect(page.locator("[data-tour-active='true']")).toHaveCount(0);
 });
 
@@ -175,6 +194,18 @@ async function expectTour(tour: Locator, pageId: string, targetId: string): Prom
 
 function dock(name: string): Locator {
   return page.getByRole("tab", { name, exact: true });
+}
+
+function menuTrigger(name: string): Locator {
+  return page.locator("[data-menu-root-trigger]").filter({ hasText: name });
+}
+
+async function openMenuBranch(rootName: string, branchName: string): Promise<void> {
+  const trigger = menuTrigger(rootName);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  const menu = page.getByRole("menu", { name: rootName });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: branchName, exact: true }).click();
 }
 
 function statement(nodeType: string, excerpt: string): Locator {

@@ -3,6 +3,8 @@ export {
   LEARNING_CATALOG_SCHEMA_VERSION,
   LearningCatalogError,
   type CatalogLearningTemplate,
+  type CatalogPresetBlock,
+  type CatalogVirtualPresetBlock,
   type LearningCatalogEntry,
   type LearningCatalogErrorCode,
   type LearningCatalogSnapshot,
@@ -15,9 +17,28 @@ export {
   type LearningTemplateLifecycle,
   type LearningTemplateOrigin,
   type LifecycleChangeInput,
+  type PresetAlternativeVersion,
+  type PresetBlockDefinition,
+  type PresetBlockExplanation,
+  type PresetBlockKind,
+  type PresetBlockLifecycle,
+  type PresetBlockScenario,
+  type PresetPlacementCondition,
+  type PresetPlacementScope,
+  type PresetPortCardinality,
+  type PresetPortChannel,
+  type PresetPortDefinition,
+  type PresetPortDirection,
+  type PresetSourceBlockDefinition,
+  type PresetVirtualBlockDefinition,
   type RetiredLearningTemplateTombstone,
 } from "./contracts.js";
-export { BUILTIN_LEARNING_STAGES, BUILTIN_LEARNING_TEMPLATES } from "./builtins.js";
+export {
+  BUILTIN_LEARNING_STAGES,
+  BUILTIN_LEARNING_TEMPLATES,
+  BUILTIN_PRESET_BLOCKS,
+  BUILTIN_VIRTUAL_PRESETS,
+} from "./builtins.js";
 export {
   createLearningCatalog,
   type LearningCatalog,

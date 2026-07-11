@@ -462,6 +462,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
 
   expect(rendererBoundary).toEqual({
     apiKeys: [
+      "cancelTrace",
       "capabilities",
       "compile",
       "createWorkspaceDocument",
@@ -471,8 +472,14 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "openDroppedSource",
       "openSource",
       "openWorkspaceDocument",
+      "readLearningCatalog",
+      "readTrace",
+      "readWorkspaceSidecar",
       "run",
+      "saveLearningCatalog",
       "saveWorkspaceDocument",
+      "saveWorkspaceSidecar",
+      "startTrace",
     ],
     forbiddenApiKeys: [],
     hasNodeProcess: false,
@@ -546,8 +553,9 @@ test("loads both WASM modules and projects an explicitly opened C document", asy
     await expect(parserStatus).toHaveAttribute("data-function-count", "1");
     await expect(parserStatus).toHaveAttribute("data-roundtrip", "true");
 
-    expect(wasmRequests.filter((name) => name.includes("web-tree-sitter-")).length).toBe(1);
-    expect(wasmRequests.filter((name) => name.includes("tree-sitter-c-")).length).toBe(1);
+    // Renderer projection and the analysis Worker are separate WASM contexts.
+    expect(wasmRequests.filter((name) => name.includes("web-tree-sitter-")).length).toBe(2);
+    expect(wasmRequests.filter((name) => name.includes("tree-sitter-c-")).length).toBe(2);
     expect(runtimeFailures).toEqual([]);
   } finally {
     page.off("pageerror", onPageError);

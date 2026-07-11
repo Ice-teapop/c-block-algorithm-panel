@@ -1,13 +1,23 @@
 import type { CAnalysisSnapshot } from "../core/index.js";
-import { createLearningCatalog, type LearningCatalogStorage } from "../learning/index.js";
+import {
+  createLearningCatalog,
+  type LearningCatalogStorage,
+  type PresetBlockKind,
+  type PresetBlockLifecycle,
+  type PresetPortDefinition,
+} from "../learning/index.js";
 import {
   createBlockLibraryManager,
   type BlockLibraryManager,
 } from "../ui/block-library-manager.js";
-import { createBlockPalette, type BlockPalette } from "../ui/block-palette.js";
+import {
+  createBlockPalette,
+  type BlockPalette,
+  type BlockPaletteCategory,
+} from "../ui/block-palette.js";
 import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
 import { createOnboardingTour } from "../ui/onboarding-tour.js";
-import { createSoftwareLibrary } from "../ui/software-library.js";
+import { createSoftwareLibrary, type SoftwareLibrary } from "../ui/software-library.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
 import {
@@ -22,18 +32,30 @@ export interface LearningSurfaceOptions {
   readonly structureEdits: StructureEditController;
   readonly getAnalysis: () => CAnalysisSnapshot | null;
   readonly getAnalyzer: () => LearningTemplateAnalyzer | null;
+  readonly storage?: LearningCatalogStorage | undefined;
   readonly onError: (error: Error) => void;
 }
 
 export interface LearningSurface {
   insert(intent: AssemblyInsertIntent): Promise<void>;
+  resolvePreset(presetId: string): ResolvedLearningPreset | null;
   setSelectedInsertEnabled(enabled: boolean): void;
   startOnboardingIfNeeded(): void;
   destroy(): void;
 }
 
+export interface ResolvedLearningPreset {
+  readonly id: string;
+  readonly version: string;
+  readonly label: string;
+  readonly source: string | null;
+  readonly blockKind: PresetBlockKind;
+  readonly lifecycle: PresetBlockLifecycle;
+  readonly ports: readonly PresetPortDefinition[];
+}
+
 export function createLearningSurface(options: LearningSurfaceOptions): LearningSurface {
-  const storage = browserStorage();
+  const storage = options.storage ?? browserStorage();
   const catalog = createLearningCatalog(storage === undefined ? {} : { storage });
   const assembly: AssemblyController = createAssemblyController({
     catalog,
@@ -71,17 +93,34 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     },
   );
 
+  let softwareLibrary: SoftwareLibrary | null = null;
   const onboarding = createOnboardingTour(options.elements.shell, {
     navigate: (pageId) => options.elements.showPage(pageId),
     getCurrentPage: () => options.elements.currentPage,
+    prepareScene(scene) {
+      if (scene.stepId === "library") softwareLibrary?.selectBranch("manual");
+      options.elements.revealOnboardingStep(scene.stepId);
+    },
+    onClose: () => options.elements.finishOnboarding(),
   });
-  const softwareLibrary = createSoftwareLibrary(options.elements.getPageHost("software-library"), {
+  softwareLibrary = createSoftwareLibrary(options.elements.getPageHost("software-library"), {
     onOpenFeature(pageId, targetId) {
       options.elements.showPage(pageId);
       globalThis.requestAnimationFrame(() => revealTourTarget(options.elements.shell, targetId));
     },
     onStartTour: () => onboarding.openFromLibrary(),
   });
+  const onWorkbenchAction = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (!isRecord(detail) || typeof detail.branchId !== "string") {
+      return;
+    }
+    if (detail.rootId === "library") softwareLibrary?.selectBranch(detail.branchId);
+    else if (detail.rootId === "presets" && detail.branchId !== "custom-lifecycle") {
+      palette.setCategory(detail.branchId as BlockPaletteCategory);
+    }
+  };
+  options.elements.shell.addEventListener("workbench-action", onWorkbenchAction);
   const autoStartEnabled = globalThis.navigator?.webdriver !== true;
 
   return Object.freeze({
@@ -93,19 +132,40 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     setSelectedInsertEnabled(enabled: boolean): void {
       if (!destroyed) palette.setInsertEnabled(enabled);
     },
+    resolvePreset(presetId: string) {
+      if (destroyed) return null;
+      const preset = catalog.getPreset(presetId);
+      return preset === null
+        ? null
+        : Object.freeze({
+            id: preset.id,
+            version: preset.version,
+            label: preset.label,
+            source: preset.source,
+            blockKind: preset.blockKind,
+            lifecycle: preset.lifecycle,
+            ports: Object.freeze(preset.ports.map((port) => Object.freeze({ ...port }))),
+          });
+    },
     startOnboardingIfNeeded(): void {
       if (!destroyed && autoStartEnabled) onboarding.startIfNeeded();
     },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      softwareLibrary.destroy();
+      options.elements.shell.removeEventListener("workbench-action", onWorkbenchAction);
+      softwareLibrary?.destroy();
+      softwareLibrary = null;
       onboarding.destroy();
       blockLibrary.destroy();
       palette.destroy();
       assembly.destroy();
     },
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function revealTourTarget(root: HTMLElement, targetId: string): void {

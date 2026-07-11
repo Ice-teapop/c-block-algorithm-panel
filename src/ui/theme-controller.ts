@@ -18,7 +18,7 @@ export interface ThemeController {
 }
 
 export function resolveTheme(value: unknown): Theme {
-  return value === "light" ? "light" : "dark";
+  return value === "dark" ? "dark" : "light";
 }
 
 export function nextTheme(theme: Theme): Theme {
@@ -71,12 +71,12 @@ function defaultStorage(): ThemeStorage | undefined {
 
 function readStoredTheme(storage: ThemeStorage | undefined): Theme {
   if (storage === undefined) {
-    return "dark";
+    return "light";
   }
   try {
     return resolveTheme(storage.getItem(THEME_STORAGE_KEY));
   } catch {
-    return "dark";
+    return "light";
   }
 }
 

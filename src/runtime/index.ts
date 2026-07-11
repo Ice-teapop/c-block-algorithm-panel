@@ -1,0 +1,27 @@
+export {
+  RUN_HISTORY_MAX_ENTRIES,
+  RUN_HISTORY_SCHEMA_VERSION,
+  RunHistoryError,
+  type OperationGrowthEvidence,
+  type OperationGrowthPoint,
+  type RunComparisonKey,
+  type RunHistoryDocument,
+  type RunHistoryEntry,
+  type RunHistoryEntryInput,
+  type RunHistoryErrorCode,
+  type RunHistorySummary,
+  type RunMeasurement,
+  type RunMetricSummary,
+  type RunScenarioIdentity,
+  type RunToolchainIdentity,
+  type RunTraceNodeVisit,
+  type RunTraceSummary,
+} from "./contracts.js";
+export {
+  appendRunHistoryEntry,
+  createEmptyRunHistory,
+  median,
+  parseRunHistoryDocument,
+  selectComparableRuns,
+  summarizeComparableRuns,
+} from "./run-history.js";

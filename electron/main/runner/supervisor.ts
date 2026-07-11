@@ -27,12 +27,21 @@ export interface ProcessOutcome {
   readonly signal: string | null;
   readonly termination: ProcessTerminationReason;
   readonly durationMs: number;
+  /** Maximum aggregate process-group RSS observed by the bounded watchdog. */
+  readonly peakRssBytes: number;
+  /** Maximum process-group population observed by the bounded watchdog. */
+  readonly peakProcessCount: number;
   readonly processControlFailed: boolean;
 }
 
 export interface SupervisorDependencies {
   readonly clock: RunnerClock;
   readonly processHost: ProcessHost;
+}
+
+export interface ProcessObserver {
+  readonly onStdout?: ((chunk: Uint8Array) => void) | undefined;
+  readonly onStderr?: ((chunk: Uint8Array) => void) | undefined;
 }
 
 const KILL_REAP_TIMEOUT_MS = 1_000;
@@ -43,6 +52,7 @@ export async function superviseProcess(
   input: Uint8Array,
   limits: SupervisionLimits,
   dependencies: SupervisorDependencies,
+  observer?: ProcessObserver,
 ): Promise<ProcessOutcome> {
   const startedAt = dependencies.clock.now();
   let child: ManagedChildProcess;
@@ -74,6 +84,8 @@ export async function superviseProcess(
   let finished = false;
   let terminationInProgress = false;
   let processControlFailed = false;
+  let peakRssBytes = 0;
+  let peakProcessCount = 0;
   let resolveOutcome: ((outcome: ProcessOutcome) => void) | undefined;
 
   const outcomePromise = new Promise<ProcessOutcome>((resolve) => {
@@ -126,6 +138,8 @@ export async function superviseProcess(
         exitCode,
         exitSignal,
         processControlFailed,
+        peakRssBytes,
+        peakProcessCount,
       ),
     );
   };
@@ -199,8 +213,19 @@ export async function superviseProcess(
     waitForCloseAndReap();
   };
 
-  const capture = (chunk: Uint8Array, destination: Buffer[]): void => {
+  const capture = (
+    chunk: Uint8Array,
+    destination: Buffer[],
+    channel: "stdout" | "stderr",
+  ): void => {
     if (terminationInProgress) {
+      return;
+    }
+    try {
+      if (channel === "stdout") observer?.onStdout?.(Uint8Array.from(chunk));
+      else observer?.onStderr?.(Uint8Array.from(chunk));
+    } catch {
+      terminate("rss-monitor-error");
       return;
     }
     const buffer = Buffer.from(chunk);
@@ -216,8 +241,8 @@ export async function superviseProcess(
   };
 
   listeners.push(
-    child.onStdout((chunk) => capture(chunk, stdoutChunks)),
-    child.onStderr((chunk) => capture(chunk, stderrChunks)),
+    child.onStdout((chunk) => capture(chunk, stdoutChunks, "stdout")),
+    child.onStderr((chunk) => capture(chunk, stderrChunks, "stderr")),
     child.onError(() => {
       terminate("spawn-error");
     }),
@@ -266,7 +291,7 @@ export async function superviseProcess(
             return;
           }
           if (
-            !Number.isFinite(rssBytes) ||
+            !Number.isSafeInteger(rssBytes) ||
             rssBytes < 0 ||
             !Number.isSafeInteger(processCount) ||
             processCount < 0
@@ -274,6 +299,8 @@ export async function superviseProcess(
             terminate("rss-monitor-error");
             return;
           }
+          peakRssBytes = Math.max(peakRssBytes, rssBytes);
+          peakProcessCount = Math.max(peakProcessCount, processCount);
           if (processCount > limits.maxProcessCount) {
             terminate("process-count-limit");
             return;
@@ -307,6 +334,8 @@ function makeOutcome(
   exitCode: number | null,
   signal: string | null,
   processControlFailed: boolean,
+  peakRssBytes = 0,
+  peakProcessCount = 0,
 ): ProcessOutcome {
   return Object.freeze({
     stdout: Uint8Array.from(Buffer.concat(stdoutChunks)),
@@ -315,6 +344,8 @@ function makeOutcome(
     signal,
     termination,
     durationMs: Math.max(0, clock.now() - startedAt),
+    peakRssBytes,
+    peakProcessCount,
     processControlFailed,
   });
 }

@@ -20,6 +20,7 @@ export interface WorkspaceControllerOptions {
   readonly recoveryButton: HTMLButtonElement;
   readonly load: (document: ImportedSource) => void;
   readonly enterWorkbench: () => void;
+  readonly onActiveEntryChange?: ((entry: WorkspaceEntrySummary | null) => void) | undefined;
 }
 
 export interface WorkspaceController {
@@ -57,12 +58,13 @@ export function createWorkspaceController(
   };
 
   const adopt = (document: WorkspaceDocument): void => {
+    persistence.adopt(document.entry);
     options.load({
       source: document.source,
       displayName: `${document.entry.title}.c`,
       origin: "workspace",
     });
-    persistence.adopt(document.entry);
+    options.onActiveEntryChange?.(document.entry);
     options.enterWorkbench();
     dashboard.setStatus(`已打开“${document.entry.title}”。`, "success");
   };
@@ -169,6 +171,7 @@ export function createWorkspaceController(
       });
       persistence.discardActiveChanges(expectedSourceVersion);
       persistence.adopt(result.document.entry);
+      options.onActiveEntryChange?.(result.document.entry);
       options.enterWorkbench();
       dashboard.setStatus(`已重新载入“${result.document.entry.title}”的磁盘版本。`, "success");
     } catch {
@@ -209,17 +212,20 @@ export function createWorkspaceController(
       await persistence.flush();
       if (!isCurrent()) return false;
       persistence.deactivateAfterFlush();
+      options.onActiveEntryChange?.(null);
       return true;
     },
     async deactivate(): Promise<void> {
       if (destroyed) return;
       await persistence.deactivate();
+      options.onActiveEntryChange?.(null);
     },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
       generation += 1;
       options.recoveryButton.removeEventListener("click", onRecoverDiskVersion);
+      options.onActiveEntryChange?.(null);
       persistence.destroy();
       dashboard.destroy();
     },

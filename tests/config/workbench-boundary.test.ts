@@ -83,6 +83,30 @@ describe("workbench architecture boundaries", () => {
     expect(to.test("src/ui/workbench-shell.js")).toBe(false);
   });
 
+  it("keeps the flow domain independent from UI, Electron and core writers", () => {
+    const rule = requiredRule("flow-domain-cannot-import-ui-or-write-paths");
+    const from = new RegExp(requiredPath(rule.from.path));
+    const to = new RegExp(requiredPath(rule.to.path));
+    expect(from.test("src/flow/projection.js")).toBe(true);
+    for (const forbiddenPath of [
+      "src/ui/flow-canvas.js",
+      "src/app/flow-controller.js",
+      "src/workbench/contracts.js",
+      "src/core/editing/engine.js",
+      "electron/main/runner/runner.js",
+    ]) {
+      expect(to.test(forbiddenPath), forbiddenPath).toBe(true);
+    }
+    for (const allowedPath of [
+      "src/core/model.js",
+      "src/analysis/model.js",
+      "src/shared/source-snapshot.js",
+      "src/flow/model.js",
+    ]) {
+      expect(to.test(allowedPath), allowedPath).toBe(false);
+    }
+  });
+
   it("keeps analysis out of emitted core write paths while preserving the core-to-analysis ban", () => {
     const analysisRule = requiredRule("analysis-cannot-import-core-write-paths");
     const analysisFrom = new RegExp(requiredPath(analysisRule.from.path));

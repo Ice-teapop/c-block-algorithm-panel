@@ -30,6 +30,39 @@ export interface DockGroupContribution {
   readonly order: number;
 }
 
+export interface DockMenuBranchContribution {
+  /** Stable, globally unique branch identifier. */
+  readonly id: string;
+  readonly label: string;
+  readonly actionId: string;
+  readonly order: number;
+}
+
+export interface DockMenuContribution {
+  /** Stable, globally unique root menu identifier. */
+  readonly id: string;
+  readonly label: string;
+  readonly order: number;
+  readonly branches: readonly DockMenuBranchContribution[];
+}
+
+export type WorkbenchPanelRegion = "left" | "center" | "right" | "bottom" | "floating";
+
+export interface PanelContribution {
+  readonly id: string;
+  readonly label: string;
+  readonly region: WorkbenchPanelRegion;
+  readonly order: number;
+  readonly defaultVisible: boolean;
+}
+
+export interface LayoutPresetContribution {
+  readonly id: string;
+  readonly label: string;
+  readonly order: number;
+  readonly panelIds: readonly string[];
+}
+
 export interface WorkbenchPageContribution {
   /** Stable, globally unique workbench page identifier. */
   readonly id: string;
@@ -59,6 +92,9 @@ export interface WorkbenchModuleDefinition {
   readonly manifest: WorkbenchModuleManifest;
   readonly inspectorViews?: readonly InspectorViewContribution[];
   readonly dockGroups?: readonly DockGroupContribution[];
+  readonly dockMenus?: readonly DockMenuContribution[];
+  readonly panels?: readonly PanelContribution[];
+  readonly layoutPresets?: readonly LayoutPresetContribution[];
   readonly pages?: readonly WorkbenchPageContribution[];
   readonly commands?: readonly CommandContribution[];
   readonly algorithmElements?: readonly AlgorithmElementDefinition[];
@@ -68,6 +104,9 @@ export interface WorkbenchModuleSnapshot {
   readonly manifest: WorkbenchModuleManifest;
   readonly inspectorViews: readonly InspectorViewContribution[];
   readonly dockGroups: readonly DockGroupContribution[];
+  readonly dockMenus: readonly DockMenuContribution[];
+  readonly panels: readonly PanelContribution[];
+  readonly layoutPresets: readonly LayoutPresetContribution[];
   readonly pages: readonly WorkbenchPageContribution[];
   readonly commands: readonly CommandContribution[];
   readonly algorithmElements: readonly AlgorithmElementDefinition[];
@@ -78,6 +117,18 @@ export interface RegisteredInspectorView extends InspectorViewContribution {
 }
 
 export interface RegisteredDockGroup extends DockGroupContribution {
+  readonly moduleId: string;
+}
+
+export interface RegisteredDockMenu extends DockMenuContribution {
+  readonly moduleId: string;
+}
+
+export interface RegisteredPanel extends PanelContribution {
+  readonly moduleId: string;
+}
+
+export interface RegisteredLayoutPreset extends LayoutPresetContribution {
   readonly moduleId: string;
 }
 
@@ -97,6 +148,9 @@ export interface WorkbenchRegistrySnapshot {
   readonly modules: readonly WorkbenchModuleSnapshot[];
   readonly inspectorViews: readonly RegisteredInspectorView[];
   readonly dockGroups: readonly RegisteredDockGroup[];
+  readonly dockMenus: readonly RegisteredDockMenu[];
+  readonly panels: readonly RegisteredPanel[];
+  readonly layoutPresets: readonly RegisteredLayoutPreset[];
   readonly pages: readonly RegisteredWorkbenchPage[];
   readonly commands: readonly RegisteredCommand[];
   readonly algorithmElements: readonly RegisteredAlgorithmElement[];
@@ -107,6 +161,10 @@ export type WorkbenchRegistryConflictKind =
   | "module-id"
   | "inspector-view-id"
   | "dock-group-id"
+  | "dock-menu-id"
+  | "dock-menu-branch-id"
+  | "panel-id"
+  | "layout-preset-id"
   | "page-id"
   | "command-id"
   | "algorithm-element-type";

@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
-const expectedNodeVersion = "v25.8.1";
+const expectedNodeMajor = 24;
+const expectedNodeEngine = ">=24.0.0 <25";
 const expectedNpmVersion = "11.11.0";
 const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
 const runFile = promisify(execFile);
@@ -29,8 +30,14 @@ const readCommandVersion = async (command, args, label) => {
   }
 };
 
-if (process.version !== expectedNodeVersion) {
-  failures.push(`Node 版本不符：期望 ${expectedNodeVersion}，实际 ${process.version}`);
+if (Number(process.versions.node.split(".")[0]) !== expectedNodeMajor) {
+  failures.push(`Node 版本不符：要求 Node ${expectedNodeMajor}.x LTS，实际 ${process.version}`);
+}
+
+if (manifest.engines?.node !== expectedNodeEngine) {
+  failures.push(
+    `engines.node 不符：期望 ${expectedNodeEngine}，实际 ${String(manifest.engines?.node)}`,
+  );
 }
 
 if (manifest.packageManager !== `npm@${expectedNpmVersion}`) {

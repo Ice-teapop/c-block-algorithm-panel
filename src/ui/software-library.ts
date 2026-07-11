@@ -1,3 +1,15 @@
+import {
+  LIBRARY_BRANCHES,
+  getLibraryEntry,
+  libraryEntriesForBranch,
+  relatedLibraryEntries,
+  resolveLibraryBranchId,
+  searchLibrary,
+  type LibraryBranchId,
+  type LibraryEntry,
+  type LibraryFeatureLink,
+} from "../library/index.js";
+
 export type SoftwareFeatureStatus = "available" | "foundation" | "planned";
 
 export interface SoftwareFeatureDefinition {
@@ -22,7 +34,11 @@ export interface SoftwareLibraryCallbacks {
 export interface SoftwareLibrary {
   readonly element: HTMLElement;
   readonly selectedFeatureId: string;
+  readonly selectedEntryId: string;
+  readonly selectedBranchId: LibraryBranchId;
   select(featureId: string): void;
+  selectEntry(entryId: string): void;
+  selectBranch(branchId: string): void;
   destroy(): void;
 }
 
@@ -137,6 +153,22 @@ export const SOFTWARE_FEATURES: readonly SoftwareFeatureDefinition[] = Object.fr
   ),
 ]);
 
+const FEATURE_ENTRY_IDS: Readonly<Record<string, string>> = Object.freeze({
+  dashboard: "manual.dashboard",
+  projects: "manual.workspace-kinds",
+  sandboxes: "manual.workspace-kinds",
+  tests: "manual.workspace-kinds",
+  presets: "manual.presets",
+  assembly: "canvas.free-layout",
+  source: "manual.code-editor",
+  explanation: "manual.inspectors",
+  editing: "manual.inspectors",
+  run: "execution.toolchain",
+  "block-library": "manual.custom-blocks",
+  storage: "manual.autosave",
+  extensions: "extension.registry",
+});
+
 export function createSoftwareLibrary(
   host: HTMLElement,
   callbacks: SoftwareLibraryCallbacks,
@@ -154,131 +186,248 @@ export function createSoftwareLibrary(
   const search = ownerDocument.createElement("input");
   search.type = "search";
   search.className = "software-library__search";
-  search.placeholder = "筛选功能";
-  search.setAttribute("aria-label", "筛选软件功能");
+  search.placeholder = "搜索术语、功能或代码";
+  search.setAttribute("aria-label", "全文搜索 Library");
   const list = ownerDocument.createElement("div");
   list.className = "software-library__list";
+  list.dataset.libraryDirectory = "true";
   index.append(search, list);
 
   const detail = ownerDocument.createElement("article");
   detail.className = "software-library__detail";
   detail.setAttribute("aria-live", "polite");
+  detail.dataset.libraryDetail = "true";
   root.append(index, detail);
   host.append(root);
 
-  let selectedFeatureId = SOFTWARE_FEATURES[0]?.id ?? "";
+  let selectedFeatureId = "dashboard";
+  let selectedBranchId: LibraryBranchId = "manual";
+  let selectedEntryId = "manual.dashboard";
   let destroyed = false;
-  let featureButtons: HTMLButtonElement[] = [];
+  let entryButtons: HTMLButtonElement[] = [];
+  let branchButtons: HTMLButtonElement[] = [];
 
   const select = (featureId: string): void => {
     assertActive(destroyed);
-    const selected = SOFTWARE_FEATURES.find((feature) => feature.id === featureId);
-    if (selected === undefined) throw new RangeError(`未知 Library 功能：${featureId}`);
+    const featureDefinition = SOFTWARE_FEATURES.find((feature) => feature.id === featureId);
+    if (featureDefinition === undefined) {
+      throw new RangeError(`未知 Library 功能：${featureId}`);
+    }
+    const entryId = FEATURE_ENTRY_IDS[featureId];
+    if (entryId === undefined) throw new RangeError(`Library 功能缺少词典条目：${featureId}`);
     selectedFeatureId = featureId;
-    renderDetail(ownerDocument, detail, selected, callbacks);
-    for (const button of featureButtons) {
-      const active = button.dataset.featureId === selectedFeatureId;
-      button.classList.toggle("is-selected", active);
-      button.setAttribute("aria-current", active ? "page" : "false");
+    selectEntry(entryId);
+    selectedFeatureId = featureId;
+    const entry = getLibraryEntry(entryId);
+    if (entry !== null) {
+      renderDictionaryDetail(ownerDocument, detail, entry, callbacks, selectEntry, {
+        label: `打开${featureDefinition.title}`,
+        pageId: featureDefinition.pageId,
+        targetId: featureDefinition.targetId,
+      });
     }
   };
 
-  const renderIndex = (): void => {
-    const query = search.value.trim().toLocaleLowerCase("zh-Hans-CN");
-    const visible = SOFTWARE_FEATURES.filter((feature) =>
-      `${feature.category} ${feature.title} ${feature.purpose}`
-        .toLocaleLowerCase("zh-Hans-CN")
-        .includes(query),
-    );
-    featureButtons = visible.map((feature) => {
+  const updateSelection = (): void => {
+    for (const button of entryButtons) {
+      const active = button.dataset.libraryEntryId === selectedEntryId;
+      button.classList.toggle("is-selected", active);
+      button.setAttribute("aria-current", active ? "page" : "false");
+    }
+    for (const button of branchButtons) {
+      const active = button.dataset.libraryBranchId === selectedBranchId;
+      button.classList.toggle("is-selected", active);
+      button.setAttribute("aria-current", active ? "true" : "false");
+    }
+  };
+
+  const selectEntry = (entryId: string): void => {
+    assertActive(destroyed);
+    const entry = getLibraryEntry(entryId);
+    if (entry === null) throw new RangeError(`未知 Library 条目：${entryId}`);
+    selectedEntryId = entry.id;
+    selectedBranchId = entry.branchId;
+    selectedFeatureId = featureIdForEntry(entry.id);
+    renderDictionaryDetail(ownerDocument, detail, entry, callbacks, selectEntry);
+    updateSelection();
+  };
+
+  const renderDirectory = (): void => {
+    const query = search.value.trim();
+    branchButtons = LIBRARY_BRANCHES.map((branch) => {
       const button = ownerDocument.createElement("button");
       button.className = "software-library__feature";
       button.type = "button";
-      button.dataset.featureId = feature.id;
-      const category = ownerDocument.createElement("span");
-      category.textContent = feature.category;
-      const title = ownerDocument.createElement("strong");
-      title.textContent = feature.title;
-      button.append(category, title);
-      button.addEventListener("click", () => select(feature.id));
+      button.dataset.libraryBranchId = branch.id;
+      const order = ownerDocument.createElement("span");
+      order.textContent = String(branch.order / 10 + 1).padStart(2, "0");
+      const label = ownerDocument.createElement("strong");
+      label.textContent = branch.label;
+      button.append(order, label);
+      button.title = branch.description;
+      button.addEventListener("click", () => selectBranch(branch.id));
       return button;
     });
-    list.replaceChildren(...featureButtons);
-    const nextSelection = visible.some((feature) => feature.id === selectedFeatureId)
-      ? selectedFeatureId
-      : visible[0]?.id;
-    if (nextSelection !== undefined) select(nextSelection);
-    else renderEmptyDetail(ownerDocument, detail);
+
+    const visible =
+      query.length === 0
+        ? libraryEntriesForBranch(selectedBranchId)
+        : searchLibrary(query).map((result) => result.entry);
+    entryButtons = visible.map((entry) => {
+      const button = ownerDocument.createElement("button");
+      button.className = "software-library__feature";
+      button.type = "button";
+      button.dataset.libraryEntryId = entry.id;
+      button.dataset.libraryEntryBranch = entry.branchId;
+      const category = ownerDocument.createElement("span");
+      category.textContent = shortBranchLabel(entry.branchId);
+      const title = ownerDocument.createElement("strong");
+      title.textContent = entry.title;
+      button.append(category, title);
+      button.title = entry.summary;
+      button.addEventListener("click", () => selectEntry(entry.id));
+      return button;
+    });
+    const branchHeader = ownerDocument.createElement("div");
+    branchHeader.setAttribute("role", "group");
+    branchHeader.setAttribute("aria-label", "Library 分支");
+    branchHeader.append(...branchButtons);
+    const entryHeader = ownerDocument.createElement("div");
+    entryHeader.setAttribute("role", "group");
+    entryHeader.setAttribute("aria-label", query.length === 0 ? "分支目录" : "搜索结果");
+    entryHeader.append(...entryButtons);
+    list.replaceChildren(branchHeader, entryHeader);
+    if (visible.length === 0) renderEmptyDetail(ownerDocument, detail, "没有匹配的词典条目。");
+    else if (!visible.some((entry) => entry.id === selectedEntryId))
+      selectEntry(visible[0]?.id ?? "");
+    else updateSelection();
   };
 
-  const onSearch = (): void => renderIndex();
+  const selectBranch = (branchId: string): void => {
+    assertActive(destroyed);
+    const resolved = resolveLibraryBranchId(branchId);
+    if (resolved === null) throw new RangeError(`未知 Library 分支：${branchId}`);
+    selectedBranchId = resolved;
+    search.value = "";
+    const first = libraryEntriesForBranch(resolved)[0];
+    if (first === undefined) throw new Error(`Library 分支没有条目：${resolved}`);
+    selectedEntryId = first.id;
+    selectedFeatureId = featureIdForEntry(first.id);
+    renderDirectory();
+    renderDictionaryDetail(ownerDocument, detail, first, callbacks, selectEntry);
+    updateSelection();
+  };
+
+  const onSearch = (): void => renderDirectory();
   search.addEventListener("input", onSearch);
-  renderIndex();
+  renderDirectory();
+  selectEntry(selectedEntryId);
 
   return Object.freeze({
     element: root,
     get selectedFeatureId(): string {
       return selectedFeatureId;
     },
+    get selectedEntryId(): string {
+      return selectedEntryId;
+    },
+    get selectedBranchId(): LibraryBranchId {
+      return selectedBranchId;
+    },
     select,
+    selectEntry,
+    selectBranch,
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
       search.removeEventListener("input", onSearch);
-      featureButtons = [];
+      entryButtons = [];
+      branchButtons = [];
       root.remove();
     },
   });
 }
 
-function renderDetail(
+function renderDictionaryDetail(
   ownerDocument: Document,
   host: HTMLElement,
-  featureDefinition: SoftwareFeatureDefinition,
+  entry: LibraryEntry,
   callbacks: SoftwareLibraryCallbacks,
+  selectEntry: (entryId: string) => void,
+  featureLinkOverride: LibraryFeatureLink | null = null,
 ): void {
   const header = ownerDocument.createElement("header");
   const heading = ownerDocument.createElement("h2");
-  heading.textContent = featureDefinition.title;
+  heading.textContent = entry.title;
+  const branch = LIBRARY_BRANCHES.find((candidate) => candidate.id === entry.branchId);
   const status = ownerDocument.createElement("span");
   status.className = "software-library__feature-status";
-  status.dataset.status = featureDefinition.status;
-  status.textContent = statusLabel(featureDefinition.status);
+  status.textContent = branch?.label ?? entry.branchId;
   header.append(heading, status);
-  const body = ownerDocument.createElement("dl");
-  body.append(
-    detailRow(ownerDocument, "作用", featureDefinition.purpose),
-    detailRow(ownerDocument, "何时使用", featureDefinition.useWhen),
-    detailRow(ownerDocument, "当前能力", featureDefinition.currentCapability),
-    detailRow(ownerDocument, "边界", featureDefinition.limitation),
-    detailRow(ownerDocument, "扩展点", featureDefinition.extensionPoints.join(" · ")),
-  );
+
+  const body = ownerDocument.createElement("div");
+  body.className = "software-library__article-body";
+  const summary = ownerDocument.createElement("p");
+  summary.textContent = entry.summary;
+  body.append(summary);
+  for (const paragraphText of entry.details) {
+    const paragraph = ownerDocument.createElement("p");
+    paragraph.textContent = paragraphText;
+    body.append(paragraph);
+  }
+  if (entry.aliases.length > 0 || entry.keywords.length > 0) {
+    const terms = ownerDocument.createElement("p");
+    terms.textContent = `检索词：${[...entry.aliases, ...entry.keywords].join(" · ")}`;
+    body.append(terms);
+  }
+  if (entry.example !== null) {
+    const example = ownerDocument.createElement("section");
+    const title = ownerDocument.createElement("h3");
+    title.textContent = entry.example.caption;
+    const pre = ownerDocument.createElement("pre");
+    const code = ownerDocument.createElement("code");
+    code.dataset.language = entry.example.language;
+    code.textContent = entry.example.code;
+    pre.append(code);
+    example.append(title, pre);
+    body.append(example);
+  }
+  const related = relatedLibraryEntries(entry);
+  if (related.length > 0) {
+    const relatedSection = ownerDocument.createElement("section");
+    const relatedTitle = ownerDocument.createElement("h3");
+    relatedTitle.textContent = "交叉链接";
+    const relatedLinks = ownerDocument.createElement("nav");
+    relatedLinks.setAttribute("aria-label", "相关词条");
+    for (const relatedEntry of related) {
+      const button = textButton(ownerDocument, relatedEntry.title, "button button--quiet");
+      button.dataset.relatedEntryId = relatedEntry.id;
+      button.addEventListener("click", () => selectEntry(relatedEntry.id));
+      relatedLinks.append(button);
+    }
+    relatedSection.append(relatedTitle, relatedLinks);
+    body.append(relatedSection);
+  }
+
   const actions = ownerDocument.createElement("footer");
-  const open = textButton(ownerDocument, "打开此功能", "button button--primary");
-  open.addEventListener("click", () =>
-    callbacks.onOpenFeature(featureDefinition.pageId, featureDefinition.targetId),
-  );
+  const featureLink = featureLinkOverride ?? entry.featureLink;
+  if (featureLink !== null) {
+    const link = featureLink;
+    const open = textButton(ownerDocument, link.label, "button button--primary");
+    open.addEventListener("click", () => callbacks.onOpenFeature(link.pageId, link.targetId));
+    actions.append(open);
+  }
   const tour = textButton(ownerDocument, "重新开始视觉引导", "button button--quiet");
   tour.addEventListener("click", callbacks.onStartTour);
-  actions.append(open, tour);
+  actions.append(tour);
   host.replaceChildren(header, body, actions);
 }
 
-function renderEmptyDetail(ownerDocument: Document, host: HTMLElement): void {
+function renderEmptyDetail(ownerDocument: Document, host: HTMLElement, message: string): void {
   const empty = ownerDocument.createElement("p");
   empty.className = "software-library__empty";
-  empty.textContent = "没有匹配的功能。";
+  empty.textContent = message;
   host.replaceChildren(empty);
-}
-
-function detailRow(ownerDocument: Document, term: string, copy: string): HTMLDivElement {
-  const row = ownerDocument.createElement("div");
-  const title = ownerDocument.createElement("dt");
-  title.textContent = term;
-  const description = ownerDocument.createElement("dd");
-  description.textContent = copy;
-  row.append(title, description);
-  return row;
 }
 
 function feature(
@@ -303,6 +452,30 @@ function feature(
     ...content,
     extensionPoints: Object.freeze([...content.extensionPoints]),
   });
+}
+
+function featureIdForEntry(entryId: string): string {
+  return (
+    Object.entries(FEATURE_ENTRY_IDS).find(([, mappedEntryId]) => mappedEntryId === entryId)?.[0] ??
+    ""
+  );
+}
+
+function shortBranchLabel(branchId: LibraryBranchId): string {
+  const labels: Readonly<Record<LibraryBranchId, string>> = Object.freeze({
+    manual: "手册",
+    "canvas-wires": "画布",
+    "execution-diagnostics": "运行",
+    "c-syntax": "C",
+    "standard-library": "标准库",
+    "data-structure-dictionary": "结构",
+    "algorithms-complexity": "算法",
+    examples: "案例",
+    recovery: "恢复",
+    "extension-api": "扩展",
+    onboarding: "引导",
+  });
+  return labels[branchId];
 }
 
 function statusLabel(status: SoftwareFeatureStatus): string {

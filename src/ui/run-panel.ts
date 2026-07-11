@@ -1,4 +1,11 @@
-import type { Capabilities, ClangDiagnostic, TerminationReason } from "../shared/api.js";
+import type {
+  Capabilities,
+  ClangDiagnostic,
+  CompileResult,
+  RunResult,
+  TerminationReason,
+} from "../shared/api.js";
+import { fingerprintSource } from "../shared/source-snapshot.js";
 
 const RUNNER_SOURCE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.c$/u;
 const MAX_RUNNER_SOURCE_NAME_LENGTH = 128;
@@ -10,13 +17,85 @@ let nextRunPanelId = 1;
 export interface RunPanelOptions {
   readonly getSource: () => string;
   readonly getDisplayName: () => string;
+  readonly getManualScenario?: (() => ManualRunScenario | null) | undefined;
   readonly onDiagnostics?: (source: string, diagnostics: readonly ClangDiagnostic[]) => void;
+  readonly onRunComplete?: ((completion: RunPanelCompletion) => void) | undefined;
+}
+
+export interface ManualRunScenario {
+  readonly id: string;
+  readonly version: string;
+  readonly mode: "real" | "simulation";
+  readonly stdin: string;
+  readonly arguments: readonly string[];
+  readonly inputSize: number | null;
+}
+
+export interface RunPanelCompletion {
+  readonly source: string;
+  readonly sourceFingerprint: string;
+  readonly compileResult: CompileResult;
+  readonly runResult: RunResult | null;
+  readonly capabilities: Capabilities;
+  readonly scenario: ManualRunScenario | null;
 }
 
 export interface RunPanel {
   refreshCapabilities(): Promise<void>;
   invalidateSource(): void;
   destroy(): void;
+}
+
+export interface RunEvidencePresentation {
+  readonly runDuration: string;
+  readonly peakRss: string;
+  readonly peakProcessCount: string;
+  readonly outputBytes: string;
+  readonly executedNodeCount: string;
+  readonly operationCount: string;
+}
+
+const RUN_SCENARIO_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
+const RUN_SCENARIO_VERSION_PATTERN =
+  /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u;
+
+export function normalizeManualRunScenario(
+  value: ManualRunScenario | null,
+): ManualRunScenario | null {
+  if (value === null) return null;
+  if (typeof value !== "object") throw new TypeError("运行情景必须是对象或 null");
+  if (!RUN_SCENARIO_ID_PATTERN.test(value.id)) {
+    throw new TypeError("运行情景 id 必须是稳定标识符");
+  }
+  if (!RUN_SCENARIO_VERSION_PATTERN.test(value.version)) {
+    throw new TypeError("运行情景 version 必须是语义化版本");
+  }
+  if (value.mode !== "real" && value.mode !== "simulation") {
+    throw new TypeError("运行情景 mode 必须是 real 或 simulation");
+  }
+  if (typeof value.stdin !== "string" || value.stdin.includes("\0")) {
+    throw new TypeError("运行情景 stdin 必须是无 NUL 的字符串");
+  }
+  if (
+    !Array.isArray(value.arguments) ||
+    value.arguments.some((argument) => typeof argument !== "string" || argument.includes("\0"))
+  ) {
+    throw new TypeError("运行情景 arguments 必须是无 NUL 的字符串数组");
+  }
+  if (
+    value.inputSize !== null &&
+    (!Number.isSafeInteger(value.inputSize) || value.inputSize <= 0)
+  ) {
+    throw new TypeError("运行情景 inputSize 必须是正安全整数或 null");
+  }
+  return Object.freeze({
+    id: value.id,
+    version: value.version,
+    mode: value.mode,
+    stdin: value.stdin,
+    arguments: Object.freeze([...value.arguments]),
+    inputSize: value.inputSize,
+  });
 }
 
 export function toRunnerSourceName(displayName: string): string {
@@ -36,6 +115,30 @@ export function toRunnerSourceName(displayName: string): string {
     return "main.c";
   }
   return sourceName;
+}
+
+export function formatCompileDurationEvidence(value: number | undefined): string {
+  return isNonNegativeFinite(value) ? `${formatMetricNumber(value)} ms` : "不可用";
+}
+
+export function formatRunEvidence(result: RunResult): RunEvidencePresentation {
+  const sampled = isNonNegativeSafeInteger(result.peakProcessCount) && result.peakProcessCount > 0;
+  const capturedOutput = isNonNegativeSafeInteger(result.outputBytes)
+    ? result.outputBytes
+    : result.stdout.byteLength + result.stderr.byteLength;
+  return Object.freeze({
+    runDuration: isNonNegativeFinite(result.durationMs)
+      ? `${formatMetricNumber(result.durationMs)} ms`
+      : "不可用",
+    peakRss:
+      sampled && isNonNegativeSafeInteger(result.peakRssBytes)
+        ? `${formatByteCount(result.peakRssBytes)}（采样峰值）`
+        : "未取得有效样本",
+    peakProcessCount: sampled ? `${String(result.peakProcessCount)}（采样峰值）` : "未取得有效样本",
+    outputBytes: `${formatByteCount(capturedOutput)}（stdout + stderr 已捕获）`,
+    executedNodeCount: formatInstrumentedCount(result.executedNodeCount),
+    operationCount: formatInstrumentedCount(result.operationCount),
+  });
 }
 
 export function createRunPanel(host: HTMLElement, options: RunPanelOptions): RunPanel {
@@ -99,10 +202,30 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
 
   const processList = createElement("dl", "run-panel__process-result");
   processList.hidden = true;
+  const evidenceNotice = createElement(
+    "p",
+    "run-panel__evidence-notice",
+    "分项数据来自本次本机受限进程；不代表 Big-O，也不合成为评分。",
+  );
+  evidenceNotice.hidden = true;
+  const compileDurationValue = appendDescriptionRow(
+    processList,
+    "编译进程耗时",
+    "compile-duration",
+  );
   const exitValue = appendDescriptionRow(processList, "退出码", "exit-code");
   const signalValue = appendDescriptionRow(processList, "信号", "signal");
   const terminationValue = appendDescriptionRow(processList, "终止原因", "termination");
-  const durationValue = appendDescriptionRow(processList, "耗时", "duration");
+  const durationValue = appendDescriptionRow(processList, "运行墙钟耗时", "duration");
+  const peakRssValue = appendDescriptionRow(processList, "进程组峰值内存", "peak-rss");
+  const peakProcessValue = appendDescriptionRow(
+    processList,
+    "进程组峰值数量",
+    "peak-process-count",
+  );
+  const outputBytesValue = appendDescriptionRow(processList, "捕获输出量", "output-bytes");
+  const executedNodesValue = appendDescriptionRow(processList, "执行节点数", "executed-node-count");
+  const operationCountValue = appendDescriptionRow(processList, "操作计数", "operation-count");
   resetProcessDetails();
   setOutput(diagnosticsHeading, diagnostics, "");
   setOutput(stdoutHeading, stdout, "");
@@ -123,6 +246,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     sanitizer,
     leaksHeading,
     leaks,
+    evidenceNotice,
     processList,
   );
   root.append(safetyNotice, action, capabilityDetails, result);
@@ -206,6 +330,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       return;
     }
 
+    const runCapabilities = snapshotCapabilities(capabilities);
     busy = true;
     const requestId = runRequestId + 1;
     runRequestId = requestId;
@@ -219,33 +344,59 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     setOutput(stderrHeading, stderr, "");
     setOutput(sanitizerHeading, sanitizer, "");
     setOutput(leaksHeading, leaks, "");
-    processList.hidden = true;
+    setProcessEvidenceVisible(false);
     resetProcessDetails();
     updateRunButton();
 
     let source: string;
     let displayName: string;
+    let scenario: ManualRunScenario | null;
     try {
       source = options.getSource();
       displayName = options.getDisplayName();
       if (typeof source !== "string" || typeof displayName !== "string") {
         throw new TypeError("source callbacks must return strings");
       }
+      scenario = normalizeManualRunScenario(options.getManualScenario?.() ?? null);
     } catch {
       finishFailure(
         requestId,
-        "本次运行失败：无法取得当前源码，未启动编译。",
+        "本次运行失败：无法取得当前源码或有效运行情景，未启动编译。",
         "source-unavailable",
       );
       finishRun(requestId);
       return;
     }
 
+    let completedCompile: CompileResult | null = null;
+    let completionDelivered = false;
+    const deliverCompletion = (runResult: RunResult | null): void => {
+      if (completionDelivered) return;
+      const compileResult = completedCompile;
+      if (compileResult === null) return;
+      completionDelivered = true;
+      try {
+        options.onRunComplete?.(
+          Object.freeze({
+            source,
+            sourceFingerprint: fingerprintSource(source),
+            compileResult,
+            runResult,
+            capabilities: runCapabilities,
+            scenario,
+          }),
+        );
+      } catch {
+        // Evidence consumers are isolated from the compile/run interaction.
+      }
+    };
+
     try {
       const compileResult = await window.panelApi.compile({
         source,
         sourceName: toRunnerSourceName(displayName),
       });
+      completedCompile = compileResult;
       if (!isCurrentRun(requestId)) {
         return;
       }
@@ -254,7 +405,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         return;
       }
       setOutput(diagnosticsHeading, diagnostics, compileResult.diagnostics);
+      compileDurationValue.textContent = formatCompileDurationEvidence(
+        compileResult.compileDurationMs,
+      );
+      setProcessEvidenceVisible(true);
       if (!compileResult.ok) {
+        deliverCompletion(null);
         finishFailure(
           requestId,
           `本次运行失败：编译未通过（${compileResult.error.code}：${compileResult.error.message}）`,
@@ -265,7 +421,15 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
 
       operationStatus.textContent = "编译完成，正在运行…";
       resultStatus.textContent = "编译完成，正在运行…";
-      const runResult = await window.panelApi.run({ artifactId: compileResult.artifactId });
+      const runResult = await window.panelApi.run({
+        artifactId: compileResult.artifactId,
+        ...(scenario === null
+          ? {}
+          : {
+              args: scenario.arguments,
+              stdin: scenario.stdin,
+            }),
+      });
       if (!isCurrentRun(requestId)) {
         return;
       }
@@ -279,8 +443,15 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       exitValue.textContent = runResult.exitCode === null ? "—" : String(runResult.exitCode);
       signalValue.textContent = runResult.signal ?? "—";
       terminationValue.textContent = terminationLabel(runResult.termination);
-      durationValue.textContent = `${runResult.durationMs} ms`;
-      processList.hidden = false;
+      const evidence = formatRunEvidence(runResult);
+      durationValue.textContent = evidence.runDuration;
+      peakRssValue.textContent = evidence.peakRss;
+      peakProcessValue.textContent = evidence.peakProcessCount;
+      outputBytesValue.textContent = evidence.outputBytes;
+      executedNodesValue.textContent = evidence.executedNodeCount;
+      operationCountValue.textContent = evidence.operationCount;
+      setProcessEvidenceVisible(true);
+      deliverCompletion(runResult);
 
       if (runResult.ok) {
         root.dataset.state = "success";
@@ -294,6 +465,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       }
     } catch {
       if (isCurrentSource(source)) {
+        deliverCompletion(null);
         finishFailure(requestId, "本次运行失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
       } else {
         finishStale(requestId);
@@ -315,7 +487,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       : "正在运行 clang 静态诊断…";
     resultStatus.textContent = operationStatus.textContent;
     result.hidden = false;
-    processList.hidden = true;
+    setProcessEvidenceVisible(false);
     setOutput(diagnosticsHeading, diagnostics, "");
     setOutput(stdoutHeading, stdout, "");
     setOutput(stderrHeading, stderr, "");
@@ -438,10 +610,21 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   }
 
   function resetProcessDetails(): void {
+    compileDurationValue.textContent = "—";
     exitValue.textContent = "—";
     signalValue.textContent = "—";
     terminationValue.textContent = "—";
     durationValue.textContent = "—";
+    peakRssValue.textContent = "—";
+    peakProcessValue.textContent = "—";
+    outputBytesValue.textContent = "—";
+    executedNodesValue.textContent = "—";
+    operationCountValue.textContent = "—";
+  }
+
+  function setProcessEvidenceVisible(visible: boolean): void {
+    processList.hidden = !visible;
+    evidenceNotice.hidden = !visible;
   }
 
   const onRunClick = (): void => {
@@ -464,7 +647,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       setOutput(stderrHeading, stderr, "");
       setOutput(sanitizerHeading, sanitizer, "");
       setOutput(leaksHeading, leaks, "");
-      processList.hidden = true;
+      setProcessEvidenceVisible(false);
       resetProcessDetails();
       if (busy) {
         operationStatus.textContent = "源码已改变；当前任务结束后将丢弃旧结果。";
@@ -574,4 +757,40 @@ function terminationLabel(reason: TerminationReason): string {
     "rss-monitor-error": "内存看门狗失败",
   };
   return `${labels[reason]}（${reason}）`;
+}
+
+function formatInstrumentedCount(value: number | null | undefined): string {
+  if (value === null) return "未启用轨迹插桩";
+  return isNonNegativeSafeInteger(value) ? String(value) : "不可用";
+}
+
+function formatByteCount(bytes: number): string {
+  if (bytes < 1_024) return `${String(bytes)} B`;
+  if (bytes < 1_024 * 1_024) return `${formatMetricNumber(bytes / 1_024)} KiB`;
+  return `${formatMetricNumber(bytes / (1_024 * 1_024))} MiB`;
+}
+
+function formatMetricNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function isNonNegativeFinite(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value >= 0;
+}
+
+function isNonNegativeSafeInteger(value: number | undefined): value is number {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0;
+}
+
+function snapshotCapabilities(value: Capabilities): Capabilities {
+  return Object.freeze({
+    mode: value.mode,
+    runnerEnabled: value.runnerEnabled,
+    toolchainId: value.toolchainId,
+    seatbeltProbe: Object.freeze({
+      status: value.seatbeltProbe.status,
+      detail: value.seatbeltProbe.detail,
+    }),
+    requiresNativeTrustConfirmation: value.requiresNativeTrustConfirmation,
+  });
 }

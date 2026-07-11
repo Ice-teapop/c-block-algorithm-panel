@@ -2,6 +2,7 @@ import {
   createOnboardingFlow,
   getOnboardingScene,
   type OnboardingPlacement,
+  type OnboardingScene,
   type OnboardingState,
   type OnboardingStorage,
 } from "../onboarding/flow.js";
@@ -10,6 +11,8 @@ export interface OnboardingTourOptions {
   readonly storage?: OnboardingStorage | undefined;
   readonly navigate: (pageId: string) => void;
   readonly getCurrentPage: () => string;
+  readonly prepareScene?: ((scene: OnboardingScene) => void) | undefined;
+  readonly onClose?: (() => void) | undefined;
   readonly scheduleFrame?: (callback: FrameRequestCallback) => number;
   readonly cancelFrame?: (handle: number) => void;
 }
@@ -181,6 +184,7 @@ export function createOnboardingTour(
     clearTarget();
     root.hidden = true;
     unlockBackground();
+    options.onClose?.();
     if (restorePage && startingPage !== null) options.navigate(startingPage);
     returnFocus?.focus();
     returnFocus = null;
@@ -219,6 +223,7 @@ export function createOnboardingTour(
     });
     choices.replaceChildren(...choiceButtons);
     options.navigate(scene.pageId);
+    options.prepareScene?.(scene);
     schedulePosition();
   };
 
@@ -291,10 +296,12 @@ export function createOnboardingTour(
     skip: onSkip,
     destroy(): void {
       if (destroyed) return;
+      const wasOpen = !root.hidden;
       destroyed = true;
       clearFrames();
       clearTarget();
       unlockBackground();
+      if (wasOpen) options.onClose?.();
       back.removeEventListener("click", onBack);
       skip.removeEventListener("click", onSkip);
       ownerDocument.removeEventListener("keydown", onKeydown);
@@ -364,9 +371,20 @@ function centerCard(card: HTMLElement, ownerWindow: Window | null): void {
 
 function findTourTarget(ownerDocument: Document, targetId: string): HTMLElement | null {
   for (const target of ownerDocument.querySelectorAll<HTMLElement>("[data-tour-target]")) {
-    if (target.dataset.tourTarget === targetId && !target.hidden) return target;
+    if (target.dataset.tourTarget === targetId && isTourTargetVisible(target)) return target;
   }
   return null;
+}
+
+function isTourTargetVisible(target: HTMLElement): boolean {
+  for (
+    let current: HTMLElement | null = target;
+    current !== null;
+    current = current.parentElement
+  ) {
+    if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+  }
+  return true;
 }
 
 function textButton(ownerDocument: Document, label: string, className: string): HTMLButtonElement {
@@ -386,7 +404,12 @@ function isFocusable(element: Element | null): element is HTMLElement {
 }
 
 function assertOptions(options: OnboardingTourOptions): void {
-  if (typeof options.navigate !== "function" || typeof options.getCurrentPage !== "function") {
+  if (
+    typeof options.navigate !== "function" ||
+    typeof options.getCurrentPage !== "function" ||
+    (options.prepareScene !== undefined && typeof options.prepareScene !== "function") ||
+    (options.onClose !== undefined && typeof options.onClose !== "function")
+  ) {
     throw new TypeError("Onboarding tour options 无效");
   }
 }

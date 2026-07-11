@@ -14,6 +14,11 @@ let page: Page;
 let workspaceRoot = "";
 let projectId = "";
 
+// Later cases intentionally reuse the project created by the first case. Stop
+// after a prerequisite failure instead of restarting a fresh worker and
+// emitting misleading entry.json/editor cascade errors.
+test.describe.configure({ mode: "serial" });
+
 test.beforeAll(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "c-block-dashboard-e2e-"));
   const inheritedEnvironment = Object.fromEntries(
@@ -92,9 +97,23 @@ test("creates a real project folder, enters the workbench and reopens it after r
     "aria-selected",
     "true",
   );
-  await page.getByRole("button", { name: "二分搜索", exact: true }).click();
+  const projectRow = page.getByRole("link", { name: "打开项目“二分搜索”" });
+  await projectRow.focus();
+  await expect(projectRow).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
   await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 42;", "}", ""]);
+  await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("#startup-loader")).toBeHidden();
+  const rowAfterReload = page.getByRole("link", { name: "打开项目“二分搜索”" });
+  const kindCell = rowAfterReload.locator("td").nth(1);
+  await kindCell.click();
+  await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
   await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",

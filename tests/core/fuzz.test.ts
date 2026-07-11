@@ -20,6 +20,7 @@ const sampleSources = readdirSync(samplesRoot, { withFileTypes: true })
   .map((entry) => readFileSync(resolve(samplesRoot, entry.name, "main.c"), "utf8"));
 const configuredRuns = readPositiveInteger("M1_FUZZ_RUNS", 500);
 const configuredSeed = readSafeInteger("M1_FUZZ_SEED", 0xc0b10c);
+const fuzzTimeoutMs = Math.max(5_000, Math.min(300_000, configuredRuns * 6));
 const allowedAncestors = new Set(["translation_unit", "ERROR", "preproc_ifdef", "preproc_else"]);
 
 type Mutation =
@@ -84,44 +85,48 @@ afterAll(() => {
 });
 
 describe("M1 mutation fuzz", () => {
-  it(`preserves characters and eligible functions (${configuredRuns} runs, seed ${configuredSeed})`, () => {
-    const property = fc.property(mutationArbitrary, (mutation) => {
-      const source = applyMutation(mutation);
-      const document = parser.project(source);
-      const rendered = renderSourceDoc(document);
+  it(
+    `preserves characters and eligible functions (${configuredRuns} runs, seed ${configuredSeed})`,
+    () => {
+      const property = fc.property(mutationArbitrary, (mutation) => {
+        const source = applyMutation(mutation);
+        const document = parser.project(source);
+        const rendered = renderSourceDoc(document);
 
-      assertSourceDocInvariants(document);
-      expect(rebuildFromCoverage(document)).toBe(source);
-      expect(rendered).toBe(source);
-      expect(new TextEncoder().encode(rendered)).toEqual(new TextEncoder().encode(source));
-      expect(projectionShape(parser.project(rendered))).toEqual(projectionShape(document));
-      assertEligibleFunctionsPreserved(source, document);
-    });
-    const result = fc.check(property, {
-      numRuns: configuredRuns,
-      seed: configuredSeed,
-      endOnFailure: false,
-      verbose: 2,
-    });
-    if (result.failed) {
-      const mutation = result.counterexample?.[0] as Mutation | undefined;
-      const regression = mutation === undefined ? "" : applyMutation(mutation);
-      const digest = createHash("sha256").update(regression).digest("hex").slice(0, 12);
-      const regressionDirectory = resolve(projectRoot, "corpus/regressions");
-      mkdirSync(regressionDirectory, { recursive: true });
-      writeFileSync(resolve(regressionDirectory, `m1-${digest}.c`), regression, "utf8");
-      writeFileSync(
-        resolve(regressionDirectory, `m1-${digest}.json`),
-        `${JSON.stringify({ seed: configuredSeed, mutation }, null, 2)}\n`,
-        "utf8",
-      );
-    }
-    const failureMessage =
-      result.errorInstance instanceof Error
-        ? result.errorInstance.message
-        : String(result.errorInstance ?? "fast-check failed");
-    expect(result.failed, failureMessage).toBe(false);
-  });
+        assertSourceDocInvariants(document);
+        expect(rebuildFromCoverage(document)).toBe(source);
+        expect(rendered).toBe(source);
+        expect(new TextEncoder().encode(rendered)).toEqual(new TextEncoder().encode(source));
+        expect(projectionShape(parser.project(rendered))).toEqual(projectionShape(document));
+        assertEligibleFunctionsPreserved(source, document);
+      });
+      const result = fc.check(property, {
+        numRuns: configuredRuns,
+        seed: configuredSeed,
+        endOnFailure: false,
+        verbose: 2,
+      });
+      if (result.failed) {
+        const mutation = result.counterexample?.[0] as Mutation | undefined;
+        const regression = mutation === undefined ? "" : applyMutation(mutation);
+        const digest = createHash("sha256").update(regression).digest("hex").slice(0, 12);
+        const regressionDirectory = resolve(projectRoot, "corpus/regressions");
+        mkdirSync(regressionDirectory, { recursive: true });
+        writeFileSync(resolve(regressionDirectory, `m1-${digest}.c`), regression, "utf8");
+        writeFileSync(
+          resolve(regressionDirectory, `m1-${digest}.json`),
+          `${JSON.stringify({ seed: configuredSeed, mutation }, null, 2)}\n`,
+          "utf8",
+        );
+      }
+      const failureMessage =
+        result.errorInstance instanceof Error
+          ? result.errorInstance.message
+          : String(result.errorInstance ?? "fast-check failed");
+      expect(result.failed, failureMessage).toBe(false);
+    },
+    fuzzTimeoutMs,
+  );
 });
 
 function assertEligibleFunctionsPreserved(

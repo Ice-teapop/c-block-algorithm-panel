@@ -1,0 +1,92 @@
+# Changelog
+
+All notable changes to this project are documented in this file. The format is
+based on Keep a Changelog, and versions follow Semantic Versioning.
+
+## [0.1.0-beta.1] - 2026-07-12
+
+### Added
+
+- A free-position HTML/SVG flow canvas with pan, zoom, selection, alignment,
+  copy, delete, undo, compact nodes, editable control wires, and read-only
+  def-use wires.
+- Source-authoritative `FlowProjection`, ports, connection intents and plans.
+  Rewiring commits only after legal C generation, reparsing, and CFG
+  postcondition validation; raw, macro, and partial-CFG topology remains locked.
+- Canvas-local, non-modal node details for source editing, plain-language
+  explanations, ports, diagnostics, run evidence, and lifecycle actions.
+- Unconnected draft blocks, virtual Start/End/Pause/Checkpoint/Merge nodes, and
+  versioned `flow-view.json` persistence that cannot overwrite `main.c`.
+- Flow-view v2 structural/text anchors that persist no snapshot-local node,
+  port, or edge IDs; ambiguous source migrations discard only the affected
+  view state.
+- A bounded shadow-source Trace API with start/read/cancel operations, source
+  fingerprint invalidation, one-run authorization, cancellation, and 10,000
+  event / 8 MiB limits.
+- Conservative real `switch`/`case`/`default` tracing with single expression
+  evaluation and fallthrough preservation; unsafe layouts remain fail-closed.
+- Separate real-execution and teaching-simulation paths. Simulated cases never
+  enter real performance history or support output/performance conclusions.
+- Extended compile and run evidence: compile time, wall time, peak RSS, peak
+  process count, output bytes, executed nodes, operation counts, and termination
+  reason.
+- Versioned, capped `run-history.json` storage and comparison restricted to the
+  same source fingerprint, scenario version, and toolchain. Benchmark summaries
+  use repeated-run medians and operation-growth evidence without a composite
+  score.
+- Eighty versioned presets: 75 source-backed blocks and five virtual flow
+  controls across C fundamentals, I/O, memory, data structures, algorithm
+  patterns, and testing.
+- An 11-branch Library with 114 substantive entries covering the workbench, C,
+  the standard library, data structures, algorithms, complexity, examples,
+  recovery, extension contracts, and onboarding.
+- Deterministic local mentor hints grounded in static findings, loop structure,
+  real paths, and run history, plus local scenarios for sorting, search,
+  recursion, linked lists, trees, graphs, and dynamic programming.
+- Dock menu, panel, and layout contribution contracts; resizable persistent
+  workbench layouts; and a rebuilt visual onboarding flow.
+- Versioned `scenarios.json` and `run-history.json` project sidecar contracts.
+  Legacy projects create sidecars lazily and sidecar recovery never rewrites
+  source.
+- Worker-based progressive M5 analysis and lazy per-function CFG generation.
+- ADRs for source-authoritative flow projection, bounded Trace execution, and
+  the separation of runtime metrics from complexity claims.
+- Node 24 LTS CI and an offline-verifiable release configuration.
+- A dedicated unsigned Universal macOS DMG beta target.
+- Tag-gated GitHub prerelease automation with full tests and SHA-256 artifacts.
+- Explicit M0-M5 gold/equivalence/fuzz gates plus DMG mount, copied-app launch,
+  and packaged-resource smoke verification before release upload.
+- MIT licensing, privacy, security, notice, and contribution documents.
+
+### Changed
+
+- The application now opens on a white, black-text industrial UI; the dark
+  theme remains available in Settings.
+- The top Dock is reduced to Settings, Presets, Library, and Panel Preview, each
+  with structured branches.
+- Dashboard rows open projects directly by click or Enter. Workbench regions
+  scroll independently and meaningful panel boundaries are resizable.
+- The flow canvas receives more space than the source pane while code remains
+  continuously visible and authoritative.
+- Custom preset lifecycle data is no longer treated as disposable browser-only
+  state; project instances retain template version and source snapshots.
+
+### Security
+
+- Renderer code still has no direct Node or filesystem access. New sidecars,
+  Trace sessions, and run evidence use named IPC, bounded inputs, opaque
+  workspace identifiers, and fail-closed validation.
+- Trace instrumentation uses temporary shadow source and never modifies the
+  project file. Stale source fingerprints invalidate old results.
+- The current mentor and scenario providers are offline and deterministic. No
+  source or run evidence is uploaded, and no hint automatically edits code.
+- Unsafe fan-out, cross-syntax rewiring, ambiguous anchors, and edits inside
+  raw/partial regions are rejected rather than guessed.
+
+### Distribution warning
+
+- This beta is intentionally unsigned and unnotarized. Verify
+  `SHA256SUMS.txt`; Gatekeeper may require explicit user approval.
+- Stable `v0.1.0` builds are blocked until Developer ID signing, Hardened
+  Runtime, minimal entitlements, notarization, and stapling replace the
+  beta-only signing configuration.

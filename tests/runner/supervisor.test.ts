@@ -136,6 +136,8 @@ describe("superviseProcess", () => {
 
     await expect(outcomePromise).resolves.toMatchObject({
       termination: "rss-limit",
+      peakRssBytes: 1_001,
+      peakProcessCount: 1,
     });
     expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
   });
@@ -156,9 +158,60 @@ describe("superviseProcess", () => {
     await expect(outcomePromise).resolves.toMatchObject({
       termination: "process-count-limit",
       processControlFailed: false,
+      peakProcessCount: 65,
     });
     expect(host.resourceSamples).toEqual([4_242]);
     expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
+  });
+
+  it("retains independent RSS and process-count peaks across valid samples", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    const outcomePromise = superviseProcess(SPECIFICATION, new Uint8Array(), LIMITS, {
+      clock,
+      processHost: host,
+    });
+
+    host.rssBytes = 320;
+    host.processCount = 4;
+    clock.advanceBy(10);
+    await flushAsyncWork();
+    host.rssBytes = 760;
+    host.processCount = 2;
+    clock.advanceBy(10);
+    await flushAsyncWork();
+    host.rssBytes = 180;
+    host.processCount = 3;
+    clock.advanceBy(10);
+    await flushAsyncWork();
+    host.children[0]?.complete(0);
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "process-exit",
+      peakRssBytes: 760,
+      peakProcessCount: 4,
+    });
+  });
+
+  it("fails closed instead of publishing a malformed resource sample", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    host.rssBytes = 1.5;
+    const outcomePromise = superviseProcess(SPECIFICATION, new Uint8Array(), LIMITS, {
+      clock,
+      processHost: host,
+    });
+
+    clock.advanceBy(10);
+    await flushAsyncWork();
+    host.children[0]?.emitClose(null, "SIGKILL");
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "rss-monitor-error",
+      peakRssBytes: 0,
+      peakProcessCount: 0,
+    });
+    expect(host.groupKills).toHaveLength(1);
   });
 
   it("preserves invalid UTF-8 bytes instead of replacing them", async () => {

@@ -11,11 +11,11 @@ describe("theme controller pure contract", () => {
   it.each([
     ["dark", "dark"],
     ["light", "light"],
-    [null, "dark"],
-    [undefined, "dark"],
-    ["LIGHT", "dark"],
-    ["system", "dark"],
-    [{ theme: "light" }, "dark"],
+    [null, "light"],
+    [undefined, "light"],
+    ["LIGHT", "light"],
+    ["system", "light"],
+    [{ theme: "light" }, "light"],
   ] as const)("resolves %j to %s", (value, expected) => {
     expect(resolveTheme(value)).toBe(expected);
   });
@@ -65,18 +65,18 @@ describe("theme controller", () => {
     expect(storage.setItem).toHaveBeenLastCalledWith(THEME_STORAGE_KEY, "dark");
   });
 
-  it.each([null, "system", " light "])("falls back to dark for stored value %j", (value) => {
+  it.each([null, "system", " light "])("falls back to light for stored value %j", (value) => {
     const root = fakeRoot();
     const button = new FakeButton();
 
     createThemeController({ root, button: asButton(button), storage: memoryStorage(value) });
 
-    expect(root.dataset.theme).toBe("dark");
-    expect(button.dataset.theme).toBe("dark");
-    expect(button.attribute("aria-label")).toBe("切换为浅色主题");
+    expect(root.dataset.theme).toBe("light");
+    expect(button.dataset.theme).toBe("light");
+    expect(button.attribute("aria-label")).toBe("切换为深色主题");
   });
 
-  it("falls back to dark when storage cannot be read", () => {
+  it("falls back to light when storage cannot be read", () => {
     const root = fakeRoot();
     const button = new FakeButton();
     const storage: ThemeStorage = {
@@ -87,7 +87,7 @@ describe("theme controller", () => {
     };
 
     expect(() => createThemeController({ root, button: asButton(button), storage })).not.toThrow();
-    expect(root.dataset.theme).toBe("dark");
+    expect(root.dataset.theme).toBe("light");
   });
 
   it("keeps the in-session toggle usable when storage cannot be written", () => {

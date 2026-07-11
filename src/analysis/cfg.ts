@@ -88,7 +88,13 @@ const EDGE_ORDER: Readonly<Record<CfgEdgeKind, number>> = Object.freeze({
 export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisSnapshot {
   assertInput(input);
   const projectedByFunction = projectedStatementsByFunction(input.document);
-  const functionAnalyses = collectFunctions(input.rootNode)
+  const functionNodes = collectFunctions(input.rootNode);
+  const functionLimit = input.functionLimit ?? functionNodes.length;
+  if (!Number.isSafeInteger(functionLimit) || functionLimit < 0) {
+    throw new RangeError("functionLimit 必须是非负安全整数");
+  }
+  const functionAnalyses = functionNodes
+    .slice(0, functionLimit)
     .map((node) => {
       const range = nodeRange(node, input.source.length);
       const cfg = buildFunctionCfg(

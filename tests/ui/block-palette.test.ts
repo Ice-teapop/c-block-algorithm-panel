@@ -38,6 +38,18 @@ describe("block palette filtering", () => {
       filterLearningTemplates(snapshot, "all", "linear-structure").map(({ id }) => id),
     ).toContain("builtin.linear.advance-node");
   });
+
+  it("exposes virtual Start/End/Pause/Checkpoint controls for canvas dragging", () => {
+    const presets = filterLearningTemplates(createLearningCatalog().snapshot(), "all", "");
+    expect(presets.filter((preset) => preset.blockKind === "virtual").map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        "builtin.flow.start",
+        "builtin.flow.end",
+        "builtin.flow.pause",
+        "builtin.flow.checkpoint",
+      ]),
+    );
+  });
 });
 
 describe("block palette trust and accessibility contract", () => {
@@ -53,12 +65,13 @@ describe("block palette trust and accessibility contract", () => {
     expect(source).not.toContain("row.draggable = true");
     expect(source).toContain("dragSurface.dataset.templateId = template.id");
     expect(source).toContain("dragSurface.dataset.category = template.category");
-    expect(source).toContain("dragSurface.dataset.fragmentKind = template.fragmentKind");
+    expect(source).toContain("dragSurface.dataset.fragmentKind = visualKind");
+    expect(source).toContain("dragSurface.dataset.blockKind = template.blockKind");
     expect(source).toContain("dragSurface.dataset.stage = template.stage");
   });
 
   it("provides a button alternative to drag and writes catalog text via textContent", () => {
-    expect(source).toContain('insert.textContent = "插入所选位置"');
+    expect(source).toContain('template.source === null ? "拖到画布" : "插入所选位置"');
     expect(source).toContain("button[data-template-action='insert']");
     expect(source).toContain("label.textContent = template.label");
     expect(source).not.toContain("innerHTML");

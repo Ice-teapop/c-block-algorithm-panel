@@ -2,12 +2,19 @@ import { textRange } from "../core/model.js";
 import type { ClangDiagnostic } from "../shared/api.js";
 import type { BlockTree } from "../ui/block-tree.js";
 import type { CodePane } from "../ui/code-pane.js";
-import { createRunPanel, type RunPanel } from "../ui/run-panel.js";
+import {
+  createRunPanel,
+  type ManualRunScenario,
+  type RunPanel,
+  type RunPanelCompletion,
+} from "../ui/run-panel.js";
 
 export interface DiagnosticRunPanelOptions {
   readonly getSource: () => string;
   readonly getAnalyzedSource: () => string | null;
   readonly getDisplayName: () => string;
+  readonly getManualScenario?: (() => ManualRunScenario | null) | undefined;
+  readonly onRunComplete?: ((completion: RunPanelCompletion) => void) | undefined;
 }
 
 export interface DiagnosticRunPanel extends RunPanel {
@@ -23,6 +30,10 @@ export function createDiagnosticRunPanel(
   const runPanel = createRunPanel(host, {
     getSource: options.getSource,
     getDisplayName: options.getDisplayName,
+    ...(options.getManualScenario === undefined
+      ? {}
+      : { getManualScenario: options.getManualScenario }),
+    ...(options.onRunComplete === undefined ? {} : { onRunComplete: options.onRunComplete }),
     onDiagnostics: (source, diagnostics) => {
       if (source !== options.getSource() || source !== options.getAnalyzedSource()) {
         return;

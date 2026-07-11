@@ -9,15 +9,20 @@ export type ReadySession = StructureEditSession & {
 };
 
 export const PROGRAM_ANALYSIS_LIMITS = Object.freeze({
-  maxSourceLengthUtf16: 16 * 1024,
-  maxProjectedBlocks: 256,
+  maxSourceLengthUtf16: 512 * 1024,
+  maxProjectedBlocks: 20_000,
 });
+
+export interface ProgramAnalysisOptions {
+  readonly functionLimit?: number | undefined;
+}
 
 export function analyzeProgramSnapshot(
   parser: CParser,
   source: string,
   revision: number,
   projectedBlockCount: number,
+  options: ProgramAnalysisOptions = {},
 ): ProgramAnalysisSnapshot {
   assertSnapshotRequest(revision, projectedBlockCount);
   if (
@@ -30,11 +35,20 @@ export function analyzeProgramSnapshot(
     if (rootNode.type !== "translation_unit") {
       return emptyProgramAnalysisSnapshot(source, revision);
     }
-    return analyzeProgramCst({ source, revision, rootNode, document });
+    return analyzeProgramCst({
+      source,
+      revision,
+      rootNode,
+      document,
+      ...(options.functionLimit === undefined ? {} : { functionLimit: options.functionLimit }),
+    });
   }).result;
 }
 
-function emptyProgramAnalysisSnapshot(source: string, revision: number): ProgramAnalysisSnapshot {
+export function emptyProgramAnalysisSnapshot(
+  source: string,
+  revision: number,
+): ProgramAnalysisSnapshot {
   return Object.freeze({
     revision,
     sourceLength: source.length,

@@ -30,6 +30,14 @@ import type {
 } from "../../../src/shared/api.js";
 import { RUNNER_LIMITS, type RunnerLimits } from "../../../src/shared/limits.js";
 import { fingerprintSource } from "../../../src/shared/source-snapshot.js";
+import type {
+  TraceBatch,
+  TraceCancelResult,
+  TraceRequest,
+  TraceRunEvidence,
+  TraceStartResult,
+  TraceUnsupportedReason,
+} from "../../../src/shared/trace.js";
 import { ArtifactRegistry, type ArtifactRuntimeProfile } from "./artifact-registry.js";
 import { cleanupStaleWorkDirectories } from "./stale-cleanup.js";
 import {
@@ -42,6 +50,7 @@ import {
   SANITIZER_RUN_PROFILE,
   SANDBOX_EXEC_PATH,
   SystemCapabilityProbe,
+  toolchainIdentifier,
   type CapabilityProbe,
   type SeatbeltProbeResult,
   type ToolchainDetector,
@@ -56,7 +65,19 @@ import {
   type RunnerClock,
   type SpawnSpecification,
 } from "./process-host.js";
-import { superviseProcess, type ProcessOutcome, type SupervisionLimits } from "./supervisor.js";
+import {
+  superviseProcess,
+  type ProcessObserver,
+  type ProcessOutcome,
+  type SupervisionLimits,
+} from "./supervisor.js";
+import { instrumentTraceSource } from "./trace-instrumentation.js";
+import {
+  TraceProtocolParser,
+  TraceSessionRegistry,
+  type TraceSessionHandle,
+} from "./trace-session.js";
+import { validateTraceRequest, type ValidatedTraceRequest } from "./trace-request.js";
 import {
   validateCompileRequest,
   validateDiagnoseRequest,
@@ -91,7 +112,7 @@ exec "$@"
 `;
 
 type ExecutionStrategy = "seatbelt" | "trusted";
-export type TrustedOperation = "compile" | "run" | "diagnose";
+export type TrustedOperation = "compile" | "run" | "diagnose" | "trace";
 
 declare const trustedExecutionGrantBrand: unique symbol;
 
@@ -138,6 +159,7 @@ export interface RunnerOptions {
   readonly capabilityProbe?: CapabilityProbe;
   readonly toolchainDetector?: ToolchainDetector;
   readonly idGenerator?: () => string;
+  readonly traceIdGenerator?: () => string;
   readonly tempRoot?: string;
 }
 
@@ -152,7 +174,10 @@ export class Runner {
   readonly #clangPath: string;
   readonly #sdkPath: string | undefined;
   readonly #sanitizerRuntimePath: string;
+  readonly #toolchainId: string;
   readonly #trustedGrants = new WeakMap<TrustedExecutionGrant, TrustedGrantRecord>();
+  readonly #traceSessions = new TraceSessionRegistry();
+  readonly #traceIdGenerator: () => string;
   readonly #activeProcesses = new Map<number, ManagedChildProcess>();
   readonly #activeWorkDirectories = new Set<string>();
   readonly #staleCleanupPromise: Promise<number>;
@@ -167,6 +192,7 @@ export class Runner {
     const requestedMode = options.mode ?? "seatbelt-best-effort";
     const toolchain = (options.toolchainDetector ?? detectAppleClang21)();
     this.#mode = toolchain.available ? requestedMode : "disabled";
+    this.#toolchainId = toolchainIdentifier(toolchain, this.#mode);
     this.#clangPath = toolchain.executablePath ?? CLANG_PATH;
     this.#sdkPath = toolchain.sdkPath;
     this.#sanitizerRuntimePath =
@@ -184,17 +210,20 @@ export class Runner {
       clock: this.#clock,
       idGenerator: options.idGenerator ?? (() => randomBytes(24).toString("base64url")),
     });
+    this.#traceIdGenerator =
+      options.traceIdGenerator ?? (() => `trace_${randomBytes(24).toString("base64url")}`);
   }
 
   async getCapabilities(): Promise<Capabilities> {
     await this.#staleCleanupPromise;
     if (this.#mode !== "seatbelt-best-effort") {
-      return capabilitiesWithoutProbe(this.#mode);
+      return capabilitiesWithoutProbe(this.#mode, this.#toolchainId);
     }
     const probe = await this.#getSeatbeltProbe();
     return Object.freeze({
       mode: this.#mode,
       runnerEnabled: true,
+      toolchainId: this.#toolchainId,
       seatbeltProbe: Object.freeze({
         status: probe.status,
         detail: probe.detail,
@@ -206,9 +235,10 @@ export class Runner {
   describeTrustedRequest(operation: "compile", request: CompileRequest): TrustedRequestSummary;
   describeTrustedRequest(operation: "run", request: RunRequest): TrustedRequestSummary;
   describeTrustedRequest(operation: "diagnose", request: DiagnoseRequest): TrustedRequestSummary;
+  describeTrustedRequest(operation: "trace", request: TraceRequest): TrustedRequestSummary;
   describeTrustedRequest(
     operation: TrustedOperation,
-    request: CompileRequest | RunRequest | DiagnoseRequest,
+    request: CompileRequest | RunRequest | DiagnoseRequest | TraceRequest,
   ): TrustedRequestSummary {
     this.#assertAcceptingRequests();
     if (operation === "compile") {
@@ -217,7 +247,10 @@ export class Runner {
     if (operation === "run") {
       return runRequestSummary(validateRunRequest(request, this.#limits));
     }
-    return diagnoseRequestSummary(validateDiagnoseRequest(request, this.#limits));
+    if (operation === "diagnose") {
+      return diagnoseRequestSummary(validateDiagnoseRequest(request, this.#limits));
+    }
+    return traceRequestSummary(validateTraceRequest(request, this.#limits));
   }
 
   createTrustedExecutionGrant(operation: "compile", request: CompileRequest): TrustedExecutionGrant;
@@ -226,9 +259,10 @@ export class Runner {
     operation: "diagnose",
     request: DiagnoseRequest,
   ): TrustedExecutionGrant;
+  createTrustedExecutionGrant(operation: "trace", request: TraceRequest): TrustedExecutionGrant;
   createTrustedExecutionGrant(
     operation: TrustedOperation,
-    request: CompileRequest | RunRequest | DiagnoseRequest,
+    request: CompileRequest | RunRequest | DiagnoseRequest | TraceRequest,
   ): TrustedExecutionGrant {
     this.#assertAcceptingRequests();
     const requestDigest =
@@ -236,7 +270,9 @@ export class Runner {
         ? fingerprintCompileRequest(validateCompileRequest(request, this.#limits))
         : operation === "run"
           ? fingerprintRunRequest(validateRunRequest(request, this.#limits))
-          : fingerprintDiagnoseRequest(validateDiagnoseRequest(request, this.#limits));
+          : operation === "diagnose"
+            ? fingerprintDiagnoseRequest(validateDiagnoseRequest(request, this.#limits))
+            : fingerprintTraceRequest(validateTraceRequest(request, this.#limits));
     const grant = Object.freeze({}) as TrustedExecutionGrant;
     this.#trustedGrants.set(grant, Object.freeze({ operation, requestDigest }));
     return grant;
@@ -296,6 +332,71 @@ export class Runner {
     } finally {
       releaseTask?.();
     }
+  }
+
+  async startTrace(
+    request: TraceRequest,
+    trustedGrant?: TrustedExecutionGrant,
+  ): Promise<TraceStartResult> {
+    let releaseTask: (() => void) | undefined;
+    try {
+      const validated = validateTraceRequest(request, this.#limits);
+      const trustedAuthorized = this.#consumeTrustedGrant(
+        "trace",
+        fingerprintTraceRequest(validated),
+        trustedGrant,
+      );
+      releaseTask = this.#acquireTask();
+      await this.#staleCleanupPromise;
+      const strategy = await this.#resolveExecutionStrategy(trustedAuthorized);
+      const protocolNonce = randomBytes(18).toString("hex");
+      const instrumentation = instrumentTraceSource(
+        validated.source,
+        validated.sourceFingerprint,
+        validated.sourceName,
+        protocolNonce,
+      );
+      if (!instrumentation.ok) {
+        return traceUnsupportedFailure(instrumentation.reason);
+      }
+      const sessionId = this.#traceIdGenerator();
+      const session = this.#traceSessions.create(sessionId, validated.sourceFingerprint);
+      const backgroundRelease = releaseTask;
+      releaseTask = undefined;
+      void this.#executeTraceSession(
+        session,
+        validated,
+        instrumentation.value.source,
+        instrumentation.value.protocolNonce,
+        instrumentation.value.instrumentedLines,
+        strategy,
+      ).finally(backgroundRelease);
+      return Object.freeze({
+        ok: true,
+        sessionId,
+        sourceFingerprint: validated.sourceFingerprint,
+        status: "preparing",
+      });
+    } catch (error) {
+      return traceStartFailure(error);
+    } finally {
+      releaseTask?.();
+    }
+  }
+
+  readTrace(sessionId: string, afterSequence: number): TraceBatch {
+    this.#assertAcceptingRequests();
+    return this.#traceSessions.read(sessionId, afterSequence);
+  }
+
+  cancelTrace(sessionId: string): TraceCancelResult {
+    this.#assertAcceptingRequests();
+    const previousStatus = this.#traceSessions.getStatus(sessionId);
+    const result = this.#traceSessions.cancel(sessionId);
+    if (result.ok && (previousStatus === "preparing" || previousStatus === "running")) {
+      this.#cancelActiveProcesses();
+    }
+    return result;
   }
 
   async diagnose(
@@ -414,8 +515,98 @@ export class Runner {
       staleCleanupError = error;
     }
     await this.#artifactRegistry.dispose();
+    this.#traceSessions.clear();
     if (staleCleanupError !== undefined) {
       throw staleCleanupError;
+    }
+  }
+
+  async #executeTraceSession(
+    session: TraceSessionHandle,
+    request: ValidatedTraceRequest,
+    shadowSource: string,
+    protocolNonce: string,
+    instrumentedLines: readonly number[],
+    strategy: ExecutionStrategy,
+  ): Promise<void> {
+    let artifactId: string | undefined;
+    try {
+      if (session.cancelRequested) return;
+      const compileResult = await this.#compileValidated(
+        shadowSource,
+        request.sourceName,
+        strategy,
+        "normal",
+      );
+      if (!compileResult.ok) {
+        session.fail(compileResult.error);
+        return;
+      }
+      artifactId = compileResult.artifactId;
+      if (session.cancelRequested) return;
+      session.setRunning();
+      const startedAtMs = this.#clock.now();
+      const parser = new TraceProtocolParser({
+        protocolNonce,
+        startedAtMs,
+        clock: this.#clock,
+        allowedLines: new Set(instrumentedLines),
+        onEvent: (event) => {
+          const accepted = session.append(event);
+          if (!accepted) this.#cancelActiveProcesses();
+          return accepted;
+        },
+        onProtocolError: (message) => {
+          session.fail(Object.freeze({ code: "TRACE_PROTOCOL_ERROR", message }));
+          this.#cancelActiveProcesses();
+        },
+      });
+      const runResult = await this.#runValidated(
+        artifactId,
+        request.args,
+        Buffer.from(request.stdin, "utf8"),
+        request.fixtures,
+        strategy,
+        "direct",
+        Object.freeze([]),
+        { onStderr: (chunk) => parser.push(chunk) },
+      );
+      parser.finish();
+      if (session.cancelRequested || session.status !== "running") return;
+      if (!runResult.ok) {
+        session.fail(
+          runResult.error ??
+            Object.freeze({ code: "INTERNAL_ERROR", message: "Trace 程序未成功完成。" }),
+        );
+        return;
+      }
+      const evidence: TraceRunEvidence = Object.freeze({
+        ok: runResult.ok,
+        exitCode: runResult.exitCode,
+        signal: runResult.signal,
+        termination: runResult.termination,
+        durationMs: runResult.durationMs,
+        peakRssBytes: runResult.peakRssBytes ?? 0,
+        peakProcessCount: runResult.peakProcessCount ?? 0,
+        outputBytes: Math.max(
+          0,
+          (runResult.outputBytes ?? runResult.stdout.byteLength + runResult.stderr.byteLength) -
+            parser.protocolBytes,
+        ),
+        executedNodeCount: session.uniqueLineCount,
+        operationCount: session.eventCount,
+      });
+      session.complete(evidence);
+    } catch (error) {
+      session.fail(toRunnerError(error));
+    } finally {
+      if (artifactId !== undefined) {
+        try {
+          await this.#artifactRegistry.discard(artifactId);
+        } catch {
+          // ArtifactRegistry records its cleanup error; never leave a rejected background promise.
+        }
+      }
     }
   }
 
@@ -428,6 +619,7 @@ export class Runner {
     const workDirectory = await this.#createPrivateTempDirectory("compile-");
     let registryOwnsDirectory = false;
     let diagnostics = "";
+    let compileDurationMs = 0;
 
     try {
       const sourcePath = join(workDirectory, sourceName);
@@ -456,6 +648,7 @@ export class Runner {
         maxProcessCount: this.#limits.maxProcessCount,
         rssPollIntervalMs: this.#limits.rssPollIntervalMs,
       });
+      compileDurationMs = outcome.durationMs;
       diagnostics = compilerDiagnostics(outcome);
       if (
         outcome.termination !== "process-exit" ||
@@ -481,9 +674,10 @@ export class Runner {
         artifactId: artifact.id,
         expiresAtMs: artifact.expiresAtMs,
         diagnostics,
+        compileDurationMs,
       });
     } catch (error) {
-      return compileFailure(error, diagnostics);
+      return compileFailure(error, diagnostics, compileDurationMs);
     } finally {
       if (!registryOwnsDirectory) {
         await removeDirectory(workDirectory);
@@ -500,6 +694,7 @@ export class Runner {
     strategy: ExecutionStrategy,
     mode: VerificationRunMode,
     writableFiles: readonly string[],
+    observer?: ProcessObserver,
   ): Promise<VerificationRunResult> {
     const workDirectory = await this.#createPrivateTempDirectory("run-");
 
@@ -541,13 +736,18 @@ export class Runner {
             })
           : undefined,
       );
-      const outcome = await this.#superviseProcess(specification, stdin, {
-        wallTimeMs: this.#limits.runWallTimeMs,
-        maxOutputBytes: this.#limits.maxOutputBytes,
-        maxRssBytes: this.#limits.maxRssBytes,
-        maxProcessCount: this.#limits.maxProcessCount,
-        rssPollIntervalMs: this.#limits.rssPollIntervalMs,
-      });
+      const outcome = await this.#superviseProcess(
+        specification,
+        stdin,
+        {
+          wallTimeMs: this.#limits.runWallTimeMs,
+          maxOutputBytes: this.#limits.maxOutputBytes,
+          maxRssBytes: this.#limits.maxRssBytes,
+          maxProcessCount: this.#limits.maxProcessCount,
+          rssPollIntervalMs: this.#limits.rssPollIntervalMs,
+        },
+        observer,
+      );
 
       const programStdout = outcome.stdout;
       const programStderr = outcome.stderr;
@@ -570,6 +770,10 @@ export class Runner {
                     : "leaks 工具未正常完成。",
               })
             : undefined));
+      const reportedStdout = outputLimitExceeded
+        ? programStdout.subarray(0, this.#limits.maxOutputBytes)
+        : programStdout;
+      const reportedStderr = outputLimitExceeded ? new Uint8Array() : programStderr;
       const base = {
         ok:
           !outputLimitExceeded &&
@@ -577,14 +781,17 @@ export class Runner {
           outcome.exitCode === 0 &&
           !outcome.processControlFailed &&
           (leakCheck?.ok ?? true),
-        stdout: outputLimitExceeded
-          ? programStdout.subarray(0, this.#limits.maxOutputBytes)
-          : programStdout,
-        stderr: outputLimitExceeded ? new Uint8Array() : programStderr,
+        stdout: reportedStdout,
+        stderr: reportedStderr,
         exitCode: outcome.exitCode,
         signal: outcome.signal,
         termination: outputLimitExceeded ? "output-limit" : outcome.termination,
         durationMs: outcome.durationMs,
+        peakRssBytes: outcome.peakRssBytes,
+        peakProcessCount: outcome.peakProcessCount,
+        outputBytes: reportedStdout.byteLength + reportedStderr.byteLength,
+        executedNodeCount: null,
+        operationCount: null,
       } as const;
       const withLeakCheck = leakCheck === undefined ? base : { ...base, leakCheck };
       return error === undefined
@@ -851,6 +1058,7 @@ export class Runner {
     specification: SpawnSpecification,
     input: Uint8Array,
     limits: SupervisionLimits,
+    observer?: ProcessObserver,
   ): Promise<ProcessOutcome> {
     this.#assertAcceptingRequests();
     let processGroupId: number | undefined;
@@ -870,10 +1078,16 @@ export class Runner {
     };
 
     try {
-      return await superviseProcess(specification, input, limits, {
-        clock: this.#clock,
-        processHost: trackingHost,
-      });
+      return await superviseProcess(
+        specification,
+        input,
+        limits,
+        {
+          clock: this.#clock,
+          processHost: trackingHost,
+        },
+        observer,
+      );
     } finally {
       if (processGroupId !== undefined) {
         this.#activeProcesses.delete(processGroupId);
@@ -1208,6 +1422,24 @@ function diagnoseRequestSummary(request: ValidatedDiagnoseRequest): TrustedReque
   });
 }
 
+function traceRequestSummary(request: ValidatedTraceRequest): TrustedRequestSummary {
+  const requestDigest = fingerprintTraceRequest(request);
+  return Object.freeze({
+    operation: "trace",
+    requestDigest,
+    detailLines: Object.freeze([
+      "操作：编译并运行一次临时影子 Trace",
+      `源文件：${request.sourceName}`,
+      `源码指纹：${request.sourceFingerprint}`,
+      `源码大小：${Buffer.byteLength(request.source, "utf8")} UTF-8 字节`,
+      `参数：${JSON.stringify(request.args)}`,
+      `标准输入：${Buffer.byteLength(request.stdin, "utf8")} UTF-8 字节`,
+      `fixtures：${String(request.fixtures.length)} 个`,
+      `请求 SHA-256：${requestDigest}`,
+    ]),
+  });
+}
+
 function fingerprintCompileRequest(request: ValidatedCompileRequest): string {
   const hash = createHash("sha256");
   updateFingerprint(hash, "compile");
@@ -1252,6 +1484,23 @@ function fingerprintDiagnoseRequest(request: ValidatedDiagnoseRequest): string {
   return hash.digest("hex");
 }
 
+function fingerprintTraceRequest(request: ValidatedTraceRequest): string {
+  const hash = createHash("sha256");
+  updateFingerprint(hash, "trace");
+  updateFingerprint(hash, request.sourceName);
+  updateFingerprint(hash, request.sourceFingerprint);
+  updateFingerprint(hash, request.source);
+  updateFingerprint(hash, String(request.args.length));
+  for (const argument of request.args) updateFingerprint(hash, argument);
+  updateFingerprint(hash, request.stdin);
+  updateFingerprint(hash, String(request.fixtures.length));
+  for (const fixture of request.fixtures) {
+    updateFingerprint(hash, fixture.path);
+    updateFingerprint(hash, fixture.contents);
+  }
+  return hash.digest("hex");
+}
+
 function updateFingerprint(hash: ReturnType<typeof createHash>, value: string | Uint8Array): void {
   const bytes = typeof value === "string" ? Buffer.from(value, "utf8") : value;
   const length = Buffer.allocUnsafe(8);
@@ -1282,7 +1531,12 @@ function compileProcessFailure(outcome: ProcessOutcome, diagnostics: string): Co
   const error =
     processOutcomeError(outcome, "C 编译失败。") ??
     Object.freeze({ code: "COMPILE_FAILED" as const, message: "C 编译失败。" });
-  return Object.freeze({ ok: false, diagnostics, error });
+  return Object.freeze({
+    ok: false,
+    diagnostics,
+    compileDurationMs: outcome.durationMs,
+    error,
+  });
 }
 
 function processOutcomeError(
@@ -1328,9 +1582,25 @@ function processOutcomeError(
   return undefined;
 }
 
-function compileFailure(error: unknown, diagnostics: string): CompileResult {
+function compileFailure(error: unknown, diagnostics: string, compileDurationMs = 0): CompileResult {
   const runnerError = toRunnerError(error);
-  return Object.freeze({ ok: false, diagnostics, error: runnerError });
+  return Object.freeze({ ok: false, diagnostics, compileDurationMs, error: runnerError });
+}
+
+function traceUnsupportedFailure(reason: TraceUnsupportedReason): TraceStartResult {
+  return Object.freeze({
+    ok: false,
+    unsupported: Object.freeze({ ...reason }),
+    error: Object.freeze({ code: "TRACE_UNSUPPORTED", message: reason.message }),
+  });
+}
+
+function traceStartFailure(cause: unknown): TraceStartResult {
+  const runnerError =
+    cause instanceof Error && cause.message === "Trace session capacity reached"
+      ? Object.freeze({ code: "TRACE_LIMIT" as const, message: "Trace session 数量达到上限。" })
+      : toRunnerError(cause);
+  return Object.freeze({ ok: false, unsupported: null, error: runnerError });
 }
 
 function diagnoseFailure(error: unknown, rawDiagnostics: string): DiagnoseResult {
@@ -1350,6 +1620,11 @@ function runFailure(error: unknown): RunResult {
     signal: null,
     termination: "not-started",
     durationMs: 0,
+    peakRssBytes: 0,
+    peakProcessCount: 0,
+    outputBytes: 0,
+    executedNodeCount: null,
+    operationCount: null,
     error: toRunnerError(error),
   });
 }

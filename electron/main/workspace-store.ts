@@ -16,6 +16,11 @@ import {
   type WorkspaceListResult,
   type WorkspaceSaveResult,
 } from "../../src/shared/workspace.js";
+import type {
+  WorkspaceSidecarReadResult,
+  WorkspaceSidecarSaveResult,
+} from "../../src/shared/workspace-sidecar.js";
+import { createWorkspaceSidecarStore } from "./workspace-sidecar-store.js";
 
 export const WORKSPACE_ROOT_NAME = "C Algorithm Workbench";
 
@@ -56,6 +61,8 @@ export interface WorkspaceStore {
   create(request: unknown): Promise<WorkspaceDocumentResult>;
   open(request: unknown): Promise<WorkspaceDocumentResult>;
   save(request: unknown): Promise<WorkspaceSaveResult>;
+  readSidecar(request: unknown): Promise<WorkspaceSidecarReadResult>;
+  saveSidecar(request: unknown): Promise<WorkspaceSidecarSaveResult>;
 }
 
 export function createWorkspaceStore(rootPath: string): WorkspaceStore {
@@ -64,6 +71,7 @@ export function createWorkspaceStore(rootPath: string): WorkspaceStore {
   }
 
   const saveQueues = new Map<string, Promise<void>>();
+  const sidecars = createWorkspaceSidecarStore(rootPath);
 
   const ensureLayout = async (): Promise<boolean> => {
     try {
@@ -78,6 +86,8 @@ export function createWorkspaceStore(rootPath: string): WorkspaceStore {
   };
 
   return Object.freeze({
+    readSidecar: (request: unknown) => sidecars.read(request),
+    saveSidecar: (request: unknown) => sidecars.save(request),
     async list(): Promise<WorkspaceListResult> {
       if (!(await ensureLayout())) return rootUnavailable();
       try {

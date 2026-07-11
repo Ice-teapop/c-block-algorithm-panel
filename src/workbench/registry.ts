@@ -2,11 +2,18 @@ import type {
   AlgorithmElementDefinition,
   CommandContribution,
   DockGroupContribution,
+  DockMenuBranchContribution,
+  DockMenuContribution,
   InspectorViewContribution,
+  LayoutPresetContribution,
+  PanelContribution,
   RegisteredAlgorithmElement,
   RegisteredCommand,
   RegisteredDockGroup,
+  RegisteredDockMenu,
   RegisteredInspectorView,
+  RegisteredLayoutPreset,
+  RegisteredPanel,
   RegisteredWorkbenchPage,
   WorkbenchModuleDefinition,
   WorkbenchModuleManifest,
@@ -42,6 +49,10 @@ export class WorkbenchModuleRegistry {
   readonly #modules = new Map<string, WorkbenchModuleSnapshot>();
   readonly #inspectorViewOwners = new Map<string, string>();
   readonly #dockGroupOwners = new Map<string, string>();
+  readonly #dockMenuOwners = new Map<string, string>();
+  readonly #dockMenuBranchOwners = new Map<string, string>();
+  readonly #panelOwners = new Map<string, string>();
+  readonly #layoutPresetOwners = new Map<string, string>();
   readonly #pageOwners = new Map<string, string>();
   readonly #commandOwners = new Map<string, string>();
   readonly #algorithmElementOwners = new Map<string, string>();
@@ -56,6 +67,10 @@ export class WorkbenchModuleRegistry {
     const moduleIds = new Set(this.#modules.keys());
     const inspectorViewIds = new Set(this.#inspectorViewOwners.keys());
     const dockGroupIds = new Set(this.#dockGroupOwners.keys());
+    const dockMenuIds = new Set(this.#dockMenuOwners.keys());
+    const dockMenuBranchIds = new Set(this.#dockMenuBranchOwners.keys());
+    const panelIds = new Set(this.#panelOwners.keys());
+    const layoutPresetIds = new Set(this.#layoutPresetOwners.keys());
     const pageIds = new Set(this.#pageOwners.keys());
     const commandIds = new Set(this.#commandOwners.keys());
     const algorithmElementTypes = new Set(this.#algorithmElementOwners.keys());
@@ -67,6 +82,18 @@ export class WorkbenchModuleRegistry {
       }
       for (const group of module.dockGroups) {
         claim(dockGroupIds, "dock-group-id", group.id);
+      }
+      for (const menu of module.dockMenus) {
+        claim(dockMenuIds, "dock-menu-id", menu.id);
+        for (const branch of menu.branches) {
+          claim(dockMenuBranchIds, "dock-menu-branch-id", branch.id);
+        }
+      }
+      for (const panel of module.panels) {
+        claim(panelIds, "panel-id", panel.id);
+      }
+      for (const preset of module.layoutPresets) {
+        claim(layoutPresetIds, "layout-preset-id", preset.id);
       }
       for (const page of module.pages) {
         claim(pageIds, "page-id", page.id);
@@ -85,6 +112,13 @@ export class WorkbenchModuleRegistry {
           throw new TypeError(`工作台页面 “${page.id}” 引用了未注册 Dock 分组 “${page.groupId}”`);
         }
       }
+      for (const preset of module.layoutPresets) {
+        for (const panelId of preset.panelIds) {
+          if (!panelIds.has(panelId)) {
+            throw new TypeError(`布局预设 “${preset.id}” 引用了未注册面板 “${panelId}”`);
+          }
+        }
+      }
     }
 
     for (const module of modules) {
@@ -94,6 +128,18 @@ export class WorkbenchModuleRegistry {
       }
       for (const group of module.dockGroups) {
         this.#dockGroupOwners.set(group.id, module.manifest.id);
+      }
+      for (const menu of module.dockMenus) {
+        this.#dockMenuOwners.set(menu.id, module.manifest.id);
+        for (const branch of menu.branches) {
+          this.#dockMenuBranchOwners.set(branch.id, module.manifest.id);
+        }
+      }
+      for (const panel of module.panels) {
+        this.#panelOwners.set(panel.id, module.manifest.id);
+      }
+      for (const preset of module.layoutPresets) {
+        this.#layoutPresetOwners.set(preset.id, module.manifest.id);
       }
       for (const page of module.pages) {
         this.#pageOwners.set(page.id, module.manifest.id);
@@ -146,6 +192,29 @@ export class WorkbenchModuleRegistry {
         )
         .sort(compareOrderedContribution),
     );
+    const dockMenus: readonly RegisteredDockMenu[] = Object.freeze(
+      modules
+        .flatMap((module) =>
+          module.dockMenus.map((menu) => Object.freeze({ moduleId: module.manifest.id, ...menu })),
+        )
+        .sort(compareOrderedContribution),
+    );
+    const panels: readonly RegisteredPanel[] = Object.freeze(
+      modules
+        .flatMap((module) =>
+          module.panels.map((panel) => Object.freeze({ moduleId: module.manifest.id, ...panel })),
+        )
+        .sort(comparePanelContributions),
+    );
+    const layoutPresets: readonly RegisteredLayoutPreset[] = Object.freeze(
+      modules
+        .flatMap((module) =>
+          module.layoutPresets.map((preset) =>
+            Object.freeze({ moduleId: module.manifest.id, ...preset }),
+          ),
+        )
+        .sort(compareOrderedContribution),
+    );
     const dockGroupOrder = new Map(dockGroups.map((group) => [group.id, group.order]));
     const pages: readonly RegisteredWorkbenchPage[] = Object.freeze(
       modules
@@ -184,6 +253,9 @@ export class WorkbenchModuleRegistry {
       modules,
       inspectorViews,
       dockGroups,
+      dockMenus,
+      panels,
+      layoutPresets,
       pages,
       commands,
       algorithmElements,
@@ -203,6 +275,15 @@ function normalizeModule(definition: WorkbenchModuleDefinition): WorkbenchModule
   );
   const dockGroups = Object.freeze(
     (definition.dockGroups ?? []).map(normalizeDockGroup).sort(compareOrderedContribution),
+  );
+  const dockMenus = Object.freeze(
+    (definition.dockMenus ?? []).map(normalizeDockMenu).sort(compareOrderedContribution),
+  );
+  const panels = Object.freeze(
+    (definition.panels ?? []).map(normalizePanel).sort(comparePanelContributions),
+  );
+  const layoutPresets = Object.freeze(
+    (definition.layoutPresets ?? []).map(normalizeLayoutPreset).sort(compareOrderedContribution),
   );
   const pages = Object.freeze(
     (definition.pages ?? []).map(normalizePage).sort(comparePageMetadata),
@@ -224,6 +305,9 @@ function normalizeModule(definition: WorkbenchModuleDefinition): WorkbenchModule
     manifest,
     inspectorViews,
     dockGroups,
+    dockMenus,
+    panels,
+    layoutPresets,
     pages,
     commands,
     algorithmElements,
@@ -266,6 +350,62 @@ function normalizeDockGroup(group: DockGroupContribution): DockGroupContribution
     id: assertStableIdentifier(group.id, "dock group id"),
     label: assertLabel(group.label, "dock group label"),
     order: assertOrder(group.order),
+  });
+}
+
+function normalizeDockMenu(menu: DockMenuContribution): DockMenuContribution {
+  if (menu === null || typeof menu !== "object" || !Array.isArray(menu.branches)) {
+    throw new TypeError("Dock menu 必须提供 branches 数组");
+  }
+  const branches = menu.branches.map(normalizeDockMenuBranch).sort(compareOrderedContribution);
+  assertNoDuplicates(
+    branches.map((branch) => branch.id),
+    "Dock menu branch id",
+  );
+  return Object.freeze({
+    id: assertStableIdentifier(menu.id, "dock menu id"),
+    label: assertLabel(menu.label, "dock menu label"),
+    order: assertOrder(menu.order),
+    branches: Object.freeze(branches),
+  });
+}
+
+function normalizeDockMenuBranch(branch: DockMenuBranchContribution): DockMenuBranchContribution {
+  return Object.freeze({
+    id: assertStableIdentifier(branch.id, "dock menu branch id"),
+    label: assertLabel(branch.label, "dock menu branch label"),
+    actionId: assertStableIdentifier(branch.actionId, "dock menu branch action id"),
+    order: assertOrder(branch.order),
+  });
+}
+
+function normalizePanel(panel: PanelContribution): PanelContribution {
+  if (!["left", "center", "right", "bottom", "floating"].includes(panel.region)) {
+    throw new TypeError(`panel region 无效：${String(panel.region)}`);
+  }
+  if (typeof panel.defaultVisible !== "boolean") {
+    throw new TypeError("panel defaultVisible 必须是布尔值");
+  }
+  return Object.freeze({
+    id: assertStableIdentifier(panel.id, "panel id"),
+    label: assertLabel(panel.label, "panel label"),
+    region: panel.region,
+    order: assertOrder(panel.order),
+    defaultVisible: panel.defaultVisible,
+  });
+}
+
+function normalizeLayoutPreset(preset: LayoutPresetContribution): LayoutPresetContribution {
+  if (!Array.isArray(preset.panelIds)) throw new TypeError("layout preset panelIds 必须是数组");
+  const panelIds = preset.panelIds.map((panelId) =>
+    assertStableIdentifier(panelId, "layout preset panel id"),
+  );
+  assertNoDuplicates(panelIds, "layout preset panel id");
+  return Object.freeze({
+    id: assertStableIdentifier(preset.id, "layout preset id"),
+    label: assertLabel(preset.label, "layout preset label"),
+    order: assertOrder(preset.order),
+    panelIds: Object.freeze(panelIds),
   });
 }
 
@@ -352,19 +492,44 @@ function compareOrderedContribution(
   left:
     | InspectorViewContribution
     | DockGroupContribution
+    | DockMenuContribution
+    | DockMenuBranchContribution
+    | PanelContribution
+    | LayoutPresetContribution
     | CommandContribution
     | RegisteredInspectorView
     | RegisteredDockGroup
+    | RegisteredDockMenu
+    | RegisteredPanel
+    | RegisteredLayoutPreset
     | RegisteredCommand,
   right:
     | InspectorViewContribution
     | DockGroupContribution
+    | DockMenuContribution
+    | DockMenuBranchContribution
+    | PanelContribution
+    | LayoutPresetContribution
     | CommandContribution
     | RegisteredInspectorView
     | RegisteredDockGroup
+    | RegisteredDockMenu
+    | RegisteredPanel
+    | RegisteredLayoutPreset
     | RegisteredCommand,
 ): number {
   return left.order - right.order || left.id.localeCompare(right.id, "en");
+}
+
+function comparePanelContributions(
+  left: PanelContribution | RegisteredPanel,
+  right: PanelContribution | RegisteredPanel,
+): number {
+  return (
+    left.region.localeCompare(right.region, "en") ||
+    left.order - right.order ||
+    left.id.localeCompare(right.id, "en")
+  );
 }
 
 function comparePageMetadata(

@@ -9,6 +9,7 @@ test-results/
 /build/*
 !/build/icon.png
 !/build/icon.icns
+!/build/electron-builder.beta.json
 .DS_Store
 *.log
 .env

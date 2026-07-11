@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Node 24 verification
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin npm
+        run: npm install --global npm@11.11.0
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate release configuration offline
+        run: npm run accept:m9
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Run unit, integration, and architecture tests
+        run: npm test
+
+      - name: Enforce M0-M5 gold, equivalence, and fuzz gates
+        run: npm run accept:m0-m5-regression
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Run full historical and M6-M8 Electron regression
+        run: npm run test:e2e

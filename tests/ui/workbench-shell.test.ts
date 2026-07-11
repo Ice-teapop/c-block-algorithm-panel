@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBuiltinWorkbenchRegistry } from "../../src/workbench/builtin-modules.js";
 import { mountWorkbench } from "../../src/ui/workbench-shell.js";
 
-describe("workbench shell Dock behavior", () => {
+describe("M6 workbench shell behavior", () => {
   let document: FakeDocument;
   let app: FakeApp;
 
@@ -21,46 +21,36 @@ describe("workbench shell Dock behavior", () => {
     vi.unstubAllGlobals();
   });
 
-  it("mounts seven grouped tabs with Dashboard active and generic extension hosts", () => {
+  it("mounts four root menus with Dashboard active and embedded workbench hosts", () => {
     const shell = mount();
-    const tabs = app.findAllByClass("dock-tab");
+    const roots = app.findAllByClass("workbench-menu__trigger");
 
     expect(app.innerHTML).not.toContain("C 积木算法面板");
     expect(app.innerHTML).not.toContain("app-title");
     expect(shell.startupProgress.id).toBe("startup-progress");
-    expect(tabs.map(({ textContent }) => textContent)).toEqual([
-      "Dashboard",
-      "搭建",
-      "积木管理",
-      "解释",
-      "编辑",
-      "运行",
+    expect(roots.map(({ textContent }) => textContent)).toEqual([
+      "设置",
+      "预设块",
       "Library",
-    ]);
-    expect(tabs.every((tab) => tab.getAttribute("role") === "tab")).toBe(true);
-    expect(app.findAllByClass("dock-group__label").map(({ textContent }) => textContent)).toEqual([
-      "文件",
-      "构建",
-      "检查",
-      "执行",
-      "学习",
+      "面板预览",
     ]);
     expect(shell.currentPage).toBe("dashboard");
     expect(pagePanel("dashboard").hidden).toBe(false);
     expect(pagePanel("build").hidden).toBe(true);
     expect(pagePanel("block-library").hidden).toBe(true);
     expect(shell.blockPalette.id).toBe("block-palette");
+    expect(shell.flowCanvas.id).toBe("flow-canvas");
     expect(shell.getPageHost("block-library").id).toBe("block-library-host");
     expect(shell.getPageHost("software-library").id).toBe("software-library-host");
-    expect(shell.getInspectorHost("edit")).toBe(shell.getPageHost("edit"));
+    expect(shell.getInspectorHost("edit").id).toBe("edit-host");
   });
 
-  it("switches pages by one click while preserving the mounted build hosts", () => {
+  it("switches full pages while inspectors stay inside the mounted build surface", () => {
     const shell = mount();
     const buildPanel = pagePanel("build");
     const codePane = shell.codePane as unknown as FakeElement;
 
-    tab("block-library").click();
+    shell.showPage("block-library");
     expect(shell.currentPage).toBe("block-library");
     expect(buildPanel.hidden).toBe(true);
     expect(pagePanel("block-library").hidden).toBe(false);
@@ -73,37 +63,52 @@ describe("workbench shell Dock behavior", () => {
     expect(buildPanel.hidden).toBe(false);
     expect(() => shell.showPage("missing")).toThrow(/未知工作台页面/u);
     expect(() => shell.showInspector("block-library")).toThrow(/未知检查器视图/u);
-  });
-
-  it("navigates all Dock tabs with arrows, Home and End", () => {
-    const shell = mount();
-    const dock = app.require("workbench-dock");
-
-    expect(dock.keydown("ArrowRight").defaultPrevented).toBe(true);
+    shell.showInspector("edit");
     expect(shell.currentPage).toBe("build");
-    expect(document.activeElement).toBe(tab("build"));
-    dock.keydown("End");
-    expect(shell.currentPage).toBe("software-library");
-    dock.keydown("ArrowDown");
-    expect(shell.currentPage).toBe("dashboard");
-    dock.keydown("ArrowLeft");
-    expect(shell.currentPage).toBe("software-library");
-    dock.keydown("ArrowUp");
-    expect(shell.currentPage).toBe("run");
-    dock.keydown("Home");
-    expect(shell.currentPage).toBe("dashboard");
+    expect(app.require("edit-panel").hidden).toBe(false);
+    expect(app.require("explanation-panel").hidden).toBe(true);
   });
 
-  it("removes every Dock listener during idempotent teardown", () => {
+  it("reveals the real Dock, runtime, metrics, diagnostics and Library onboarding surfaces", () => {
     const shell = mount();
-    const dock = app.require("workbench-dock");
-    const tabs = app.findAllByClass("dock-tab");
+    shell.setPanelVisibility({ metrics: false, diagnostics: false, "ai-hints": false });
+    const visibilityBeforeTour = shell.getPanelVisibility();
+
+    shell.revealOnboardingStep("dock");
+    expect(shell.currentPage).toBe("dashboard");
+    const panelMenu = app
+      .findAllByClass("workbench-menu__popup")
+      .find((candidate) => candidate.dataset.menuPopup === "panels");
+    expect(panelMenu?.hidden).toBe(false);
+
+    shell.revealOnboardingStep("runtime-flow");
+    expect(shell.currentPage).toBe("build");
+    expect(app.require("run-panel").hidden).toBe(false);
+    shell.revealOnboardingStep("runtime-metrics");
+    expect(app.require("metrics-panel").hidden).toBe(false);
+    expect(app.require("run-panel").hidden).toBe(true);
+    shell.revealOnboardingStep("runtime-diagnostics");
+    expect(app.require("diagnostics-panel").hidden).toBe(false);
+    shell.revealOnboardingStep("evidence-mentor");
+    expect(app.require("mentor-panel").hidden).toBe(false);
+
+    shell.revealOnboardingStep("library");
+    expect(shell.currentPage).toBe("software-library");
+    shell.finishOnboarding();
+    expect(shell.getPanelVisibility()).toEqual(visibilityBeforeTour);
+    expect(panelMenu?.hidden).toBe(true);
+  });
+
+  it("removes menu and view listeners during idempotent teardown", () => {
+    const shell = mount();
+    const dashboardTab = app.require("dashboard-tab");
+    const editTab = app.require("edit-tab");
 
     shell.destroy();
     shell.destroy();
-    expect(dock.listenerRemoveCount("keydown")).toBe(1);
-    expect(tabs.every((item) => item.listenerRemoveCount("click") === 1)).toBe(true);
-    tab("block-library").click();
+    expect(dashboardTab.listenerRemoveCount("click")).toBe(1);
+    expect(editTab.listenerRemoveCount("click")).toBe(1);
+    expect(document.listenerRemoveCount("pointerdown")).toBe(1);
     expect(shell.currentPage).toBe("dashboard");
     expect(() => shell.showPage("build")).toThrow(/已销毁/u);
   });
@@ -117,10 +122,6 @@ describe("workbench shell Dock behavior", () => {
 
   function pagePanel(pageId: string): FakeElement {
     return app.require(`${pageId}-panel`);
-  }
-
-  function tab(pageId: string): FakeElement {
-    return app.require(`${pageId}-tab`);
   }
 });
 
@@ -136,6 +137,9 @@ class FakeEvent {
 
 class FakeDocument {
   activeElement: FakeElement | null = null;
+  readonly defaultView = undefined;
+  private readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+  private readonly removeCounts = new Map<string, number>();
 
   createElement(tagName: string): FakeElement {
     if (tagName === "button") return new FakeButton(tagName, this);
@@ -145,11 +149,34 @@ class FakeDocument {
     if (tagName === "textarea") return new FakeTextArea(tagName, this);
     return new FakeElement(tagName, this);
   }
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    this.listeners.get(type)?.delete(listener);
+    this.removeCounts.set(type, (this.removeCounts.get(type) ?? 0) + 1);
+  }
+
+  listenerRemoveCount(type: string): number {
+    return this.removeCounts.get(type) ?? 0;
+  }
 }
 
 class FakeElement {
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string | undefined> = {};
+  readonly classList = {
+    toggle: (className: string, force: boolean): void => {
+      const classes = new Set(this.className.split(/\s+/u).filter(Boolean));
+      if (force) classes.add(className);
+      else classes.delete(className);
+      this.className = [...classes].join(" ");
+    },
+  };
   id = "";
   className = "";
   textContent = "";
@@ -301,11 +328,62 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const shell = element(document, "div", "workbench-shell", "workbench-shell");
   const dock = element(document, "nav", "workbench-dock", "dock-bar");
   const pageStack = element(document, "main", "workbench-pages", "workbench-pages");
-  const build = element(document, "section", "build-panel", "workbench workbench-page");
+  const dashboard = element(document, "section", "dashboard-panel", "workbench-page");
+  const dashboardHost = element(document, "div", "dashboard-host");
+  dashboard.append(dashboardHost);
+  const build = element(document, "section", "build-panel", "workbench-page");
   build.dataset.workbenchPageId = "build";
+  const buildHost = element(document, "div", "build-host");
+  const buildLayout = element(document, "div", "build-layout");
+  const leftPane = element(document, "aside", "left-pane");
+  const centerPane = element(document, "section", "center-pane");
+  const rightPane = element(document, "aside", "right-pane");
+  const presetsPane = element(document, "section", "presets-pane");
+  const outlinePane = element(document, "section", "outline-pane");
+  const centerCanvasPane = element(document, "section", "center-canvas-pane");
+  const bottomPane = element(document, "section", "bottom-pane");
+  const codePanel = element(document, "section", "code-panel");
+  const inspectorStack = element(document, "section", "inspector-stack");
   const palette = element(document, "div", "block-palette", "block-palette");
   const tree = element(document, "div", "block-tree", "block-tree");
+  const flowCanvas = element(document, "div", "flow-canvas", "flow-canvas-host");
   const code = element(document, "div", "code-pane", "code-pane");
+  const explanationPanel = element(document, "section", "explanation-panel");
+  const explanationHost = element(document, "div", "explanation-host");
+  explanationPanel.append(explanationHost);
+  const editPanel = element(document, "section", "edit-panel");
+  const editHost = element(document, "div", "edit-host");
+  editPanel.append(editHost);
+  const runPanel = element(document, "section", "run-panel");
+  const scenarioHost = element(document, "div", "scenario-workbench-host");
+  const traceHost = element(document, "div", "trace-workbench-host");
+  const runHost = element(document, "div", "run-host");
+  runPanel.append(scenarioHost, traceHost, runHost);
+  const metricsPanel = element(document, "section", "metrics-panel");
+  const metricsHost = element(document, "section", "runtime-metrics-host");
+  metricsPanel.append(metricsHost);
+  const diagnosticsPanel = element(document, "section", "diagnostics-panel");
+  const diagnosticsHost = element(document, "section", "runtime-diagnostics-host");
+  diagnosticsPanel.append(diagnosticsHost);
+  const mentorPanel = element(document, "section", "mentor-panel");
+  const mentorHost = element(document, "section", "mentor-hints-host");
+  mentorPanel.append(mentorHost);
+  presetsPane.append(palette);
+  outlinePane.append(tree);
+  leftPane.append(presetsPane, outlinePane);
+  centerCanvasPane.append(flowCanvas);
+  bottomPane.append(runPanel, metricsPanel, diagnosticsPanel, mentorPanel);
+  centerPane.append(centerCanvasPane, bottomPane);
+  codePanel.append(code);
+  inspectorStack.append(explanationPanel, editPanel);
+  rightPane.append(codePanel, inspectorStack);
+  buildLayout.append(leftPane, centerPane, rightPane);
+  buildHost.append(buildLayout);
+  build.append(buildHost);
+  const blockLibrary = element(document, "section", "block-library-panel");
+  blockLibrary.append(element(document, "div", "block-library-host"));
+  const softwareLibrary = element(document, "section", "software-library-panel");
+  softwareLibrary.append(element(document, "div", "software-library-host"));
   const fileName = element(document, "span", "file-name");
   const sourceMeta = element(document, "span", "source-meta");
   const startupRoot = element(document, "div", "startup-loader", "startup-loader");
@@ -314,18 +392,32 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   startupRoot.append(startupStatus, startupProgress);
   const dropOverlay = element(document, "div", "drop-overlay");
   const pasteError = element(document, "p", "paste-error");
-  build.append(palette, tree, code);
-  pageStack.append(build);
+  pageStack.append(dashboard, build, blockLibrary, softwareLibrary);
+  const drawer = element(document, "aside", "workbench-drawer");
+  drawer.append(
+    element(document, "h2", "workbench-drawer-title"),
+    element(document, "p", "workbench-drawer-copy"),
+    identified(document.createElement("button"), "workbench-drawer-close"),
+    identified(document.createElement("button"), "theme-toggle"),
+  );
   shell.append(
     startupRoot,
+    identified(document.createElement("button"), "dashboard-tab"),
+    identified(document.createElement("button"), "build-tab"),
+    identified(document.createElement("button"), "explanation-tab"),
+    identified(document.createElement("button"), "edit-tab"),
+    identified(document.createElement("button"), "run-tab"),
+    identified(document.createElement("button"), "metrics-tab"),
+    identified(document.createElement("button"), "diagnostics-tab"),
+    identified(document.createElement("button"), "mentor-tab"),
     dock,
     pageStack,
+    drawer,
     fileName,
     sourceMeta,
     dropOverlay,
     identified(document.createElement("button"), "open-source"),
     identified(document.createElement("button"), "open-paste"),
-    identified(document.createElement("button"), "theme-toggle"),
     identified(document.createElement("output"), "parser-status"),
     identified(document.createElement("output"), "workspace-save-status"),
     identified(document.createElement("button"), "workspace-recovery"),

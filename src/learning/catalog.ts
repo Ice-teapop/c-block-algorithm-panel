@@ -3,17 +3,31 @@ import {
   LEARNING_CATALOG_SCHEMA_VERSION,
   LearningCatalogError,
   type CatalogLearningTemplate,
+  type CatalogPresetBlock,
+  type CatalogVirtualPresetBlock,
   type LearningCatalogEntry,
   type LearningCatalogSnapshot,
   type LearningCatalogStorage,
   type LearningCatalogStorageStatus,
+  type LearningFragmentKind,
   type LearningStageDefinition,
   type LearningTemplateDefinition,
   type LearningTemplateDeprecation,
   type LifecycleChangeInput,
+  type PresetAlternativeVersion,
+  type PresetBlockExplanation,
+  type PresetBlockScenario,
+  type PresetPlacementCondition,
+  type PresetPortDefinition,
+  type PresetSourceBlockDefinition,
+  type PresetVirtualBlockDefinition,
   type RetiredLearningTemplateTombstone,
 } from "./contracts.js";
-import { BUILTIN_LEARNING_STAGES, BUILTIN_LEARNING_TEMPLATES } from "./builtins.js";
+import {
+  BUILTIN_LEARNING_STAGES,
+  BUILTIN_LEARNING_TEMPLATES,
+  BUILTIN_VIRTUAL_PRESETS,
+} from "./builtins.js";
 
 const STABLE_IDENTIFIER_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
 const VERSION_PATTERN =
@@ -24,6 +38,7 @@ const MAX_TEMPLATE_SOURCE_LENGTH = 64 * 1024;
 export interface LearningCatalogOptions {
   readonly stages?: readonly LearningStageDefinition[];
   readonly builtinTemplates?: readonly LearningTemplateDefinition[];
+  readonly builtinVirtualPresets?: readonly PresetVirtualBlockDefinition[];
   readonly storage?: LearningCatalogStorage;
   readonly storageKey?: string;
 }
@@ -31,6 +46,9 @@ export interface LearningCatalogOptions {
 export interface LearningCatalog {
   snapshot(): LearningCatalogSnapshot;
   getEntry(id: string): LearningCatalogEntry | null;
+  getPreset(id: string): CatalogPresetBlock | null;
+  listPlaceablePresets(): readonly CatalogPresetBlock[];
+  canPlacePreset(id: string): boolean;
   listInstantiable(): readonly CatalogLearningTemplate[];
   canInstantiate(id: string): boolean;
   createCustom(definition: LearningTemplateDefinition): CatalogLearningTemplate;
@@ -64,12 +82,29 @@ export function createLearningCatalog(options: LearningCatalogOptions = {}): Lea
     claimTemplateId(builtinTemplates, template.id);
     builtinTemplates.set(template.id, template);
   }
+  const builtinVirtualPresets = new Map<string, CatalogVirtualPresetBlock>();
+  const virtualDefinitions =
+    options.builtinVirtualPresets ??
+    BUILTIN_VIRTUAL_PRESETS.filter((definition) => stageById.has(definition.stage));
+  for (const definition of virtualDefinitions) {
+    const preset = normalizeVirtualPreset(definition, stageById);
+    if (builtinTemplates.has(preset.id) || builtinVirtualPresets.has(preset.id)) {
+      throw catalogError("DUPLICATE_TEMPLATE_ID", `预设 id ${preset.id} 重复`);
+    }
+    builtinVirtualPresets.set(preset.id, preset);
+  }
 
   const storage = options.storage;
   const storageKey = normalizeStorageKey(
     options.storageKey ?? DEFAULT_LEARNING_CATALOG_STORAGE_KEY,
   );
-  const loaded = loadCustomState(storage, storageKey, builtinTemplates, stageById);
+  const loaded = loadCustomState(
+    storage,
+    storageKey,
+    builtinTemplates,
+    builtinVirtualPresets,
+    stageById,
+  );
   let customTemplates = loaded.templates;
   let tombstones = loaded.tombstones;
   let revision = loaded.revision;
@@ -78,13 +113,25 @@ export function createLearningCatalog(options: LearningCatalogOptions = {}): Lea
   const allTemplateIds = (
     custom: ReadonlyMap<string, CatalogLearningTemplate>,
     retired: ReadonlyMap<string, RetiredLearningTemplateTombstone>,
-  ): Set<string> => new Set([...builtinTemplates.keys(), ...custom.keys(), ...retired.keys()]);
+  ): Set<string> =>
+    new Set([
+      ...builtinTemplates.keys(),
+      ...builtinVirtualPresets.keys(),
+      ...custom.keys(),
+      ...retired.keys(),
+    ]);
 
   const commit = (
     nextTemplates: Map<string, CatalogLearningTemplate>,
     nextTombstones: Map<string, RetiredLearningTemplateTombstone>,
   ): void => {
-    validateCustomState(nextTemplates, nextTombstones, builtinTemplates, stageById);
+    validateCustomState(
+      nextTemplates,
+      nextTombstones,
+      builtinTemplates,
+      builtinVirtualPresets,
+      stageById,
+    );
     const nextRevision = nextSafeRevision(revision);
     const document = storedDocument(nextRevision, nextTemplates, nextTombstones);
     if (storage !== undefined) {
@@ -102,7 +149,7 @@ export function createLearningCatalog(options: LearningCatalogOptions = {}): Lea
 
   const requireCustomTemplate = (id: string): CatalogLearningTemplate => {
     assertStableIdentifier(id, "template id");
-    if (builtinTemplates.has(id)) {
+    if (builtinTemplates.has(id) || builtinVirtualPresets.has(id)) {
       throw catalogError("BUILTIN_IMMUTABLE", `内置积木 ${id} 不可修改或删除`);
     }
     if (tombstones.has(id)) {
@@ -121,12 +168,14 @@ export function createLearningCatalog(options: LearningCatalogOptions = {}): Lea
       stages,
     );
     const retired = sortTombstones([...tombstones.values()], stages);
+    const presets = sortPresets([...templates, ...builtinVirtualPresets.values()], stages);
     return Object.freeze({
       schemaVersion: LEARNING_CATALOG_SCHEMA_VERSION,
       revision,
       storageStatus,
       stages,
       templates: Object.freeze(templates),
+      presets: Object.freeze(presets),
       tombstones: Object.freeze(retired),
     });
   };
@@ -136,6 +185,20 @@ export function createLearningCatalog(options: LearningCatalogOptions = {}): Lea
     getEntry(id: string): LearningCatalogEntry | null {
       assertStableIdentifier(id, "template id");
       return builtinTemplates.get(id) ?? customTemplates.get(id) ?? tombstones.get(id) ?? null;
+    },
+    getPreset(id: string): CatalogPresetBlock | null {
+      assertStableIdentifier(id, "preset id");
+      return (
+        builtinTemplates.get(id) ?? customTemplates.get(id) ?? builtinVirtualPresets.get(id) ?? null
+      );
+    },
+    listPlaceablePresets(): readonly CatalogPresetBlock[] {
+      return Object.freeze(snapshot().presets.filter((preset) => preset.lifecycle === "active"));
+    },
+    canPlacePreset(id: string): boolean {
+      const preset =
+        builtinTemplates.get(id) ?? customTemplates.get(id) ?? builtinVirtualPresets.get(id);
+      return preset?.lifecycle === "active";
     },
     listInstantiable(): readonly CatalogLearningTemplate[] {
       return Object.freeze(
@@ -273,22 +336,71 @@ function normalizeTemplate(
   if (!stageById.has(stage)) {
     throw catalogError("UNKNOWN_STAGE", `积木 ${String(definition.id)} 引用了未知阶段 ${stage}`);
   }
-  const source = normalizeTemplateSource(definition.source, definition.fragmentKind);
+  const id = assertStableIdentifier(definition.id, "template id");
+  const version = assertVersion(definition.version, "template version");
+  const description = assertText(definition.description, "template description");
+  const fragmentKind = assertFragmentKind(definition.fragmentKind);
+  const source = normalizeTemplateSource(definition.source, fragmentKind);
+  const preset = definition as Partial<PresetSourceBlockDefinition>;
   return Object.freeze({
     kind: "template",
     origin,
     lifecycle,
-    id: assertStableIdentifier(definition.id, "template id"),
-    version: assertVersion(definition.version, "template version"),
+    id,
+    version,
     label: assertText(definition.label, "template label"),
     category: assertStableIdentifier(definition.category, "template category"),
     stage,
     source,
-    description: assertText(definition.description, "template description"),
-    fragmentKind: assertFragmentKind(definition.fragmentKind),
+    description,
+    fragmentKind,
+    blockKind: assertSourceBlockKind(preset.blockKind ?? fragmentKind),
+    ports: normalizePorts(preset.ports, defaultSourcePorts()),
+    placement: normalizePlacement(preset.placement, "function-body"),
+    explanation: normalizeExplanation(preset.explanation, description),
+    scenarios: normalizeScenarios(preset.scenarios, id, description),
+    alternatives: normalizeAlternatives(preset.alternatives, fragmentKind),
     ...(lifecycle === "deprecated"
       ? { deprecation: deprecation ?? normalizeStoredDeprecation(definition) }
       : {}),
+  });
+}
+
+function normalizeVirtualPreset(
+  definition: PresetVirtualBlockDefinition,
+  stageById: ReadonlyMap<string, LearningStageDefinition>,
+): CatalogVirtualPresetBlock {
+  if (!isRecord(definition)) throw catalogError("INVALID_TEMPLATE", "虚拟预设必须是对象");
+  const id = assertStableIdentifier(definition.id, "preset id");
+  const stage = assertStableIdentifier(definition.stage, "preset stage");
+  if (!stageById.has(stage)) {
+    throw catalogError("UNKNOWN_STAGE", `预设 ${id} 引用了未知阶段 ${stage}`);
+  }
+  if (definition.source !== null || definition.fragmentKind !== null) {
+    throw catalogError("INVALID_TEMPLATE", `虚拟预设 ${id} 不得携带 C 源码`);
+  }
+  if (definition.blockKind !== "virtual") {
+    throw catalogError("INVALID_TEMPLATE", `虚拟预设 ${id} 的 blockKind 必须是 virtual`);
+  }
+  const description = assertText(definition.description, "preset description");
+  return Object.freeze({
+    kind: "virtual-preset",
+    origin: "builtin",
+    lifecycle: assertPresetLifecycle(definition.lifecycle),
+    id,
+    version: assertVersion(definition.version, "preset version"),
+    label: assertText(definition.label, "preset label"),
+    category: assertStableIdentifier(definition.category, "preset category"),
+    stage,
+    source: null,
+    description,
+    fragmentKind: null,
+    blockKind: "virtual",
+    ports: normalizePorts(definition.ports),
+    placement: normalizePlacement(definition.placement, "flow-canvas"),
+    explanation: normalizeExplanation(definition.explanation, description),
+    scenarios: normalizeScenarios(definition.scenarios, id, description),
+    alternatives: normalizeAlternatives(definition.alternatives, null),
   });
 }
 
@@ -310,6 +422,251 @@ function normalizeTemplateSource(source: unknown, fragmentKind: unknown): string
     throw catalogError("INVALID_TEMPLATE", "control 模板必须以 C 控制语句开头");
   }
   return source;
+}
+
+function assertSourceBlockKind(value: unknown): "statement" | "control" | "function" | "module" {
+  if (value !== "statement" && value !== "control" && value !== "function" && value !== "module") {
+    throw catalogError(
+      "INVALID_TEMPLATE",
+      "source preset blockKind 必须是 statement、control、function 或 module",
+    );
+  }
+  return value;
+}
+
+function assertPresetLifecycle(value: unknown): "active" | "deprecated" {
+  if (value !== "active" && value !== "deprecated") {
+    throw catalogError("INVALID_LIFECYCLE", "内置预设 lifecycle 必须是 active 或 deprecated");
+  }
+  return value;
+}
+
+function defaultSourcePorts(): readonly PresetPortDefinition[] {
+  return Object.freeze([
+    Object.freeze({
+      id: "control.in",
+      label: "进入",
+      direction: "input" as const,
+      channel: "control" as const,
+      cardinality: "one" as const,
+    }),
+    Object.freeze({
+      id: "control.next",
+      label: "下一步",
+      direction: "output" as const,
+      channel: "control" as const,
+      cardinality: "one" as const,
+    }),
+  ]);
+}
+
+function normalizePorts(
+  value: unknown,
+  fallback?: readonly PresetPortDefinition[],
+): readonly PresetPortDefinition[] {
+  const input = value === undefined ? fallback : value;
+  if (!Array.isArray(input) || input.length === 0) {
+    throw catalogError("INVALID_TEMPLATE", "preset ports 必须是非空数组");
+  }
+  const ids = new Set<string>();
+  const ports = input.map((candidate) => {
+    if (!isRecord(candidate)) throw catalogError("INVALID_TEMPLATE", "preset port 必须是对象");
+    const id = assertStableIdentifier(candidate.id, "preset port id");
+    if (ids.has(id)) throw catalogError("INVALID_TEMPLATE", `preset port ${id} 重复`);
+    ids.add(id);
+    const direction = candidate.direction;
+    const channel = candidate.channel;
+    const cardinality = candidate.cardinality;
+    if (direction !== "input" && direction !== "output") {
+      throw catalogError("INVALID_TEMPLATE", `preset port ${id} direction 无效`);
+    }
+    if (channel !== "control" && channel !== "data") {
+      throw catalogError("INVALID_TEMPLATE", `preset port ${id} channel 无效`);
+    }
+    if (cardinality !== "one" && cardinality !== "many") {
+      throw catalogError("INVALID_TEMPLATE", `preset port ${id} cardinality 无效`);
+    }
+    return Object.freeze({
+      id,
+      label: assertText(candidate.label, "preset port label"),
+      direction,
+      channel,
+      cardinality,
+      ...(candidate.dataType === undefined
+        ? {}
+        : { dataType: assertStableIdentifier(candidate.dataType, "preset port dataType") }),
+      ...(candidate.branch === undefined
+        ? {}
+        : { branch: assertStableIdentifier(candidate.branch, "preset port branch") }),
+    });
+  });
+  return Object.freeze(ports);
+}
+
+function normalizePlacement(
+  value: unknown,
+  expectedScope: PresetPlacementCondition["scope"],
+): PresetPlacementCondition {
+  if (value === undefined) {
+    return Object.freeze({
+      scope: expectedScope,
+      allowedParentNodeTypes: Object.freeze(
+        expectedScope === "function-body" ? ["compound_statement"] : [],
+      ),
+      requiresHeaders: Object.freeze([]),
+      requiresSymbols: Object.freeze([]),
+    });
+  }
+  if (!isRecord(value) || value.scope !== expectedScope) {
+    throw catalogError("INVALID_TEMPLATE", `preset placement scope 必须是 ${expectedScope}`);
+  }
+  return Object.freeze({
+    scope: expectedScope,
+    allowedParentNodeTypes: normalizeIdentifierList(
+      value.allowedParentNodeTypes,
+      "placement allowed parent",
+    ),
+    requiresHeaders: normalizeIdentifierList(value.requiresHeaders, "placement header"),
+    requiresSymbols: normalizeIdentifierList(value.requiresSymbols, "placement symbol"),
+  });
+}
+
+function normalizeExplanation(value: unknown, description: string): PresetBlockExplanation {
+  if (value === undefined) {
+    return Object.freeze({
+      summary: description,
+      principle: description,
+      whenToUse: Object.freeze(["当算法步骤与该语义一致时使用。"]),
+      pitfalls: Object.freeze(["连接前确认作用域、变量和分支前置条件。"]),
+    });
+  }
+  if (!isRecord(value)) throw catalogError("INVALID_TEMPLATE", "preset explanation 必须是对象");
+  return Object.freeze({
+    summary: assertText(value.summary, "explanation summary"),
+    principle: assertText(value.principle, "explanation principle"),
+    whenToUse: normalizeTextList(value.whenToUse, "explanation whenToUse", true),
+    pitfalls: normalizeTextList(value.pitfalls, "explanation pitfalls", true),
+  });
+}
+
+function normalizeScenarios(
+  value: unknown,
+  presetId: string,
+  description: string,
+): readonly PresetBlockScenario[] {
+  const input =
+    value === undefined
+      ? [
+          {
+            id: `${presetId}.case.default`,
+            label: "默认案例",
+            description,
+            mode: "teaching",
+            stdin: "",
+            arguments: [],
+          },
+        ]
+      : value;
+  if (!Array.isArray(input) || input.length === 0) {
+    throw catalogError("INVALID_TEMPLATE", "preset scenarios 必须是非空数组");
+  }
+  const ids = new Set<string>();
+  const scenarios = input.map((candidate) => {
+    if (!isRecord(candidate)) {
+      throw catalogError("INVALID_TEMPLATE", "preset scenario 必须是对象");
+    }
+    const id = assertStableIdentifier(candidate.id, "scenario id");
+    if (ids.has(id)) throw catalogError("INVALID_TEMPLATE", `scenario ${id} 重复`);
+    ids.add(id);
+    if (candidate.mode !== "teaching" && candidate.mode !== "real-run") {
+      throw catalogError("INVALID_TEMPLATE", `scenario ${id} mode 无效`);
+    }
+    if (!Array.isArray(candidate.arguments)) {
+      throw catalogError("INVALID_TEMPLATE", `scenario ${id} arguments 必须是数组`);
+    }
+    return Object.freeze({
+      id,
+      label: assertText(candidate.label, "scenario label"),
+      description: assertText(candidate.description, "scenario description"),
+      mode: candidate.mode,
+      stdin: assertPayload(candidate.stdin, "scenario stdin"),
+      arguments: Object.freeze(
+        candidate.arguments.map((argument) => assertPayload(argument, "scenario argument")),
+      ),
+      ...(candidate.expectedOutput === undefined
+        ? {}
+        : { expectedOutput: assertPayload(candidate.expectedOutput, "scenario expectedOutput") }),
+    });
+  });
+  return Object.freeze(scenarios);
+}
+
+function normalizeAlternatives(
+  value: unknown,
+  fragmentKind: LearningFragmentKind | null,
+): readonly PresetAlternativeVersion[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) {
+    throw catalogError("INVALID_TEMPLATE", "preset alternatives 必须是数组");
+  }
+  const versions = new Set<string>();
+  const alternatives = value.map((candidate) => {
+    if (!isRecord(candidate)) {
+      throw catalogError("INVALID_TEMPLATE", "preset alternative 必须是对象");
+    }
+    const version = assertVersion(candidate.version, "alternative version");
+    if (versions.has(version)) {
+      throw catalogError("INVALID_TEMPLATE", `alternative version ${version} 重复`);
+    }
+    versions.add(version);
+    if (typeof candidate.recommended !== "boolean") {
+      throw catalogError("INVALID_TEMPLATE", `alternative ${version} recommended 必须是 boolean`);
+    }
+    let source: string | null;
+    if (fragmentKind === null) {
+      if (candidate.source !== null) {
+        throw catalogError("INVALID_TEMPLATE", "virtual alternative source 必须是 null");
+      }
+      source = null;
+    } else {
+      source = normalizeTemplateSource(candidate.source, fragmentKind);
+    }
+    return Object.freeze({
+      version,
+      label: assertText(candidate.label, "alternative label"),
+      description: assertText(candidate.description, "alternative description"),
+      source,
+      recommended: candidate.recommended,
+    });
+  });
+  return Object.freeze(alternatives);
+}
+
+function normalizeIdentifierList(value: unknown, field: string): readonly string[] {
+  if (!Array.isArray(value)) throw catalogError("INVALID_TEMPLATE", `${field} 必须是数组`);
+  const normalized = value.map((entry) => assertStableIdentifier(entry, field));
+  if (new Set(normalized).size !== normalized.length) {
+    throw catalogError("INVALID_TEMPLATE", `${field} 不得重复`);
+  }
+  return Object.freeze([...normalized].sort(compareText));
+}
+
+function normalizeTextList(
+  value: unknown,
+  field: string,
+  requireNonEmpty: boolean,
+): readonly string[] {
+  if (!Array.isArray(value) || (requireNonEmpty && value.length === 0)) {
+    throw catalogError("INVALID_TEMPLATE", `${field} 必须是非空数组`);
+  }
+  return Object.freeze(value.map((entry) => assertText(entry, field)));
+}
+
+function assertPayload(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.includes("\0") || value.length > 1024 * 1024) {
+    throw catalogError("INVALID_TEMPLATE", `${field} 必须是小于 1 MiB 且无 NUL 的字符串`);
+  }
+  return value;
 }
 
 function normalizeLifecycleChange(input: LifecycleChangeInput): LearningTemplateDeprecation {
@@ -337,9 +694,10 @@ function validateCustomState(
   customTemplates: ReadonlyMap<string, CatalogLearningTemplate>,
   tombstones: ReadonlyMap<string, RetiredLearningTemplateTombstone>,
   builtinTemplates: ReadonlyMap<string, CatalogLearningTemplate>,
+  builtinVirtualPresets: ReadonlyMap<string, CatalogVirtualPresetBlock>,
   stageById: ReadonlyMap<string, LearningStageDefinition>,
 ): void {
-  const ids = new Set(builtinTemplates.keys());
+  const ids = new Set([...builtinTemplates.keys(), ...builtinVirtualPresets.keys()]);
   for (const template of customTemplates.values()) {
     assertCustomId(template.id);
     if (ids.has(template.id)) {
@@ -392,6 +750,7 @@ function loadCustomState(
   storage: LearningCatalogStorage | undefined,
   storageKey: string,
   builtinTemplates: ReadonlyMap<string, CatalogLearningTemplate>,
+  builtinVirtualPresets: ReadonlyMap<string, CatalogVirtualPresetBlock>,
   stageById: ReadonlyMap<string, LearningStageDefinition>,
 ): LoadedCustomState {
   if (storage === undefined) return emptyCustomState("memory");
@@ -420,7 +779,7 @@ function loadCustomState(
       if (tombstones.has(tombstone.id)) throw new Error("tombstone id 重复");
       tombstones.set(tombstone.id, tombstone);
     }
-    validateCustomState(templates, tombstones, builtinTemplates, stageById);
+    validateCustomState(templates, tombstones, builtinTemplates, builtinVirtualPresets, stageById);
     return {
       revision: parsed.revision as number,
       status: "loaded",
@@ -541,6 +900,20 @@ function sortTemplates(
 ): CatalogLearningTemplate[] {
   const order = new Map(stages.map((stage, index) => [stage.id, index]));
   return [...templates].sort(
+    (left, right) =>
+      (order.get(left.stage) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.stage) ?? Number.MAX_SAFE_INTEGER) ||
+      compareText(left.category, right.category) ||
+      compareText(left.id, right.id),
+  );
+}
+
+function sortPresets(
+  presets: readonly CatalogPresetBlock[],
+  stages: readonly LearningStageDefinition[],
+): CatalogPresetBlock[] {
+  const order = new Map(stages.map((stage, index) => [stage.id, index]));
+  return [...presets].sort(
     (left, right) =>
       (order.get(left.stage) ?? Number.MAX_SAFE_INTEGER) -
         (order.get(right.stage) ?? Number.MAX_SAFE_INTEGER) ||

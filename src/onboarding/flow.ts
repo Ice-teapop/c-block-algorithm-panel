@@ -1,4 +1,4 @@
-export const ONBOARDING_FLOW_VERSION = 2;
+export const ONBOARDING_FLOW_VERSION = 4;
 export const ONBOARDING_STORAGE_KEY = "c-block-algorithm-panel.onboarding";
 
 export type OnboardingLearner = "new" | "experienced";
@@ -11,14 +11,16 @@ export type OnboardingStepId =
   | "dock"
   | "import-source"
   | "build-presets"
-  | "assembly"
-  | "code"
-  | "local-save"
-  | "explanation"
-  | "edit"
-  | "run"
-  | "block-library"
-  | "software-library";
+  | "free-canvas"
+  | "node-detail"
+  | "code-sync"
+  | "layout-resize"
+  | "runtime-flow"
+  | "runtime-metrics"
+  | "runtime-diagnostics"
+  | "evidence-mentor"
+  | "block-lifecycle"
+  | "library";
 
 const STEP_IDS: readonly OnboardingStepId[] = Object.freeze([
   "welcome",
@@ -27,14 +29,16 @@ const STEP_IDS: readonly OnboardingStepId[] = Object.freeze([
   "dock",
   "import-source",
   "build-presets",
-  "assembly",
-  "code",
-  "local-save",
-  "explanation",
-  "edit",
-  "run",
-  "block-library",
-  "software-library",
+  "free-canvas",
+  "node-detail",
+  "code-sync",
+  "layout-resize",
+  "runtime-flow",
+  "runtime-metrics",
+  "runtime-diagnostics",
+  "evidence-mentor",
+  "block-lifecycle",
+  "library",
 ]);
 
 export interface OnboardingCheckpoint {
@@ -251,10 +255,10 @@ function sceneContent(
       return scene(
         state.stepId,
         "dashboard",
-        "dock",
+        "dock-panels-branches",
         "bottom",
         "导航员",
-        "Dock 按文件、构建、检查、执行、学习分组。新算法工具可注册为独立页面继续扩展。",
+        "顶部 Dock 只保留设置、预设块、Library、面板预览四个根入口。当前已展开面板预览，所有子分支都可直接切换真实工作区。",
         nextChoice(),
       );
     case "import-source":
@@ -277,67 +281,87 @@ function sceneContent(
         "预制积木按学习阶段分类，可直接拖入或调用；以后也能加入课程模板和自定义片段。",
         nextChoice(),
       );
-    case "assembly":
+    case "free-canvas":
       return scene(
         state.stepId,
         "build",
         "assembly-canvas",
         "left",
         "装配员",
-        "在组装画布拖动、排序和嵌套代码块；自己编写的片段也能保存后参与组装。",
+        "这里是真正的自由节点画布：节点可随意摆放、框选、平移和缩放；实线是控制流，锁定区域不会接受危险改线。",
         nextChoice(),
       );
-    case "code":
+    case "node-detail":
+      return scene(
+        state.stepId,
+        "build",
+        "node-detail",
+        "left",
+        "审校员",
+        "单击节点会在画布内打开唯一的浮动详情窗。源码编辑、解释、端口、诊断、运行证据和生命周期都在这里，不会跳页。",
+        nextChoice(),
+      );
+    case "code-sync":
       return scene(
         state.stepId,
         "build",
         "code-pane",
         "left",
         "同步器",
-        "代码与积木共享同一份 C 源码并实时同步；导入的 C 会反向拆解，无法安全拆解处保留原文。",
+        "main.c 始终是权威事实源。代码与节点实时同步；任意导入 C 都能查看，无法安全分析的 raw/partial 区域保持原文并锁定改线。",
         nextChoice(),
       );
-    case "local-save":
+    case "layout-resize":
       return scene(
         state.stepId,
         "build",
-        "local-save",
+        "layout-resize",
+        "bottom",
+        "布局管理员",
+        "左侧、画布、代码、详情和运行区都可用鼠标或键盘拉伸；布局与节点坐标写入 flow-view.json，不会改写 main.c。",
+        nextChoice(),
+      );
+    case "runtime-flow":
+      return scene(
+        state.stepId,
+        "build",
+        "runtime-flow",
         "top",
-        "同步器",
-        "托管条目修改后会在 300 ms 防抖后写入 Documents；底栏明确显示待保存、保存中、已保存或错误。",
-        nextChoice(),
-      );
-    case "explanation":
-      return scene(
-        state.stepId,
-        "explanation",
-        "explanation",
-        "left",
-        "工作台导师",
-        "解释页说明选中区块的作用、原理与上下文，后续可扩展复杂度分析和课程知识链接。",
-        nextChoice(),
-      );
-    case "edit":
-      return scene(
-        state.stepId,
-        "edit",
-        "edit",
-        "left",
-        "审校员",
-        "编辑页提供受控结构修改；语义可能变化时先确认 diff，并可撤销或重做。",
-        nextChoice(),
-      );
-    case "run":
-      return scene(
-        state.stepId,
-        "run",
-        "run",
-        "left",
         "执行器",
-        "运行页负责构建、输入、输出和失败定位，后续可接入课程测试集与性能实验。",
+        "真实运行由输入和 C 条件决定路径；教学模拟会明确标记且不进入真实性能历史。下方实时显示编译、分支、成功、错误和资源限制。",
         nextChoice(),
       );
-    case "block-library":
+    case "runtime-metrics":
+      return scene(
+        state.stepId,
+        "build",
+        "runtime-metrics",
+        "top",
+        "性能分析员",
+        "指标页分开呈现墙钟时间、峰值内存、执行节点与操作计数；只有同源码、同案例和同工具链的记录才直接比较。",
+        nextChoice(),
+      );
+    case "runtime-diagnostics":
+      return scene(
+        state.stepId,
+        "build",
+        "runtime-diagnostics",
+        "top",
+        "诊断员",
+        "诊断页集中显示编译错误、资源限制和分析发现。点击带定位信息的条目可以回到对应源码或节点。",
+        nextChoice(),
+      );
+    case "evidence-mentor":
+      return scene(
+        state.stepId,
+        "build",
+        "mentor-hints",
+        "top",
+        "本地导师",
+        "提示只使用本地分析、真实路径和运行历史作为证据。它不联网、不上传源码、不自动修改代码，也不会制造综合效率分。",
+        nextChoice(),
+      );
+    case "block-lifecycle":
       return scene(
         state.stepId,
         "block-library",
@@ -347,14 +371,14 @@ function sceneContent(
         "积木库管理创建、弃用、恢复与退休；库生命周期不会偷偷改写已经生成的源码。",
         nextChoice(),
       );
-    case "software-library":
+    case "library":
       return scene(
         state.stepId,
         "software-library",
-        "software-library",
+        "software-library-content",
         "left",
         "工作台导师",
-        "Software Library 汇总每个区块的职责、使用入口和扩展边界，可随平台能力持续补充。",
+        "Library 同时是完整软件手册、C/标准库/数据结构词典、算法与复杂度参考、案例库、故障恢复和扩展开发文档。",
         [choice("finish", "完成引导")],
       );
   }

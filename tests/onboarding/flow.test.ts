@@ -17,17 +17,19 @@ const EXPECTED_STEPS = [
   "dock",
   "import-source",
   "build-presets",
-  "assembly",
-  "code",
-  "local-save",
-  "explanation",
-  "edit",
-  "run",
-  "block-library",
-  "software-library",
+  "free-canvas",
+  "node-detail",
+  "code-sync",
+  "layout-resize",
+  "runtime-flow",
+  "runtime-metrics",
+  "runtime-diagnostics",
+  "evidence-mentor",
+  "block-lifecycle",
+  "library",
 ] as const;
 
-describe("deterministic onboarding flow v2", () => {
+describe("deterministic onboarding flow v4", () => {
   it("opens with two experience choices and complete visual-target metadata", () => {
     const state = createOnboardingFlow({ storage: new MemoryStorage() }).getState();
     const scene = getOnboardingScene(state);
@@ -70,38 +72,42 @@ describe("deterministic onboarding flow v2", () => {
     },
   );
 
-  it("covers Dashboard creation, Dock, build surfaces, inspectors and both libraries", () => {
+  it("covers Dashboard, four-root Dock, free canvas, evidence panels and Library", () => {
     const scenes = walkthrough("new").map(getOnboardingScene);
 
     expect(scenes.map(({ pageId, targetId }) => `${pageId}:${targetId}`)).toEqual([
       "dashboard:dashboard",
       "dashboard:dashboard-modules",
       "dashboard:create-entry",
-      "dashboard:dock",
+      "dashboard:dock-panels-branches",
       "dashboard:import-actions",
       "build:preset-blocks",
       "build:assembly-canvas",
+      "build:node-detail",
       "build:code-pane",
-      "build:local-save",
-      "explanation:explanation",
-      "edit:edit",
-      "run:run",
+      "build:layout-resize",
+      "build:runtime-flow",
+      "build:runtime-metrics",
+      "build:runtime-diagnostics",
+      "build:mentor-hints",
       "block-library:block-library-lifecycle",
-      "software-library:software-library",
+      "software-library:software-library-content",
     ]);
     const dialogue = scenes.map(({ dialogue }) => dialogue).join("\n");
     expect(dialogue).toMatch(/项目、沙箱、测试/u);
     expect(dialogue).toMatch(/自动保存/u);
     expect(dialogue).toMatch(/文件选择、磁盘拖放或粘贴/u);
     expect(dialogue).toMatch(/预制积木/u);
-    expect(dialogue).toMatch(/组装画布/u);
-    expect(dialogue).toMatch(/反向拆解/u);
-    expect(dialogue).toMatch(/300 ms/u);
-    expect(dialogue).toMatch(/解释页/u);
-    expect(dialogue).toMatch(/diff/u);
-    expect(dialogue).toMatch(/运行页/u);
+    expect(dialogue).toMatch(/自由节点画布/u);
+    expect(dialogue).toMatch(/浮动详情窗/u);
+    expect(dialogue).toMatch(/raw\/partial/u);
+    expect(dialogue).toMatch(/flow-view\.json/u);
+    expect(dialogue).toMatch(/教学模拟/u);
+    expect(dialogue).toMatch(/同源码、同案例和同工具链/u);
+    expect(dialogue).toMatch(/编译错误、资源限制/u);
+    expect(dialogue).toMatch(/不联网/u);
     expect(dialogue).toMatch(/弃用、恢复与退休/u);
-    expect(dialogue).toMatch(/Software Library/u);
+    expect(dialogue).toMatch(/完整软件手册/u);
   });
 
   it("supports next, choice, back and rejects choices outside the current scene", () => {
@@ -139,13 +145,13 @@ describe("deterministic onboarding flow v2", () => {
     const completedStorage = new MemoryStorage();
     const completed = createOnboardingFlow({ storage: completedStorage });
     completed.choose("learner-experienced");
-    while (completed.getState().stepId !== "software-library") completed.next();
+    while (completed.getState().stepId !== "library") completed.next();
     completed.choose("finish");
     expect(completed.getState()).toMatchObject({ status: "closed", completion: "completed" });
     expect(createOnboardingFlow({ storage: completedStorage }).getState().status).toBe("closed");
   });
 
-  it("resets stale v1, corrupt and unavailable storage safely", () => {
+  it("resets stale versions, corrupt and unavailable storage safely", () => {
     const corrupt = new MemoryStorage("{not-json");
     expect(createOnboardingFlow({ storage: corrupt }).getState().status).toBe("open");
     expect(corrupt.removed).toBe(1);
@@ -175,7 +181,7 @@ function walkthrough(learner: OnboardingLearner): readonly OnboardingState[] {
   const states: OnboardingState[] = [flow.getState()];
   flow.choose(learner === "new" ? "learner-new" : "learner-experienced");
   states.push(flow.getState());
-  while (flow.getState().stepId !== "software-library") {
+  while (flow.getState().stepId !== "library") {
     flow.next();
     states.push(flow.getState());
   }

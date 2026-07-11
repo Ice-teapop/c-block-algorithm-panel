@@ -7,6 +7,12 @@ import type {
   RunRequest,
   RunResult,
 } from "../../../src/shared/api.js";
+import type {
+  TraceBatch,
+  TraceCancelResult,
+  TraceRequest,
+  TraceStartResult,
+} from "../../../src/shared/trace.js";
 import { parseRunnerMode } from "./capability.js";
 import {
   Runner,
@@ -42,15 +48,22 @@ export function describeTrustedRequest(
   request: DiagnoseRequest,
 ): TrustedRequestSummary;
 export function describeTrustedRequest(
+  operation: "trace",
+  request: TraceRequest,
+): TrustedRequestSummary;
+export function describeTrustedRequest(
   operation: TrustedOperation,
-  request: CompileRequest | RunRequest | DiagnoseRequest,
+  request: CompileRequest | RunRequest | DiagnoseRequest | TraceRequest,
 ): TrustedRequestSummary {
   const runner = getDefaultRunner();
   if (operation === "compile") {
     return runner.describeTrustedRequest(operation, request as CompileRequest);
   }
   if (operation === "run") return runner.describeTrustedRequest(operation, request as RunRequest);
-  return runner.describeTrustedRequest(operation, request as DiagnoseRequest);
+  if (operation === "diagnose") {
+    return runner.describeTrustedRequest(operation, request as DiagnoseRequest);
+  }
+  return runner.describeTrustedRequest(operation, request as TraceRequest);
 }
 
 export function createTrustedExecutionGrant(
@@ -66,8 +79,12 @@ export function createTrustedExecutionGrant(
   request: DiagnoseRequest,
 ): TrustedExecutionGrant;
 export function createTrustedExecutionGrant(
+  operation: "trace",
+  request: TraceRequest,
+): TrustedExecutionGrant;
+export function createTrustedExecutionGrant(
   operation: TrustedOperation,
-  request: CompileRequest | RunRequest | DiagnoseRequest,
+  request: CompileRequest | RunRequest | DiagnoseRequest | TraceRequest,
 ): TrustedExecutionGrant {
   const runner = getDefaultRunner();
   if (operation === "compile") {
@@ -76,7 +93,10 @@ export function createTrustedExecutionGrant(
   if (operation === "run") {
     return runner.createTrustedExecutionGrant(operation, request as RunRequest);
   }
-  return runner.createTrustedExecutionGrant(operation, request as DiagnoseRequest);
+  if (operation === "diagnose") {
+    return runner.createTrustedExecutionGrant(operation, request as DiagnoseRequest);
+  }
+  return runner.createTrustedExecutionGrant(operation, request as TraceRequest);
 }
 
 export async function compile(
@@ -98,6 +118,21 @@ export async function diagnose(
   trustedGrant?: TrustedExecutionGrant,
 ): Promise<DiagnoseResult> {
   return getDefaultRunner().diagnose(request, trustedGrant);
+}
+
+export async function startTrace(
+  request: TraceRequest,
+  trustedGrant?: TrustedExecutionGrant,
+): Promise<TraceStartResult> {
+  return getDefaultRunner().startTrace(request, trustedGrant);
+}
+
+export function readTrace(sessionId: string, afterSequence: number): TraceBatch {
+  return getDefaultRunner().readTrace(sessionId, afterSequence);
+}
+
+export function cancelTrace(sessionId: string): TraceCancelResult {
+  return getDefaultRunner().cancelTrace(sessionId);
 }
 
 export async function disposeRunner(): Promise<void> {

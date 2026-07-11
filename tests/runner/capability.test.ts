@@ -9,6 +9,7 @@ import {
   SystemSeatbeltCanary,
   classifyClangVersion,
   parseRunnerMode,
+  toolchainIdentifier,
   type CanaryCommandExecutor,
   type CanaryCommandResult,
   type SeatbeltCanary,
@@ -54,6 +55,24 @@ describe("Apple clang capability", () => {
     expect(parseRunnerMode(undefined, available)).toBe("seatbelt-best-effort");
     expect(parseRunnerMode("seatbelt-best-effort", available)).toBe("seatbelt-best-effort");
     expect(parseRunnerMode("trusted-only", available)).toBe("trusted-only");
+  });
+
+  it("publishes a stable toolchain key without leaking absolute paths", () => {
+    const id = toolchainIdentifier(
+      {
+        available: true,
+        detail:
+          "Apple clang version 21.0.0；工具链 /Applications/Xcode.app/Contents/Developer/usr/bin/clang",
+      },
+      "trusted-only",
+    );
+
+    expect(id).toContain("verified:Apple clang version 21.0.0");
+    expect(id).toContain("[verified-path]");
+    expect(id).not.toContain("/Applications/");
+    expect(toolchainIdentifier(UNAVAILABLE_TOOLCHAIN, "disabled")).toBe(
+      "disabled:工具链不可用/未验证",
+    );
   });
 
   it("does not probe tools for explicit or malformed disabled modes", () => {

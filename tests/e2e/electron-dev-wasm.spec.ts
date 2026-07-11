@@ -74,8 +74,11 @@ test("loads both WASM modules through the Vite HTTP development path", async () 
     const languageResponses = wasmPayloadResponses.filter((response) =>
       response.url().includes("tree-sitter-c.wasm"),
     );
-    expect(runtimeResponses).toHaveLength(1);
-    expect(languageResponses).toHaveLength(1);
+    // M5+ keeps the exact-source parser in the renderer and runs analysis in a
+    // dedicated Worker. Each isolated execution context loads its own runtime
+    // and C grammar, so two successful responses per asset are required.
+    expect(runtimeResponses).toHaveLength(2);
+    expect(languageResponses).toHaveLength(2);
     for (const response of [...runtimeResponses, ...languageResponses]) {
       expect(response.ok()).toBe(true);
       expect(response.headers()["content-type"]).toContain("application/wasm");

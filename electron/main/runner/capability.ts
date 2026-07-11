@@ -561,11 +561,22 @@ export function parseRunnerMode(
   return detectToolchain().available ? (value ?? "seatbelt-best-effort") : "disabled";
 }
 
-export function capabilitiesWithoutProbe(mode: RunnerMode): Capabilities {
+export function toolchainIdentifier(toolchain: ToolchainProbeResult, mode: RunnerMode): string {
+  const sanitized = toolchain.detail
+    .replace(/(^|[\s；，(])\/[^\s；，)]+/gu, "$1[verified-path]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 240);
+  const detail = sanitized.length > 0 ? sanitized : "工具链信息不可用";
+  return `${mode === "disabled" ? "disabled" : toolchain.available ? "verified" : "unavailable"}:${detail}`;
+}
+
+export function capabilitiesWithoutProbe(mode: RunnerMode, toolchainId: string): Capabilities {
   if (mode === "disabled") {
     return Object.freeze({
       mode,
       runnerEnabled: false,
+      toolchainId,
       seatbeltProbe: Object.freeze({
         status: "not-checked",
         detail: "运行器已禁用，或本机工具链不可用/未验证。",
@@ -576,6 +587,7 @@ export function capabilitiesWithoutProbe(mode: RunnerMode): Capabilities {
   return Object.freeze({
     mode,
     runnerEnabled: true,
+    toolchainId,
     seatbeltProbe: Object.freeze({
       status: "not-checked",
       detail: "未请求 Seatbelt 探测；仅允许显式确认的可信代码。",

@@ -75,7 +75,7 @@ for (const corpusCase of corpusCases) {
         state.__m4CorpusPath = path;
       }, corpusCase.path);
 
-      await page.locator("[role='tab'][data-workbench-page-id='build']").click();
+      await page.getByRole("tab", { name: "搭建", exact: true }).click();
       await page.locator("#open-source").click();
 
       await expect(page.locator("#import-status")).toHaveAttribute("data-state", "ready");

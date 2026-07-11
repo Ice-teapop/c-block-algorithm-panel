@@ -1,39 +1,48 @@
 import * as core from "./core/index.js";
-import { createDiagnosticRunPanel } from "./app/diagnostic-run-panel.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
-import { createLearningSurface, type LearningSurface } from "./app/learning-surface.js";
-import { analyzeProgramSnapshot, type ReadySession } from "./app/program-analysis-session.js";
+import {
+  createFlowWorkbenchController,
+  type FlowWorkbenchController,
+} from "./app/flow-workbench-controller.js";
+import { createFlowSourceEditor } from "./app/flow-source-editor.js";
+import type { LearningSurface } from "./app/learning-surface.js";
+import type { LoadedLearningCatalogStorage } from "./app/learning-catalog-disk-storage.js";
+import { emptyProgramAnalysisSnapshot, type ReadySession } from "./app/program-analysis-session.js";
+import { createProgramAnalysisCoordinator } from "./app/program-analysis-coordinator.js";
 import { createProjectionPresenter, type ProjectionPresenter } from "./app/projection-presenter.js";
 import { sourceMetadata } from "./app/source-display.js";
 import { createSourceImportController } from "./app/source-import-controller.js";
 import { clearStaleSourcePresentation } from "./app/stale-source-presentation.js";
-import { symbolTooltip } from "./app/symbol-tooltip.js";
 import {
   createStructureEditController,
   type StructureEditController,
 } from "./app/structure-edit-controller.js";
 import { createSourceSyncController } from "./app/source-sync-controller.js";
+import { structureEditSelectionForBlock } from "./app/structure-edit-selection.js";
 import {
-  canSelectAnalyzedSource,
-  structureEditSelectionAtOffset,
-  structureEditSelectionForBlock,
-} from "./app/structure-edit-selection.js";
+  createSourceSelectionController,
+  type SourceSelectionController,
+} from "./app/source-selection-controller.js";
+import { createStructuredEditCoordinator } from "./app/structured-edit-coordinator.js";
+import { requireService } from "./app/required-service.js";
+import {
+  createRuntimeWorkspaceController,
+  type RuntimeWorkspaceController,
+} from "./app/runtime-workspace-controller.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { createWorkspaceController, type WorkspaceController } from "./app/workspace-controller.js";
-import { installWorkspaceLifecycle } from "./app/workspace-lifecycle.js";
-import { createBrowserCParser } from "./renderer/c-parser.js";
+import { installApplicationPersistence } from "./app/application-persistence.js";
+import { initializeWorkbenchApplication } from "./renderer/application-bootstrap.js";
+import { createFlowProjection } from "./flow/index.js";
 import { validateSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
+import { fingerprintSource } from "./shared/source-snapshot.js";
 import { createBlockTree } from "./ui/block-tree.js";
-import { createCodePane, type CodeHighlight, type CodeSourceChangeReason } from "./ui/code-pane.js";
-import { createEditPanel, type EditPanel, type EditPanelRequest } from "./ui/edit-panel.js";
+import { createCodePane, type CodeSourceChangeReason } from "./ui/code-pane.js";
+import { createEditPanel, type EditPanel } from "./ui/edit-panel.js";
 import { renderExplanationView } from "./ui/explanation-view.js";
 import { createProjectionStatus } from "./ui/projection-status.js";
-import {
-  createStructureEditPanel,
-  type StructureEditPanel,
-  type StructureEditSelection,
-} from "./ui/structure-edit-panel.js";
+import { createStructureEditPanel, type StructureEditPanel } from "./ui/structure-edit-panel.js";
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
 const runtime = createWorkbenchRuntime(app);
@@ -47,13 +56,17 @@ let structureEditPanel: StructureEditPanel | null = null;
 let structureEdits: StructureEditController | null = null;
 let projectionPresenter: ProjectionPresenter | null = null;
 let learningSurface: LearningSurface | null = null;
+let learningCatalogStorage: LoadedLearningCatalogStorage | null = null;
+let flowWorkbench: FlowWorkbenchController | null = null;
+let runtimeWorkspace: RuntimeWorkspaceController | null = null;
+let sourceSelection: SourceSelectionController | null = null;
 
 const projectionStatus = createProjectionStatus(elements.codePane);
 const codePane = createCodePane(elements.codePane, {
   editable: true,
   validateSource: assertEditableSource,
-  onInputRejected: onDirectInputRejected,
-  onSourceOffset: selectFromCode,
+  onInputRejected: (error) => requireProjectionPresenter().inputRejected(error),
+  onSourceOffset: (offset) => sourceSelection?.selectFromOffset(offset),
   onSourceChange: onCodeSourceChange,
 });
 const blockTree = createBlockTree(
@@ -65,14 +78,14 @@ const blockTree = createBlockTree(
         : editTargetSelection.editTargetForBlock(session.analysis.editTargets, entry);
     const structureSelection =
       session === null ? null : structureEditSelectionForBlock(session.analysis, entry);
-    selectBlock(
+    requireSourceSelection().selectBlock({
       entry,
-      true,
-      null,
-      target,
-      target === null && structureSelection === null ? "explanation" : "edit",
+      reveal: true,
+      symbol: null,
+      editTarget: target,
+      inspector: target === null && structureSelection === null ? "explanation" : "edit",
       structureSelection,
-    );
+    });
   },
   (sourceEntry, targetEntry) => {
     elements.showInspector("edit");
@@ -82,9 +95,100 @@ const blockTree = createBlockTree(
     void learningSurface?.insert(intent);
   },
 );
+const flowSourceEditor = createFlowSourceEditor({
+  getSession: () => session,
+  getProjection: () => flowWorkbench?.projection ?? null,
+  getParser: () => parser,
+  getProjectionMode: () => sourceSync.getMode(),
+  getEditorSource: () => codePane.getSource(),
+  applyPatches: (patches) => codePane.applyPatches(patches),
+  resetProjection: () => sourceSync.reset("synced"),
+  nextRevision: nextSessionRevision,
+  adopt: (imported, analysis, preferredTarget) =>
+    adoptAnalysis(imported, analysis, false, preferredTarget),
+  confirm: (message) => globalThis.confirm(message),
+  onCommitted: (message) => sourceImport.setStatus(message, "ready"),
+});
+flowWorkbench = createFlowWorkbenchController({
+  elements,
+  api: window.panelApi,
+  onNodeSelect(node) {
+    if (
+      node.range.from === node.range.to &&
+      node.ownerBlockRange.from === node.ownerBlockRange.to
+    ) {
+      return;
+    }
+    requireSourceSelection().selectFromOffset(node.range.from);
+    codePane.reveal(node.range);
+  },
+  onReplaceNodeSource: (node, source) => flowSourceEditor.replaceNodeSource(node, source),
+  onDeleteNodes: (nodes) => flowSourceEditor.deleteNodes(nodes),
+  onConnectionIntent: (intent) => flowSourceEditor.connectNodes(intent),
+  resolvePreset: (presetId) => learningSurface?.resolvePreset(presetId) ?? null,
+  onDraftConnectionIntent: (intent) => flowSourceEditor.connectDraft(intent),
+  onSourceUndo: () => codePane.undo(),
+  onVirtualPlaybackNode(node) {
+    if (node.presetId === "builtin.flow.pause") runtimeWorkspace?.trace.pausePlayback();
+  },
+  onStatus(message, state) {
+    elements.importStatus.textContent = message;
+    elements.importStatus.dataset.state = state;
+  },
+});
+const programAnalysisCoordinator = createProgramAnalysisCoordinator({
+  getSession: () => session,
+  setProgramAnalysis(nextAnalysis) {
+    if (session === null) throw new Error("源码会话尚未就绪");
+    session = Object.freeze({ ...session, programAnalysis: nextAnalysis });
+    return session;
+  },
+  getSelectedBlock: () => blockTree.getSelectedEntry()?.block ?? null,
+  onProjection: (current) => {
+    requireFlowWorkbench().adoptProjection(
+      createFlowProjection(current.programAnalysis, current.analysis.document),
+    );
+    requireFlowWorkbench().setAnalysis(current.programAnalysis);
+    runtimeWorkspace?.setAnalysis(current.programAnalysis);
+  },
+  onExplanation: (current, block) =>
+    renderExplanationView(
+      explanationHost,
+      current.analysis.document,
+      block,
+      null,
+      current.programAnalysis,
+    ),
+  onProgress(functionCount, complete) {
+    elements.parserStatus.dataset.analysisState = complete ? "complete" : "progressive";
+    elements.parserStatus.dataset.analyzedFunctions = String(functionCount);
+    if (complete) requireFlowWorkbench().finalizePendingSidecarRestore();
+  },
+  onError(error) {
+    elements.parserStatus.dataset.analysisState = "worker-error";
+    elements.importStatus.textContent = `后台 CFG 分析不可用：${error.message}。源码编辑与编译运行仍可使用。`;
+    elements.importStatus.dataset.state = "warning";
+  },
+});
+const panelEdits = createStructuredEditCoordinator({
+  getSession: () => session,
+  getParser: () => parser,
+  assertStructureReady: () => requireStructureEdits().assertReady(),
+  validateSource: assertEditableSource,
+  getProjectionMode: () => sourceSync.getMode(),
+  getEditorSource: () => codePane.getSource(),
+  applyPatches: (patches) => codePane.applyPatches(patches),
+  resetProjection: () => sourceSync.reset("synced"),
+  adopt: (imported, analysis, preferredTarget) =>
+    adoptAnalysis(imported, analysis, false, preferredTarget),
+  onCommitted() {
+    editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
+    sourceImport.setStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
+  },
+});
 editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("edit"), {
-  plan: planPanelEdit,
-  commit: commitPanelEdit,
+  plan: (request) => panelEdits.plan(request),
+  commit: (plan) => panelEdits.commit(plan),
   undo: () => {
     codePane.undo();
     editPanel?.setHistoryDepth(codePane.getHistoryDepth());
@@ -99,10 +203,36 @@ structureEditPanel = createStructureEditPanel<core.M3bEditPlan>(elements.getInsp
   confirm: (plan) => requireEditPanel().confirmExternal(plan),
   commit: (plan) => requireStructureEdits().commit(plan),
 });
-const runPanel = createDiagnosticRunPanel(elements.getInspectorHost("run"), codePane, blockTree, {
+sourceSelection = createSourceSelectionController({
+  explanationHost,
+  getSession: () => session,
+  getProjectionMode: () => sourceSync.getMode(),
+  getEditorSource: () => codePane.getSource(),
+  getHistoryDepth: () => codePane.getHistoryDepth(),
+  getCurrentPage: () => elements.currentPage,
+  showInspector: (view) => elements.showInspector(view),
+  selectTreeEntry: (entry) => blockTree.select(entry),
+  setEditTarget: (target) => editPanel?.setTarget(target),
+  setStructureSelection: (selection) => structureEditPanel?.setSelection(selection),
+  setInsertEnabled: (enabled) => learningSurface?.setSelectedInsertEnabled(enabled),
+  setHistoryDepth: (depth) => editPanel?.setHistoryDepth(depth),
+  setParseError: (message) => editPanel?.setStatus({ kind: "parse-error", message }),
+  setHighlights: (highlights) => codePane.setHighlights(highlights),
+  reveal: (range) => codePane.reveal(range),
+});
+runtimeWorkspace = createRuntimeWorkspaceController({
+  elements,
+  api: window.panelApi,
+  codePane,
+  blockTree,
   getSource: () => codePane.getSource(),
   getAnalyzedSource: () => session?.imported.source ?? null,
   getDisplayName: () => session?.imported.displayName ?? "main.c",
+  getAnalysis: () => session?.programAnalysis ?? null,
+  getProjection: () => flowWorkbench?.projection ?? null,
+  onSetActivePath: (path, evidence) => requireFlowWorkbench().setActivePath(path, evidence),
+  onFocusNode: (nodeId) => requireFlowWorkbench().focusNode(nodeId),
+  onRevealRange: (range) => codePane.reveal(range),
 });
 const workspaceController: WorkspaceController = createWorkspaceController({
   host: elements.getPageHost("dashboard"),
@@ -111,6 +241,20 @@ const workspaceController: WorkspaceController = createWorkspaceController({
   recoveryButton: elements.workspaceRecoveryButton,
   load: loadSource,
   enterWorkbench: () => elements.showPage("build"),
+  onActiveEntryChange: (entry) => {
+    if (destroyed) return;
+    const entryId = entry?.id ?? null;
+    const fingerprint = entryId === null ? null : fingerprintSource(codePane.getSource());
+    void Promise.all([
+      requireFlowWorkbench().setWorkspaceEntry(entryId),
+      requireRuntimeWorkspace().setWorkspaceEntry(entryId, fingerprint),
+    ]).catch((error: unknown) => {
+      sourceImport.setStatus(
+        error instanceof Error ? error.message : "工作区 sidecar 载入失败",
+        "error",
+      );
+    });
+  },
 });
 const sourceImport = createSourceImportController(elements, {
   load: async (document, isCurrent) => {
@@ -161,46 +305,26 @@ structureEdits = createStructureEditController({
     sourceImport.setStatus(error.message, "error");
   },
 });
-learningSurface = createLearningSurface({
+void initializeWorkbenchApplication({
   elements,
+  startupLoader,
+  api: window.panelApi,
   blockTree,
   structureEdits: requireStructureEdits(),
+  sourceImport,
+  workspace: workspaceController,
   getAnalysis: () => session?.analysis ?? null,
-  getAnalyzer: () => parser,
-  onError: (error) => {
+  isDestroyed: () => destroyed,
+  onReady(loadedParser, surface, storage) {
+    parser = loadedParser;
+    learningSurface = surface;
+    learningCatalogStorage = storage;
+  },
+  onLearningError(error) {
     editPanel?.setStatus(error);
     sourceImport.setStatus(error.message, "error");
   },
 });
-void initialize();
-
-async function initialize(): Promise<void> {
-  try {
-    startupLoader.advance("parser");
-    const loadedParser = await createBrowserCParser();
-    if (destroyed) {
-      loadedParser.dispose();
-      return;
-    }
-    parser = loadedParser;
-    startupLoader.advance("parser-ready");
-    sourceImport.setEnabled(true);
-    startupLoader.advance("source");
-    elements.parserStatus.textContent = "C 解析器已加载 · 等待打开工作区条目";
-    elements.parserStatus.dataset.state = "ready";
-    await workspaceController.initialize();
-    if (destroyed) return;
-    sourceImport.setStatus("可新建本地条目，或打开、拖入、粘贴现有 .c 文件。", "ready");
-    startupLoader.complete();
-    globalThis.setTimeout(() => learningSurface?.startOnboardingIfNeeded(), 500);
-  } catch (error: unknown) {
-    const detail = error instanceof Error ? error.message : "未知错误";
-    startupLoader.fail(`启动失败：${detail}`);
-    elements.parserStatus.textContent = `C 解析器不可用：${detail}`;
-    elements.parserStatus.dataset.state = "error";
-    sourceImport.setStatus("解析器初始化失败，源码工作台已停用。", "error");
-  }
-}
 
 function loadSource(imported: ImportedSource): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
@@ -230,14 +354,14 @@ function adoptAnalysis(
     throw new Error("CodeMirror 精确源码与分析快照不同步");
   }
   const blockIndex = core.createBlockIndex(document);
-  if (parser === null) throw new Error("C 解析器尚未加载");
-  const programAnalysis = analyzeProgramSnapshot(
-    parser,
+  const programAnalysis = emptyProgramAnalysisSnapshot(
     imported.source,
     analysis.editTargets.revision,
-    blockIndex.entries.length,
   );
   session = Object.freeze({ imported, analysis, blockIndex, programAnalysis });
+  requireFlowWorkbench().adoptProjection(createFlowProjection(programAnalysis, document));
+  requireFlowWorkbench().setAnalysis(programAnalysis);
+  programAnalysisCoordinator.schedule(imported, analysis, blockIndex.entries.length);
 
   if (resetEditor) codePane.setSource(imported.source);
   blockTree.setDocument(document, blockIndex);
@@ -258,14 +382,14 @@ function adoptAnalysis(
 
   if (preferredTarget !== null) {
     const preferredEntry = editTargetSelection.blockEntryForTarget(blockIndex, preferredTarget);
-    selectBlock(
-      preferredEntry,
-      false,
-      null,
-      preferredTarget,
-      "edit",
-      structureEditSelectionForBlock(analysis, preferredEntry),
-    );
+    requireSourceSelection().selectBlock({
+      entry: preferredEntry,
+      reveal: false,
+      symbol: null,
+      editTarget: preferredTarget,
+      inspector: "edit",
+      structureSelection: structureEditSelectionForBlock(analysis, preferredEntry),
+    });
   } else {
     const firstFunction = blockIndex.entries.find(
       (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
@@ -273,14 +397,14 @@ function adoptAnalysis(
     const firstBlock = blockIndex.entries.find((entry) => entry.kind === "block");
     const initialEntry = firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null;
     const structureSelection = structureEditSelectionForBlock(analysis, initialEntry);
-    selectBlock(
-      initialEntry,
-      false,
-      null,
-      null,
-      structureSelection === null ? "explanation" : "edit",
+    requireSourceSelection().selectBlock({
+      entry: initialEntry,
+      reveal: false,
+      symbol: null,
+      editTarget: null,
+      inspector: structureSelection === null ? "explanation" : "edit",
       structureSelection,
-    );
+    });
   }
 }
 
@@ -292,69 +416,12 @@ function nextSessionRevision(): number {
   return current + 1;
 }
 
-function planPanelEdit(request: EditPanelRequest): core.StructuredEditPlan {
-  const current = session;
-  const currentParser = parser;
-  if (current === null || currentParser === null) {
-    throw new Error("C 解析器或源码会话尚未就绪");
-  }
-  requireStructureEdits().assertReady();
-  const target = editTargetSelection
-    .allEditTargets(current.analysis.editTargets)
-    .find((candidate) => candidate.id === request.targetId);
-  if (target === undefined) {
-    throw new Error("编辑目标已经过期，请重新选择代码");
-  }
-  const structuredRequest = editTargetSelection.toStructuredEditRequest(request, target);
-  return core.planStructuredEdit(
-    {
-      source: current.imported.source,
-      analysis: current.analysis,
-      analyzer: currentParser,
-      validateSource: assertEditableSource,
-    },
-    structuredRequest,
-  );
-}
-
-function commitPanelEdit(plan: core.StructuredEditPlan): void {
-  const current = session;
-  if (
-    current === null ||
-    sourceSync.getMode() !== "synced" ||
-    current.analysis.editTargets.revision !== plan.baseRevision ||
-    codePane.getSource() !== current.imported.source
-  ) {
-    throw new Error("预览已经过期；源码未修改，请重新选择并预览");
-  }
-  if (
-    plan.candidateAnalysis.editTargets.revision !== plan.candidateRevision ||
-    plan.candidateSource !== plan.candidateAnalysis.document.source ||
-    core.renderSourceDoc(plan.candidateAnalysis.document) !== plan.candidateSource
-  ) {
-    throw new Error("候选分析快照无效；源码未修改");
-  }
-
-  core.createBlockIndex(plan.candidateAnalysis.document);
-  const preferredTarget = editTargetSelection.candidateTargetForPlan(
-    current.analysis.editTargets,
-    plan,
-  );
-  const changed = codePane.applyPatches(plan.patches);
-  if (!changed || codePane.getSource() !== plan.candidateSource) {
-    throw new Error("CodeMirror 未能精确应用结构化补丁");
-  }
-
-  const imported = Object.freeze({ ...current.imported, source: plan.candidateSource });
-  sourceSync.reset("synced");
-  adoptAnalysis(imported, plan.candidateAnalysis, false, preferredTarget);
-  editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
-  sourceImport.setStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
-}
-
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
   if (destroyed) return;
-  runPanel.invalidateSource();
+  elements.parserStatus.dataset.analysisState = "pending";
+  elements.parserStatus.dataset.analyzedFunctions = "0";
+  flowWorkbench?.setAnalysis(null);
+  runtimeWorkspace?.invalidateSource();
   if (session?.imported.source !== source) clearStaleSourcePresentation(codePane, explanationHost);
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   sourceSync.handleSourceChange(source, reason);
@@ -366,28 +433,32 @@ function analyzeCurrentSource(source: string): core.CAnalysisSnapshot {
   return parser.analyze(source, nextSessionRevision());
 }
 
-function onDirectInputRejected(error: unknown): void {
-  requireProjectionPresenter().inputRejected(error);
-}
-
 function requireEditPanel(): EditPanel<core.StructuredEditPlan> {
-  if (editPanel === null) throw new Error("编辑检查器不可用");
-  return editPanel;
+  return requireService(editPanel, "编辑检查器不可用");
 }
 
 function requireStructureEditPanel(): StructureEditPanel {
-  if (structureEditPanel === null) throw new Error("结构编辑面板不可用");
-  return structureEditPanel;
+  return requireService(structureEditPanel, "结构编辑面板不可用");
 }
 
 function requireStructureEdits(): StructureEditController {
-  if (structureEdits === null) throw new Error("结构编辑控制器不可用");
-  return structureEdits;
+  return requireService(structureEdits, "结构编辑控制器不可用");
 }
 
 function requireProjectionPresenter(): ProjectionPresenter {
-  if (projectionPresenter === null) throw new Error("投影状态 presenter 不可用");
-  return projectionPresenter;
+  return requireService(projectionPresenter, "投影状态 presenter 不可用");
+}
+
+function requireFlowWorkbench(): FlowWorkbenchController {
+  return requireService(flowWorkbench, "自由流程工作台不可用");
+}
+
+function requireRuntimeWorkspace(): RuntimeWorkspaceController {
+  return requireService(runtimeWorkspace, "运行工作台不可用");
+}
+
+function requireSourceSelection(): SourceSelectionController {
+  return requireService(sourceSelection, "源码选择控制器不可用");
 }
 
 function assertEditableSource(source: string): void {
@@ -395,82 +466,6 @@ function assertEditableSource(source: string): void {
   if (!validation.ok) {
     throw new Error(`${validation.code}：${validation.message}`);
   }
-}
-
-function selectFromCode(sourceOffset: number): void {
-  if (
-    session === null ||
-    !canSelectAnalyzedSource(sourceSync.getMode(), codePane.getSource(), session.imported.source)
-  ) {
-    return;
-  }
-  const symbol = core.symbolAt(session.analysis.document.symbols, sourceOffset);
-  const entry = core.offsetToBlock(session.blockIndex, sourceOffset);
-  const target = editTargetSelection.editTargetAtOffset(session.analysis.editTargets, sourceOffset);
-  const structureSelection = structureEditSelectionAtOffset(session.analysis, sourceOffset);
-  selectBlock(
-    entry,
-    false,
-    symbol,
-    target,
-    target === null && structureSelection === null ? "explanation" : "edit",
-    structureSelection,
-  );
-}
-
-function selectBlock(
-  entry: core.BlockIndexEntry | null,
-  reveal: boolean,
-  symbol: core.SymbolRecord | null,
-  editTarget: core.EditTarget | null,
-  inspector: "explanation" | "edit",
-  structureSelection: StructureEditSelection | null,
-): void {
-  if (session === null) return;
-  const sourceDocument = session.analysis.document;
-  if (reveal || elements.currentPage !== "build") elements.showInspector(inspector);
-  blockTree.select(entry);
-  editPanel?.setTarget(editTarget);
-  structureEditPanel?.setSelection(
-    sourceSync.getMode() === "synced" && !sourceDocument.parse.hasError ? structureSelection : null,
-  );
-  learningSurface?.setSelectedInsertEnabled(
-    structureSelection?.statement?.parentMode === "statement-list" &&
-      structureSelection.statement.blocker === null,
-  );
-  editPanel?.setHistoryDepth(codePane.getHistoryDepth());
-  if (sourceDocument.parse.hasError) {
-    editPanel?.setStatus({
-      kind: "parse-error",
-      message: "当前源码含解析恢复节点；先修复源码，再进行结构化编辑。",
-    });
-  }
-
-  const highlights: CodeHighlight[] = [];
-  if (entry?.block !== null && entry?.block !== undefined) {
-    highlights.push({ range: entry.block.range, kind: "primary" });
-  }
-  if (symbol !== null) {
-    for (const occurrence of sourceDocument.symbols.occurrences) {
-      if (occurrence.symbolId !== symbol.id) continue;
-      highlights.push({
-        range: occurrence.range,
-        kind: occurrence.role === "declaration" ? "symbol-declaration" : "symbol-use",
-        title: symbolTooltip(symbol, occurrence.role),
-      });
-    }
-  }
-  codePane.setHighlights(highlights);
-  if (reveal && entry?.block !== null && entry?.block !== undefined) {
-    codePane.reveal(entry.block.range);
-  }
-  renderExplanationView(
-    explanationHost,
-    sourceDocument,
-    entry?.block ?? null,
-    symbol,
-    session.programAnalysis,
-  );
 }
 
 function destroyApplication(): void {
@@ -481,19 +476,25 @@ function destroyApplication(): void {
   projectionPresenter?.destroy();
   sourceImport.destroy();
   learningSurface?.destroy();
+  learningCatalogStorage?.destroy();
+  void runtimeWorkspace?.destroy().catch(() => undefined);
+  flowWorkbench?.destroy();
   workspaceController.destroy();
-  runPanel.destroy();
   structureEditPanel?.destroy();
   editPanel?.destroy();
   projectionStatus.destroy();
   blockTree.destroy();
   codePane.destroy();
+  programAnalysisCoordinator.destroy();
   parser?.dispose();
   runtime.destroy();
 }
 
-installWorkspaceLifecycle({
+installApplicationPersistence({
   workspace: workspaceController,
+  flow: requireFlowWorkbench(),
+  runtime: requireRuntimeWorkspace(),
+  getCatalog: () => learningCatalogStorage,
   onCloseRequested: window.panelApi.onWorkspaceCloseRequested,
   destroy: destroyApplication,
 });

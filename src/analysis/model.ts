@@ -550,4 +550,6 @@ export interface ProgramAnalysisInput {
   readonly revision: number;
   readonly rootNode: import("web-tree-sitter").Node;
   readonly document: SourceDoc;
+  /** Worker-only progressive analysis limit; omitted means every function. */
+  readonly functionLimit?: number;
 }

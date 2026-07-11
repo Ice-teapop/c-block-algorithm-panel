@@ -1,10 +1,22 @@
 import type {
-  CatalogLearningTemplate,
+  CatalogPresetBlock,
   LearningCatalog,
   LearningCatalogSnapshot,
 } from "../learning/index.js";
 
 export type LearningStageFilter = "all" | string;
+export type BlockPaletteCategory =
+  | "all"
+  | "recent-favorites"
+  | "flow-control"
+  | "c-basics"
+  | "functions-io"
+  | "arrays-strings"
+  | "pointers-memory"
+  | "data-structures"
+  | "algorithm-patterns"
+  | "testing-analysis"
+  | "custom-lifecycle";
 
 export interface BlockPaletteCallbacks {
   readonly onTemplateDragStart: (templateId: string) => void;
@@ -17,6 +29,8 @@ export interface BlockPalette {
   refresh(): void;
   setStage(stageId: LearningStageFilter): void;
   getStage(): LearningStageFilter;
+  setCategory(category: BlockPaletteCategory): void;
+  getCategory(): BlockPaletteCategory;
   setInsertEnabled(enabled: boolean): void;
   destroy(): void;
 }
@@ -25,14 +39,16 @@ export function filterLearningTemplates(
   snapshot: LearningCatalogSnapshot,
   stageId: LearningStageFilter,
   query: string,
-): readonly CatalogLearningTemplate[] {
+  category: BlockPaletteCategory = "all",
+): readonly CatalogPresetBlock[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
   return Object.freeze(
-    snapshot.templates.filter((template) => {
+    snapshot.presets.filter((template) => {
       if (template.lifecycle !== "active") return false;
       if (stageId !== "all" && template.stage !== stageId) return false;
+      if (!matchesCategory(template, category)) return false;
       if (normalizedQuery.length === 0) return true;
-      return [template.label, template.description, template.category, template.source].some(
+      return [template.label, template.description, template.category, template.source ?? ""].some(
         (value) => value.toLocaleLowerCase("zh-CN").includes(normalizedQuery),
       );
     }),
@@ -75,8 +91,9 @@ export function createBlockPalette(
 
   let destroyed = false;
   let stageId: LearningStageFilter = "all";
+  let category: BlockPaletteCategory = "all";
   let insertEnabled = false;
-  let visibleTemplates = new Map<string, CatalogLearningTemplate>();
+  let visibleTemplates = new Map<string, CatalogPresetBlock>();
   let activeDragSurface: HTMLElement | null = null;
 
   const finishActiveDrag = (): void => {
@@ -91,7 +108,8 @@ export function createBlockPalette(
     finishActiveDrag();
     const snapshot = catalog.snapshot();
     renderStageOptions(stageSelect, snapshot, stageId);
-    const templates = filterLearningTemplates(snapshot, stageId, search.value);
+    const templates = filterLearningTemplates(snapshot, stageId, search.value, category);
+    root.dataset.category = category;
     visibleTemplates = new Map(templates.map((template) => [template.id, template]));
     list.replaceChildren();
     if (templates.length === 0) {
@@ -108,6 +126,7 @@ export function createBlockPalette(
 
   const onStageChange = (): void => {
     stageId = stageSelect.value;
+    category = "all";
     render();
   };
   const onSearchInput = (): void => render();
@@ -129,6 +148,7 @@ export function createBlockPalette(
     if (event.dataTransfer !== null) {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("text/plain", "c-block-catalog-item");
+      event.dataTransfer.setData("application/x-c-block-preset", template.id);
     }
   };
   const onDragEnd = (): void => finishActiveDrag();
@@ -163,6 +183,16 @@ export function createBlockPalette(
       render();
     },
     getStage: () => stageId,
+    setCategory(nextCategory: BlockPaletteCategory): void {
+      assertActive(destroyed);
+      if (!BLOCK_PALETTE_CATEGORIES.has(nextCategory)) {
+        throw new RangeError(`未知预设分类：${nextCategory}`);
+      }
+      category = nextCategory;
+      stageId = "all";
+      render();
+    },
+    getCategory: () => category,
     setInsertEnabled(enabled: boolean): void {
       assertActive(destroyed);
       if (typeof enabled !== "boolean") throw new TypeError("enabled 必须是布尔值");
@@ -189,6 +219,44 @@ export function createBlockPalette(
   });
 }
 
+const BLOCK_PALETTE_CATEGORIES = new Set<BlockPaletteCategory>([
+  "all",
+  "recent-favorites",
+  "flow-control",
+  "c-basics",
+  "functions-io",
+  "arrays-strings",
+  "pointers-memory",
+  "data-structures",
+  "algorithm-patterns",
+  "testing-analysis",
+  "custom-lifecycle",
+]);
+
+function matchesCategory(template: CatalogPresetBlock, category: BlockPaletteCategory): boolean {
+  if (category === "all" || category === "recent-favorites") return true;
+  if (category === "custom-lifecycle") return template.origin === "custom";
+  const groups: Readonly<
+    Record<
+      Exclude<BlockPaletteCategory, "all" | "recent-favorites" | "custom-lifecycle">,
+      readonly string[]
+    >
+  > = {
+    "flow-control": ["flow-control", "control"],
+    "c-basics": ["c-basics", "declaration", "assignment"],
+    "functions-io": ["functions-io", "function-call", "function-control", "io"],
+    "arrays-strings": ["arrays-strings", "array"],
+    "pointers-memory": ["pointers-memory"],
+    "data-structures": ["data-structures", "linear-structure", "tree"],
+    "algorithm-patterns": ["algorithm-patterns", "search", "sort", "recursion", "complexity"],
+    "testing-analysis": ["testing-analysis", "correctness", "complexity"],
+  };
+  return (
+    groups[category].includes(template.category) ||
+    (category === "flow-control" && template.blockKind === "virtual")
+  );
+}
+
 function renderStageOptions(
   select: HTMLSelectElement,
   snapshot: LearningCatalogSnapshot,
@@ -211,27 +279,38 @@ function renderStageOptions(
 
 function renderTemplateRow(
   ownerDocument: Document,
-  template: CatalogLearningTemplate,
+  template: CatalogPresetBlock,
   insertEnabled: boolean,
 ): HTMLElement {
+  const visualKind = template.fragmentKind ?? "virtual";
   const row = ownerDocument.createElement("article");
   row.className = "block-palette__item";
   row.dataset.templateId = template.id;
   row.dataset.category = template.category;
-  row.dataset.fragmentKind = template.fragmentKind;
+  row.dataset.fragmentKind = visualKind;
+  row.dataset.blockKind = template.blockKind;
   row.dataset.stage = template.stage;
   row.setAttribute("role", "listitem");
 
   const dragSurface = ownerDocument.createElement("div");
-  dragSurface.className = `block-palette__drag-surface block-palette__drag-surface--${template.fragmentKind}`;
+  dragSurface.className = `block-palette__drag-surface block-palette__drag-surface--${visualKind}`;
   dragSurface.dataset.templateId = template.id;
   dragSurface.dataset.category = template.category;
-  dragSurface.dataset.fragmentKind = template.fragmentKind;
+  dragSurface.dataset.fragmentKind = visualKind;
+  dragSurface.dataset.blockKind = template.blockKind;
   dragSurface.dataset.stage = template.stage;
   dragSurface.draggable = true;
   dragSurface.tabIndex = 0;
-  dragSurface.setAttribute("aria-label", `${template.label}，可拖到组装插槽`);
-  dragSurface.setAttribute("aria-roledescription", "可拖拽 C 积木");
+  dragSurface.setAttribute(
+    "aria-label",
+    template.source === null
+      ? `${template.label}，可拖到自由画布，不生成 C 源码`
+      : `${template.label}，可拖到组装插槽或自由画布`,
+  );
+  dragSurface.setAttribute(
+    "aria-roledescription",
+    template.source === null ? "可拖拽虚拟流程节点" : "可拖拽 C 积木",
+  );
 
   const heading = ownerDocument.createElement("div");
   heading.className = "block-palette__item-heading";
@@ -242,7 +321,8 @@ function renderTemplateRow(
   heading.append(label, category);
   const source = ownerDocument.createElement("code");
   source.className = "block-palette__source";
-  source.textContent = compactSource(template.source);
+  source.textContent =
+    template.source === null ? "虚拟控制节点 · 不改变 C 语义" : compactSource(template.source);
   const description = ownerDocument.createElement("p");
   description.className = "block-palette__description";
   description.textContent = template.description;
@@ -251,8 +331,8 @@ function renderTemplateRow(
   insert.type = "button";
   insert.dataset.templateAction = "insert";
   insert.dataset.templateId = template.id;
-  insert.textContent = "插入所选位置";
-  insert.disabled = !insertEnabled;
+  insert.textContent = template.source === null ? "拖到画布" : "插入所选位置";
+  insert.disabled = template.source === null || !insertEnabled;
   dragSurface.append(heading, source);
   row.append(dragSurface, description, insert);
   return row;

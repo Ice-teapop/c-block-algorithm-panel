@@ -6,6 +6,13 @@ export type LearningTemplateOrigin = "builtin" | "custom";
 export type LearningTemplateLifecycle = "active" | "deprecated";
 export type LearningCatalogStorageStatus = "memory" | "empty" | "loaded" | "degraded";
 
+export type PresetBlockKind = "statement" | "control" | "function" | "module" | "virtual";
+export type PresetBlockLifecycle = "active" | "deprecated" | "retired";
+export type PresetPortDirection = "input" | "output";
+export type PresetPortChannel = "control" | "data";
+export type PresetPortCardinality = "one" | "many";
+export type PresetPlacementScope = "function-body" | "flow-canvas";
+
 export interface LearningStageDefinition {
   readonly id: string;
   readonly version: string;
@@ -27,17 +34,100 @@ export interface LearningTemplateDefinition {
   readonly fragmentKind: LearningFragmentKind;
 }
 
+export interface PresetPortDefinition {
+  readonly id: string;
+  readonly label: string;
+  readonly direction: PresetPortDirection;
+  readonly channel: PresetPortChannel;
+  readonly cardinality: PresetPortCardinality;
+  readonly dataType?: string;
+  /** Stable semantic branch such as true, false, body, exit or default. */
+  readonly branch?: string;
+}
+
+export interface PresetPlacementCondition {
+  readonly scope: PresetPlacementScope;
+  readonly allowedParentNodeTypes: readonly string[];
+  readonly requiresHeaders: readonly string[];
+  readonly requiresSymbols: readonly string[];
+}
+
+export interface PresetBlockExplanation {
+  readonly summary: string;
+  readonly principle: string;
+  readonly whenToUse: readonly string[];
+  readonly pitfalls: readonly string[];
+}
+
+export interface PresetBlockScenario {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly mode: "teaching" | "real-run";
+  readonly stdin: string;
+  readonly arguments: readonly string[];
+  readonly expectedOutput?: string;
+}
+
+export interface PresetAlternativeVersion {
+  readonly version: string;
+  readonly label: string;
+  readonly description: string;
+  readonly source: string | null;
+  readonly recommended: boolean;
+}
+
+interface PresetBlockMetadata {
+  readonly blockKind: PresetBlockKind;
+  readonly lifecycle: PresetBlockLifecycle;
+  readonly ports: readonly PresetPortDefinition[];
+  readonly placement: PresetPlacementCondition;
+  readonly explanation: PresetBlockExplanation;
+  readonly scenarios: readonly PresetBlockScenario[];
+  readonly alternatives: readonly PresetAlternativeVersion[];
+}
+
+/** A source-backed preset still expands through the conservative M3b statement insertion gate. */
+export interface PresetSourceBlockDefinition
+  extends LearningTemplateDefinition, PresetBlockMetadata {
+  readonly blockKind: Exclude<PresetBlockKind, "virtual">;
+  readonly lifecycle: "active" | "deprecated";
+}
+
+/** A virtual preset controls the flow canvas and never emits a C fragment. */
+export interface PresetVirtualBlockDefinition extends PresetBlockMetadata {
+  readonly id: string;
+  readonly version: string;
+  readonly label: string;
+  readonly category: string;
+  readonly stage: string;
+  readonly source: null;
+  readonly description: string;
+  readonly fragmentKind: null;
+  readonly blockKind: "virtual";
+  readonly lifecycle: "active" | "deprecated";
+}
+
+export type PresetBlockDefinition = PresetSourceBlockDefinition | PresetVirtualBlockDefinition;
+
 export interface LearningTemplateDeprecation {
   readonly reason: string;
   readonly replacementId?: string;
 }
 
-export interface CatalogLearningTemplate extends LearningTemplateDefinition {
+export interface CatalogLearningTemplate extends Omit<PresetSourceBlockDefinition, "lifecycle"> {
   readonly kind: "template";
   readonly origin: LearningTemplateOrigin;
   readonly lifecycle: LearningTemplateLifecycle;
   readonly deprecation?: LearningTemplateDeprecation;
 }
+
+export interface CatalogVirtualPresetBlock extends PresetVirtualBlockDefinition {
+  readonly kind: "virtual-preset";
+  readonly origin: "builtin";
+}
+
+export type CatalogPresetBlock = CatalogLearningTemplate | CatalogVirtualPresetBlock;
 
 /** Retired custom definitions retain identity and migration facts, never source text. */
 export interface RetiredLearningTemplateTombstone {
@@ -63,6 +153,8 @@ export interface LearningCatalogSnapshot {
   readonly stages: readonly LearningStageDefinition[];
   /** Active and deprecated definitions; retired definitions live only as tombstones. */
   readonly templates: readonly CatalogLearningTemplate[];
+  /** Rich source and virtual presets. Existing templates remains the source-only compatibility API. */
+  readonly presets: readonly CatalogPresetBlock[];
   readonly tombstones: readonly RetiredLearningTemplateTombstone[];
 }
 

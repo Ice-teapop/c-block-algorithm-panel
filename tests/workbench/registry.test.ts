@@ -189,6 +189,32 @@ describe("WorkbenchModuleRegistry", () => {
       expect.objectContaining({ id: "run", groupId: "execute", order: 10 }),
       expect.objectContaining({ id: "software-library", groupId: "learn", order: 10 }),
     ]);
+    expect(snapshot.dockMenus.map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: "settings", label: "设置" },
+      { id: "presets", label: "预设块" },
+      { id: "library", label: "Library" },
+      { id: "panels", label: "面板预览" },
+    ]);
+    expect(snapshot.panels.map(({ id }) => id)).toEqual([
+      "flow",
+      "metrics",
+      "diagnostics",
+      "ai-hints",
+      "canvas",
+      "library",
+      "project",
+      "presets",
+      "code",
+      "properties",
+    ]);
+    expect(snapshot.layoutPresets.map(({ id }) => id)).toEqual([
+      "learn",
+      "build",
+      "debug",
+      "analyze",
+      "minimal",
+    ]);
+    expect(snapshot.dockMenus.flatMap(({ branches }) => branches)).toHaveLength(46);
     expect(
       registry.findModulesByCapability("inspector.editing").map(({ manifest }) => manifest.id),
     ).toEqual(["builtin.inspector.editing"]);
@@ -196,6 +222,53 @@ describe("WorkbenchModuleRegistry", () => {
     expect(registry.hasCapability("inspector.execution")).toBe(true);
     expect(registry.hasCapability("navigation.dock")).toBe(true);
     expect(registry.hasCapability("inspector.unknown")).toBe(false);
+  });
+
+  it("rejects duplicate menu branches and layout references atomically", () => {
+    const base = moduleDefinition("module.base", {
+      menus: [
+        {
+          id: "menu.base",
+          label: "Base",
+          order: 0,
+          branches: [{ id: "branch.shared", label: "Shared", actionId: "action.shared", order: 0 }],
+        },
+      ],
+      panels: [
+        { id: "panel.base", label: "Base", region: "center", order: 0, defaultVisible: true },
+      ],
+      layouts: [{ id: "layout.base", label: "Base", order: 0, panelIds: ["panel.base"] }],
+    });
+    const registry = new WorkbenchModuleRegistry().register(base);
+    const before = registry.snapshot();
+    expect(() =>
+      registry.registerAll([
+        moduleDefinition("module.pending"),
+        moduleDefinition("module.conflict", {
+          menus: [
+            {
+              id: "menu.other",
+              label: "Other",
+              order: 0,
+              branches: [
+                { id: "branch.shared", label: "Shared", actionId: "action.other", order: 0 },
+              ],
+            },
+          ],
+        }),
+      ]),
+    ).toThrowError(expect.objectContaining({ kind: "dock-menu-branch-id" }));
+    expect(registry.snapshot()).toEqual(before);
+
+    expect(() =>
+      new WorkbenchModuleRegistry().register(
+        moduleDefinition("module.orphan", {
+          layouts: [
+            { id: "layout.orphan", label: "Orphan", order: 0, panelIds: ["panel.missing"] },
+          ],
+        }),
+      ),
+    ).toThrow(/未注册面板/u);
   });
 
   it("rejects a page with a missing group without partially mutating the registry", () => {
@@ -219,6 +292,9 @@ interface ModuleOptions {
   readonly capabilities?: readonly string[];
   readonly views?: WorkbenchModuleDefinition["inspectorViews"];
   readonly groups?: WorkbenchModuleDefinition["dockGroups"];
+  readonly menus?: WorkbenchModuleDefinition["dockMenus"];
+  readonly panels?: WorkbenchModuleDefinition["panels"];
+  readonly layouts?: WorkbenchModuleDefinition["layoutPresets"];
   readonly pages?: WorkbenchModuleDefinition["pages"];
   readonly commands?: WorkbenchModuleDefinition["commands"];
   readonly elements?: WorkbenchModuleDefinition["algorithmElements"];
@@ -234,6 +310,9 @@ function moduleDefinition(id: string, options: ModuleOptions = {}): WorkbenchMod
     },
     inspectorViews: options.views ?? [],
     dockGroups: options.groups ?? [],
+    dockMenus: options.menus ?? [],
+    panels: options.panels ?? [],
+    layoutPresets: options.layouts ?? [],
     pages: options.pages ?? [],
     commands: options.commands ?? [],
     algorithmElements: options.elements ?? [],

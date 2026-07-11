@@ -1,0 +1,576 @@
+import {
+  applyTextPatches,
+  createBlockIndex,
+  createTextPatch,
+  planStatementOperation,
+  renderSourceDoc,
+  textRange,
+  type CAnalysisSnapshot,
+  type CParser,
+  type EditTarget,
+  type StatementEditTarget,
+  type TextPatch,
+} from "../core/index.js";
+import type { ProgramAnalysisSnapshot } from "../analysis/index.js";
+import {
+  createFlowProjection,
+  planFlowConnection,
+  type ConnectionIntent,
+  type FlowNode,
+  type FlowProjection,
+} from "../flow/index.js";
+import { validateSourceText } from "../shared/source-import.js";
+import type { FlowCanvasDraftConnectionIntent } from "../ui/flow-canvas.js";
+import { planFlowDraftConnection } from "./flow-draft-connection.js";
+import { analyzeProgramSnapshot, type ReadySession } from "./program-analysis-session.js";
+
+export interface FlowSourceEditorOptions {
+  readonly getSession: () => ReadySession | null;
+  readonly getProjection: () => FlowProjection | null;
+  readonly getParser: () => CParser | null;
+  readonly getProjectionMode: () => string;
+  readonly getEditorSource: () => string;
+  readonly applyPatches: (patches: readonly TextPatch[]) => boolean;
+  readonly resetProjection: () => void;
+  readonly nextRevision: () => number;
+  readonly adopt: (
+    imported: ReadySession["imported"],
+    analysis: CAnalysisSnapshot,
+    preferredTarget: EditTarget | null,
+  ) => void;
+  readonly confirm: (message: string) => boolean;
+  readonly onCommitted: (message: string) => void;
+}
+
+export interface FlowSourceEditor {
+  replaceNodeSource(node: FlowNode, replacement: string): void;
+  deleteNodes(nodes: readonly FlowNode[]): void;
+  connectNodes(intent: ConnectionIntent): boolean;
+  connectDraft(intent: FlowCanvasDraftConnectionIntent): boolean;
+}
+
+export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSourceEditor {
+  assertOptions(options);
+
+  const requireEditableSession = (node: FlowNode): ReadySession => {
+    const current = options.getSession();
+    const projection = options.getProjection();
+    if (current === null || projection === null || options.getProjectionMode() !== "synced") {
+      throw new Error("源码投影尚未同步");
+    }
+    if (!projection.nodes.some((candidate) => candidate.id === node.id)) {
+      throw new Error("节点详情已经过期，请重新选择");
+    }
+    if (current.imported.source.slice(node.range.from, node.range.to) !== node.sourceText) {
+      throw new Error("节点源码锚点已经失效，请重新选择");
+    }
+    return current;
+  };
+
+  const commitValidatedPatches = (candidateSource: string, patches: readonly TextPatch[]): void => {
+    const current = options.getSession();
+    const parser = options.getParser();
+    if (current === null || parser === null) throw new Error("C 解析器或源码会话尚未就绪");
+    const validation = validateSourceText(candidateSource);
+    if (!validation.ok) throw new Error(`${validation.code}：${validation.message}`);
+    const candidateAnalysis = parser.analyze(candidateSource, options.nextRevision());
+    if (renderSourceDoc(candidateAnalysis.document) !== candidateSource) {
+      throw new Error("候选源码未通过逐字符无损往返");
+    }
+    if (!current.analysis.document.parse.hasError && candidateAnalysis.document.parse.hasError) {
+      throw new Error("候选源码引入了解析错误");
+    }
+    const candidateIndex = createBlockIndex(candidateAnalysis.document);
+    const candidateProgram = analyzeProgramSnapshot(
+      parser,
+      candidateSource,
+      candidateAnalysis.editTargets.revision,
+      candidateIndex.entries.length,
+    );
+    assertNoCompleteCfgRegression(current.programAnalysis, candidateProgram);
+    const changed = options.applyPatches(patches);
+    if (!changed || options.getEditorSource() !== candidateSource) {
+      throw new Error("CodeMirror 未能精确应用候选补丁");
+    }
+    options.resetProjection();
+    options.adopt(
+      Object.freeze({ ...current.imported, source: candidateSource }),
+      candidateAnalysis,
+      null,
+    );
+    options.onCommitted("画布修改已提交到 main.c；可使用撤销恢复。");
+  };
+
+  return Object.freeze({
+    replaceNodeSource(node: FlowNode, replacement: string): void {
+      const current = requireEditableSession(node);
+      if (node.kind === "start" || node.kind === "end" || node.locked) {
+        throw new Error("入口、出口或锁定节点不能直接改写");
+      }
+      if (replacement === node.sourceText) return;
+      const candidateSource =
+        current.imported.source.slice(0, node.range.from) +
+        replacement +
+        current.imported.source.slice(node.range.to);
+      commitValidatedPatches(candidateSource, [
+        Object.freeze({ range: node.range, newText: replacement }),
+      ]);
+    },
+
+    deleteNodes(nodes: readonly FlowNode[]): void {
+      if (nodes.length === 0) return;
+      const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
+      for (const node of unique) {
+        requireEditableSession(node);
+        if (node.locked || node.kind === "start" || node.kind === "end") {
+          throw new Error(`节点“${node.label}”属于锁定区域或 CFG 边界，不能删除`);
+        }
+      }
+      const ordered = [...unique].sort((left, right) => left.range.from - right.range.from);
+      for (let index = 1; index < ordered.length; index += 1) {
+        const previous = ordered[index - 1];
+        const current = ordered[index];
+        if (
+          previous !== undefined &&
+          current !== undefined &&
+          previous.range.to > current.range.from
+        ) {
+          throw new Error("所选节点源码范围互相重叠，无法作为一次精确删除提交");
+        }
+      }
+      const source = options.getSession()?.imported.source;
+      if (source === undefined) throw new Error("源码会话尚未就绪");
+      let candidateSource = source;
+      for (const node of [...ordered].reverse()) {
+        candidateSource =
+          candidateSource.slice(0, node.range.from) + candidateSource.slice(node.range.to);
+      }
+      commitValidatedPatches(
+        candidateSource,
+        ordered.map((node) => Object.freeze({ range: node.range, newText: "" })),
+      );
+    },
+
+    connectNodes(intent: ConnectionIntent): boolean {
+      const current = options.getSession();
+      const projection = options.getProjection();
+      const parser = options.getParser();
+      if (
+        current === null ||
+        projection === null ||
+        parser === null ||
+        options.getProjectionMode() !== "synced"
+      ) {
+        throw new Error("源码、CFG 或解析器尚未同步");
+      }
+      const graphPlan = planFlowConnection(projection, intent);
+      if (graphPlan.status === "rejected") {
+        throw new Error(`${graphPlan.code}：${graphPlan.message}`);
+      }
+      if (
+        graphPlan.operation === "replace" &&
+        (intent.kind === "branch-true" || intent.kind === "branch-false")
+      ) {
+        const displacedId = graphPlan.displacedEdgeIds[0];
+        const displaced = projection.edges.find((edge) => edge.id === displacedId);
+        const fromNode = projection.nodes.find((node) => node.id === intent.fromNodeId);
+        const toNode = projection.nodes.find((node) => node.id === intent.toNodeId);
+        const currentTarget = projection.nodes.find((node) => node.id === displaced?.to.nodeId);
+        if (
+          displaced === undefined ||
+          fromNode === undefined ||
+          toNode === undefined ||
+          currentTarget === undefined ||
+          !["branch", "loop", "assert"].includes(fromNode.kind)
+        ) {
+          throw new Error("分支连线已经过期或不属于可重排的结构化控制节点");
+        }
+        const branchMove = planBranchSuccessorMove(
+          parser,
+          current.imported.source,
+          current.analysis,
+          currentTarget,
+          toNode,
+          current.analysis.editTargets.revision + 1,
+        );
+        const candidateIndex = createBlockIndex(branchMove.analysis.document);
+        const candidateProgram = analyzeProgramSnapshot(
+          parser,
+          branchMove.source,
+          branchMove.analysis.editTargets.revision,
+          candidateIndex.entries.length,
+        );
+        assertNoCompleteCfgRegression(current.programAnalysis, candidateProgram);
+        const candidateProjection = createFlowProjection(
+          candidateProgram,
+          branchMove.analysis.document,
+        );
+        const candidateFrom = candidateProjection.nodes.filter(
+          (node) =>
+            node.kind === fromNode.kind &&
+            node.nodeType === fromNode.nodeType &&
+            node.range.from === fromNode.range.from,
+        );
+        const candidateTo = candidateProjection.nodes.filter(
+          (node) =>
+            node.kind === toNode.kind &&
+            node.sourceText === toNode.sourceText &&
+            node.functionId === candidateFrom[0]?.functionId,
+        );
+        if (candidateFrom.length !== 1 || candidateTo.length !== 1) {
+          throw new Error("分支改线后的源码锚点存在歧义");
+        }
+        const verifiedEdges = candidateProjection.edges.filter(
+          (edge) =>
+            edge.from.nodeId === candidateFrom[0]!.id &&
+            edge.to.nodeId === candidateTo[0]!.id &&
+            edge.kind === intent.kind,
+        );
+        if (verifiedEdges.length !== 1) {
+          throw new Error("重解析后的 CFG 未精确出现请求的分支边");
+        }
+        const patch = minimalReplacementPatch(current.imported.source, branchMove.source);
+        if (
+          !options.confirm(
+            `这条分支连线会把目标表达式移动到该分支的首个执行位置。候选源码已通过重解析、无损往返和 CFG 边验证。\n\n位置 ${String(patch.range.from)}–${String(patch.range.to)}\n- ${current.imported.source.slice(patch.range.from, patch.range.to)}\n+ ${patch.newText}\n\n写入 main.c？`,
+          )
+        ) {
+          return false;
+        }
+        commitValidatedPatches(branchMove.source, [patch]);
+        return true;
+      }
+      if (graphPlan.operation !== "replace" || intent.kind !== "next") {
+        throw new Error("当前只对同一语句列表中的相邻顺序节点生成可证明安全的改线补丁");
+      }
+      const fromNode = projection.nodes.find((node) => node.id === intent.fromNodeId);
+      const toNode = projection.nodes.find((node) => node.id === intent.toNodeId);
+      if (fromNode === undefined || toNode === undefined) throw new Error("连线节点已经过期");
+      if (fromNode.kind !== "statement" || toNode.kind !== "statement") {
+        throw new Error("安全相邻改线首版只交换普通表达式语句，不移动声明或控制结构");
+      }
+      const fromTarget = uniqueStatementTarget(
+        current.analysis.statementEdits.statements,
+        fromNode,
+      );
+      const toTarget = uniqueStatementTarget(current.analysis.statementEdits.statements, toNode);
+      if (
+        fromTarget === null ||
+        toTarget === null ||
+        fromTarget.parentMode !== "statement-list" ||
+        toTarget.parentMode !== "statement-list" ||
+        fromTarget.blocker !== null ||
+        toTarget.blocker !== null ||
+        fromTarget.parentRange.from !== toTarget.parentRange.from ||
+        fromTarget.parentRange.to !== toTarget.parentRange.to ||
+        toTarget.nextSiblingId !== fromTarget.id
+      ) {
+        throw new Error("改线两端必须是同一列表内相邻且当前顺序为“目标 → 起点”的语句");
+      }
+      const statementPlan = planStatementOperation(
+        current.imported.source,
+        current.analysis.statementEdits,
+        {
+          kind: "swap-adjacent-statements",
+          baseRevision: current.analysis.statementEdits.revision,
+          targetId: fromTarget.id,
+          expectedTargetText: current.imported.source.slice(
+            fromTarget.range.from,
+            fromTarget.range.to,
+          ),
+          adjacentTargetId: toTarget.id,
+          expectedAdjacentTargetText: current.imported.source.slice(
+            toTarget.range.from,
+            toTarget.range.to,
+          ),
+        },
+      );
+      const application = applyTextPatches(current.imported.source, statementPlan.patches);
+      const candidateAnalysis = parser.analyze(application.source, options.nextRevision());
+      if (candidateAnalysis.document.parse.hasError) throw new Error("改线候选源码引入了解析错误");
+      if (renderSourceDoc(candidateAnalysis.document) !== application.source) {
+        throw new Error("改线候选源码未通过逐字符无损往返");
+      }
+      const candidateIndex = createBlockIndex(candidateAnalysis.document);
+      const candidateProgram = analyzeProgramSnapshot(
+        parser,
+        application.source,
+        candidateAnalysis.editTargets.revision,
+        candidateIndex.entries.length,
+      );
+      assertNoCompleteCfgRegression(current.programAnalysis, candidateProgram);
+      const candidateProjection = createFlowProjection(
+        candidateProgram,
+        candidateAnalysis.document,
+      );
+      const fromMatches = candidateProjection.nodes.filter(
+        (node) => node.sourceText === fromNode.sourceText && node.kind === fromNode.kind,
+      );
+      const toMatches = candidateProjection.nodes.filter(
+        (node) => node.sourceText === toNode.sourceText && node.kind === toNode.kind,
+      );
+      if (fromMatches.length !== 1 || toMatches.length !== 1) {
+        throw new Error("改线后的源码锚点存在歧义，无法证明目标 CFG 边");
+      }
+      const candidateEdge = candidateProjection.edges.filter(
+        (edge) =>
+          edge.from.nodeId === fromMatches[0]!.id &&
+          edge.to.nodeId === toMatches[0]!.id &&
+          edge.kind === "next",
+      );
+      if (candidateEdge.length !== 1) {
+        throw new Error("重解析后的 CFG 未精确出现请求的顺序边");
+      }
+      const preview = statementPlan.patches
+        .map(
+          (patch) =>
+            `位置 ${String(patch.range.from)}–${String(patch.range.to)}\n- ${current.imported.source.slice(patch.range.from, patch.range.to)}\n+ ${patch.newText}`,
+        )
+        .join("\n\n");
+      if (
+        !options.confirm(
+          `这条连线会交换两个相邻 C 语句。候选源码已通过重解析、无损往返和 CFG 边验证。\n\n${preview}\n\n写入 main.c？`,
+        )
+      ) {
+        return false;
+      }
+      commitValidatedPatches(application.source, statementPlan.patches);
+      return true;
+    },
+
+    connectDraft(intent: FlowCanvasDraftConnectionIntent): boolean {
+      const current = options.getSession();
+      const projection = options.getProjection();
+      const parser = options.getParser();
+      if (
+        current === null ||
+        projection === null ||
+        parser === null ||
+        options.getProjectionMode() !== "synced"
+      ) {
+        throw new Error("源码、CFG 或解析器尚未同步");
+      }
+      const plan = planFlowDraftConnection({
+        source: current.imported.source,
+        analysis: current.analysis,
+        programAnalysis: current.programAnalysis,
+        projection,
+        intent,
+      });
+      if (plan.status === "rejected") throw new Error(`${plan.code}：${plan.message}`);
+      const application = applyTextPatches(current.imported.source, plan.patches);
+      const preview = plan.patches
+        .map(
+          (patch) =>
+            `位置 ${String(patch.range.from)}\n- ${current.imported.source.slice(patch.range.from, patch.range.to)}\n+ ${patch.newText}`,
+        )
+        .join("\n\n");
+      if (
+        !options.confirm(
+          `将草稿接入 main.c。系统会在写入前重解析并验证 CFG。\n\n${preview}\n\n继续？`,
+        )
+      ) {
+        return false;
+      }
+      const candidateAnalysis = parser.analyze(application.source, options.nextRevision());
+      if (candidateAnalysis.document.parse.hasError) throw new Error("草稿插入会引入解析错误");
+      if (renderSourceDoc(candidateAnalysis.document) !== application.source) {
+        throw new Error("草稿插入未通过逐字符无损往返");
+      }
+      const candidateIndex = createBlockIndex(candidateAnalysis.document);
+      const candidateProgram = analyzeProgramSnapshot(
+        parser,
+        application.source,
+        candidateAnalysis.editTargets.revision,
+        candidateIndex.entries.length,
+      );
+      assertNoCompleteCfgRegression(current.programAnalysis, candidateProgram);
+      const candidateProjection = createFlowProjection(
+        candidateProgram,
+        candidateAnalysis.document,
+      );
+      const insertedRanges = application.diffs.map((diff) => diff.afterRange);
+      const insertedNode = candidateProjection.nodes.find(
+        (node) =>
+          node.sourceText.trim() === plan.insertedStatementText.trim() &&
+          insertedRanges.some(
+            (range) => node.range.from >= range.from && node.range.to <= range.to,
+          ),
+      );
+      if (insertedNode === undefined) {
+        throw new Error("重解析后的 CFG 无法唯一确认新草稿节点");
+      }
+      commitValidatedPatches(application.source, plan.patches);
+      return true;
+    },
+  });
+}
+
+/** Existing partial functions may remain locked, but no previously complete function may degrade. */
+function assertNoCompleteCfgRegression(
+  before: ProgramAnalysisSnapshot,
+  after: ProgramAnalysisSnapshot,
+): void {
+  const occurrenceByName = new Map<string, number>();
+  for (const previous of before.functions) {
+    const occurrence = occurrenceByName.get(previous.name) ?? 0;
+    occurrenceByName.set(previous.name, occurrence + 1);
+    if (previous.partial) continue;
+    const candidates = after.functions.filter((candidate) => candidate.name === previous.name);
+    const candidate = candidates[occurrence];
+    if (candidate === undefined || candidate.partial) {
+      throw new Error(`候选源码会把完整函数“${previous.name}”降级为 partial CFG`);
+    }
+  }
+}
+
+interface PlannedBranchMove {
+  readonly source: string;
+  readonly analysis: CAnalysisSnapshot;
+}
+
+function planBranchSuccessorMove(
+  parser: CParser,
+  source: string,
+  analysis: CAnalysisSnapshot,
+  currentTargetNode: FlowNode,
+  requestedTargetNode: FlowNode,
+  firstRevision: number,
+): PlannedBranchMove {
+  const currentTarget = uniqueStatementTarget(
+    analysis.statementEdits.statements,
+    currentTargetNode,
+  );
+  const requestedTarget = uniqueStatementTarget(
+    analysis.statementEdits.statements,
+    requestedTargetNode,
+  );
+  if (
+    currentTarget === null ||
+    requestedTarget === null ||
+    currentTarget.parentMode !== "statement-list" ||
+    requestedTarget.parentMode !== "statement-list" ||
+    currentTarget.parentRange.from !== requestedTarget.parentRange.from ||
+    currentTarget.parentRange.to !== requestedTarget.parentRange.to ||
+    currentTarget.nodeType !== "expression_statement" ||
+    requestedTarget.nodeType !== "expression_statement"
+  ) {
+    throw new Error("分支目标必须是同一语句列表内的普通表达式语句");
+  }
+  const currentText = source.slice(currentTarget.range.from, currentTarget.range.to);
+  const requestedText = source.slice(requestedTarget.range.from, requestedTarget.range.to);
+  if (currentText === requestedText) throw new Error("分支首节点与目标源码文本存在歧义");
+  assertForwardSiblingPath(analysis.statementEdits.statements, currentTarget, requestedTarget);
+
+  let candidateSource = source;
+  let candidateAnalysis = analysis;
+  let revision = firstRevision;
+  const maximumSwaps = Math.min(1_000, analysis.statementEdits.statements.length);
+  for (let swapCount = 0; swapCount < maximumSwaps; swapCount += 1) {
+    const current = uniqueStatementByText(candidateAnalysis, candidateSource, currentText);
+    const requested = uniqueStatementByText(candidateAnalysis, candidateSource, requestedText);
+    if (
+      current === null ||
+      requested === null ||
+      current.parentRange.from !== requested.parentRange.from ||
+      current.parentRange.to !== requested.parentRange.to
+    ) {
+      throw new Error("分支改线过程中语句锚点变得不唯一");
+    }
+    if (requested.nextSiblingId === current.id) {
+      return Object.freeze({ source: candidateSource, analysis: candidateAnalysis });
+    }
+    const previous = candidateAnalysis.statementEdits.statements.find(
+      (target) => target.id === requested.previousSiblingId,
+    );
+    if (previous === undefined || previous.nodeType !== "expression_statement") {
+      throw new Error("分支目标与当前首节点之间含声明或控制结构，拒绝跨越改线");
+    }
+    const operation = planStatementOperation(candidateSource, candidateAnalysis.statementEdits, {
+      kind: "swap-adjacent-statements",
+      baseRevision: candidateAnalysis.statementEdits.revision,
+      targetId: requested.id,
+      expectedTargetText: requestedText,
+      adjacentTargetId: previous.id,
+      expectedAdjacentTargetText: candidateSource.slice(previous.range.from, previous.range.to),
+    });
+    candidateSource = applyTextPatches(candidateSource, operation.patches).source;
+    candidateAnalysis = parser.analyze(candidateSource, revision);
+    revision += 1;
+    if (
+      candidateAnalysis.document.parse.hasError ||
+      renderSourceDoc(candidateAnalysis.document) !== candidateSource
+    ) {
+      throw new Error("分支改线的中间候选未通过重解析与无损往返");
+    }
+  }
+  throw new Error("分支改线需要过多相邻交换，已安全终止");
+}
+
+function assertForwardSiblingPath(
+  targets: readonly StatementEditTarget[],
+  first: StatementEditTarget,
+  requested: StatementEditTarget,
+): void {
+  let cursor: StatementEditTarget | undefined = first;
+  const visited = new Set<string>();
+  while (cursor !== undefined && !visited.has(cursor.id)) {
+    if (cursor.id === requested.id) return;
+    visited.add(cursor.id);
+    cursor = targets.find((target) => target.id === cursor?.nextSiblingId);
+  }
+  throw new Error("请求目标不在当前分支首节点之后的同级执行序列中");
+}
+
+function uniqueStatementByText(
+  analysis: CAnalysisSnapshot,
+  source: string,
+  text: string,
+): StatementEditTarget | null {
+  const matches = analysis.statementEdits.statements.filter(
+    (target) => source.slice(target.range.from, target.range.to) === text,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function minimalReplacementPatch(before: string, after: string): TextPatch {
+  let from = 0;
+  while (from < before.length && from < after.length && before[from] === after[from]) from += 1;
+  let beforeTo = before.length;
+  let afterTo = after.length;
+  while (beforeTo > from && afterTo > from && before[beforeTo - 1] === after[afterTo - 1]) {
+    beforeTo -= 1;
+    afterTo -= 1;
+  }
+  return createTextPatch(textRange(from, beforeTo), after.slice(from, afterTo));
+}
+
+function uniqueStatementTarget(
+  targets: readonly StatementEditTarget[],
+  node: FlowNode,
+): StatementEditTarget | null {
+  const matches = targets.filter(
+    (target) =>
+      target.range.from === node.ownerBlockRange.from &&
+      target.range.to === node.ownerBlockRange.to,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function assertOptions(options: FlowSourceEditorOptions): void {
+  for (const callback of [
+    options.getSession,
+    options.getProjection,
+    options.getParser,
+    options.getProjectionMode,
+    options.getEditorSource,
+    options.applyPatches,
+    options.resetProjection,
+    options.nextRevision,
+    options.adopt,
+    options.confirm,
+    options.onCommitted,
+  ]) {
+    if (typeof callback !== "function") throw new TypeError("Flow source editor options 无效");
+  }
+}

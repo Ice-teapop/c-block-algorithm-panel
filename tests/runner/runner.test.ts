@@ -254,6 +254,62 @@ describe("Runner compile and run", () => {
     await runner.dispose();
   });
 
+  it("reports compiler duration and evidence-separated runtime resource metrics", async () => {
+    const clock = new FakeClock(1_000);
+    const host = new FakeProcessHost([
+      (specification) => {
+        const executablePath = join(specification.cwd, "program");
+        writeFileSync(executablePath, "fake executable", { mode: 0o700 });
+        chmodSync(executablePath, 0o700);
+      },
+      () => undefined,
+    ]);
+    const runner = createTestRunner({
+      mode: "trusted-only",
+      processHost: host,
+      clock,
+      limits: { rssPollIntervalMs: 10 },
+    });
+    const compileRequest = { source: "int main(void){return 0;}" };
+    const compilePromise = runner.compile(
+      compileRequest,
+      runner.createTrustedExecutionGrant("compile", compileRequest),
+    );
+    const compileChild = await waitForSpawn(host);
+    clock.advanceBy(25);
+    compileChild.complete(0);
+    const compileResult = await compilePromise;
+
+    expect(compileResult).toMatchObject({ ok: true, compileDurationMs: 25 });
+    if (!compileResult.ok) throw new Error("compile fixture failed");
+
+    const runRequest = { artifactId: compileResult.artifactId };
+    const runPromise = runner.run(
+      runRequest,
+      runner.createTrustedExecutionGrant("run", runRequest),
+    );
+    const runChild = await waitForChild(host, 1);
+    host.rssBytes = 65_536;
+    host.processCount = 3;
+    runChild.emitStdout("abc");
+    runChild.emitStderr("de");
+    clock.advanceBy(10);
+    await flushAsyncWork();
+    clock.advanceBy(7);
+    runChild.complete(0);
+
+    await expect(runPromise).resolves.toMatchObject({
+      ok: true,
+      durationMs: 17,
+      peakRssBytes: 65_536,
+      peakProcessCount: 3,
+      outputBytes: 5,
+      executedNodeCount: null,
+      operationCount: null,
+    });
+    await runner.dispose();
+  });
+
   it("expires and removes registered artifacts using the injected clock", async () => {
     const clock = new FakeClock(1_000);
     const host = new FakeProcessHost([successfulCompile]);
@@ -704,9 +760,13 @@ function createTestRunner(options: RunnerOptions) {
 }
 
 async function waitForSpawn(host: FakeProcessHost): Promise<FakeChildProcess> {
+  return waitForChild(host, 0);
+}
+
+async function waitForChild(host: FakeProcessHost, index: number): Promise<FakeChildProcess> {
   const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
-    const child = host.children[0];
+    const child = host.children[index];
     if (child !== undefined) {
       return child;
     }

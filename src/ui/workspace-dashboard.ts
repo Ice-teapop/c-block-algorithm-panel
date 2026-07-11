@@ -319,11 +319,25 @@ function renderEntryRow(
   const row = ownerDocument.createElement("tr");
   row.dataset.entryId = entry.id;
   row.dataset.entryKind = entry.kind;
+  row.className = "workspace-dashboard__entry";
+  row.tabIndex = 0;
+  row.setAttribute("role", "link");
+  row.setAttribute("aria-label", `打开${KIND_LABELS[entry.kind]}“${entry.title}”`);
+  const open = (): void => onOpen(entry.id);
+  row.addEventListener("click", (event) => {
+    if (event.defaultPrevented) return;
+    open();
+  });
+  row.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    open();
+  });
   const nameCell = ownerDocument.createElement("td");
-  const openButton = textButton(ownerDocument, entry.title, "workspace-dashboard__open");
-  openButton.dataset.entryId = entry.id;
-  openButton.addEventListener("click", () => onOpen(entry.id), { once: true });
-  nameCell.append(openButton);
+  const name = ownerDocument.createElement("strong");
+  name.className = "workspace-dashboard__entry-name";
+  name.textContent = entry.title;
+  nameCell.append(name);
   const kindCell = ownerDocument.createElement("td");
   kindCell.textContent = KIND_LABELS[entry.kind];
   const timeCell = ownerDocument.createElement("td");
