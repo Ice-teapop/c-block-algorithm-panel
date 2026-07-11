@@ -1,4 +1,5 @@
 import type { Node } from "web-tree-sitter";
+import { fingerprintSource } from "../../shared/source-snapshot.js";
 import { textRange, type TextRange } from "../model.js";
 import type { TextPatch } from "./model.js";
 import { createTextPatch } from "./patch.js";
@@ -941,17 +942,6 @@ function sameRange(left: TextRange, right: TextRange): boolean {
 
 function parentKey(nodeType: string, range: TextRange): string {
   return `${nodeType}:${String(range.from)}:${String(range.to)}`;
-}
-
-function fingerprintSource(source: string): string {
-  let first = 0x811c9dc5;
-  let second = 0x9e3779b9;
-  for (let index = 0; index < source.length; index += 1) {
-    const code = source.charCodeAt(index);
-    first = Math.imul(first ^ code, 0x01000193) >>> 0;
-    second = (Math.imul(second ^ (code + index), 0x85ebca6b) + 0xc2b2ae35) >>> 0;
-  }
-  return `${String(source.length)}:${first.toString(16)}:${second.toString(16)}`;
 }
 
 function operationError(

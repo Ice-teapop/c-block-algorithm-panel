@@ -497,6 +497,69 @@ describe("M5a CFG foundation", () => {
     expect(second).toEqual(first);
   });
 
+  it("binds analysis to one full-source CST and SourceDoc snapshot", () => {
+    const firstSource = "int f(void) { int x; return x; }";
+    const secondSource = "int f(void) { int y; return y; }";
+    const firstDocument = parser.analyze(firstSource, 1).document;
+
+    expect(firstSource).toHaveLength(secondSource.length);
+    expect(() =>
+      parser.inspect(secondSource, 1, ({ rootNode }) =>
+        analyzeProgramCst({
+          source: secondSource,
+          revision: 1,
+          rootNode,
+          document: firstDocument,
+        }),
+      ),
+    ).toThrowError(/SourceDoc 与 CST 源码不一致/u);
+
+    expect(() =>
+      parser.inspect(firstSource, 1, ({ rootNode: firstRoot }) =>
+        parser.inspect(secondSource, 1, ({ document: secondDocument }) =>
+          analyzeProgramCst({
+            source: secondSource,
+            revision: 1,
+            rootNode: firstRoot,
+            document: secondDocument,
+          }),
+        ),
+      ),
+    ).toThrowError(/根节点与 source 不属于同一源码快照/u);
+  });
+
+  it("fingerprints the full source without changing deterministic reparses", () => {
+    const firstSource = "typedef int A; int f(void) { return 0; }";
+    const secondSource = "typedef int B; int f(void) { return 0; }";
+    const first = parser.inspect(firstSource, 8, ({ rootNode, document }) =>
+      analyzeProgramCst({ source: firstSource, revision: 8, rootNode, document }),
+    ).result;
+    const repeat = parser.inspect(firstSource, 8, ({ rootNode, document }) =>
+      analyzeProgramCst({ source: firstSource, revision: 8, rootNode, document }),
+    ).result;
+    const second = parser.inspect(secondSource, 8, ({ rootNode, document }) =>
+      analyzeProgramCst({ source: secondSource, revision: 8, rootNode, document }),
+    ).result;
+
+    expect(firstSource).toHaveLength(secondSource.length);
+    expect(repeat.sourceFingerprint).toBe(first.sourceFingerprint);
+    expect(second.sourceFingerprint).not.toBe(first.sourceFingerprint);
+  });
+
+  it("keeps CFG and def-use functions in a documented one-to-one order", () => {
+    const source = "int first(void) { return 1; } int second(int x) { return x; }";
+    const snapshot = parser.inspect(source, 4, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 4, rootNode, document }),
+    ).result;
+
+    expect(snapshot.defUse).toHaveLength(snapshot.functions.length);
+    expect(
+      snapshot.defUse.map(({ functionId, functionRange }) => ({ functionId, functionRange })),
+    ).toEqual(
+      snapshot.functions.map(({ id, range }) => ({ functionId: id, functionRange: range })),
+    );
+  });
+
   it.each([
     "int f(void) { int x = 0; x++; return x; }",
     "int f(int x) { if (x) x++; return x; }",

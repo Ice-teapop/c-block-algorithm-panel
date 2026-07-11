@@ -57,10 +57,47 @@ export interface FunctionCfg {
   readonly partialReasons: readonly CfgPartialReason[];
 }
 
+export type DefUseVariableKind = "parameter" | "local";
+export type DefUseVariableStorage = "scalar" | "array" | "pointer" | "aggregate" | "unknown";
+export type DefUseTrackingMode = "precise" | "weak" | "untracked";
+export type DefUseDisabledReasonCode =
+  | "cfg-partial"
+  | "invalid-function-cst"
+  | "parse-error"
+  | "preprocessor"
+  | "projection-issue"
+  | "parse-concern"
+  | "raw-block"
+  | "missing-function-projection";
+
+export interface DefUseVariable {
+  /** Deterministic within the source revision; never exposes the lexical snapshot's symbol id. */
+  readonly id: string;
+  readonly name: string;
+  readonly kind: DefUseVariableKind;
+  readonly storage: DefUseVariableStorage;
+  /** Intrinsic tracking capability before ordered escape effects are applied. */
+  readonly tracking: DefUseTrackingMode;
+  readonly declarationRanges: readonly TextRange[];
+  readonly confidence: "certain" | "low" | "unknown";
+}
+
+export interface FunctionDefUse {
+  readonly functionId: string;
+  readonly functionRange: TextRange;
+  readonly status: "complete" | "disabled";
+  readonly disabledReasons: readonly DefUseDisabledReasonCode[];
+  readonly variables: readonly DefUseVariable[];
+}
+
 export interface ProgramAnalysisSnapshot {
   readonly revision: number;
   readonly sourceLength: number;
+  /** Non-cryptographic stale-snapshot guard; source text remains authoritative. */
+  readonly sourceFingerprint: string;
   readonly functions: readonly FunctionCfg[];
+  /** One-to-one and in the same order as functions; functionId is the stable join key. */
+  readonly defUse: readonly FunctionDefUse[];
 }
 
 export interface ProgramAnalysisInput {

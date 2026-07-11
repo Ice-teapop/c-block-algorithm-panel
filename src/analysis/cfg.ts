@@ -6,6 +6,8 @@ import {
   type SyntaxBlock,
   type TextRange,
 } from "../core/model.js";
+import { fingerprintSource } from "../shared/source-snapshot.js";
+import { collectFunctionDefUse } from "./def-use.js";
 import type {
   CfgEdge,
   CfgEdgeKind,
@@ -81,21 +83,34 @@ const EDGE_ORDER: Readonly<Record<CfgEdgeKind, number>> = Object.freeze({
 export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisSnapshot {
   assertInput(input);
   const projectedByFunction = projectedStatementsByFunction(input.document);
-  const functions = collectFunctions(input.rootNode)
+  const functionAnalyses = collectFunctions(input.rootNode)
     .map((node) => {
       const range = nodeRange(node, input.source.length);
-      return buildFunctionCfg(
+      const cfg = buildFunctionCfg(
         node,
         input.source.length,
         projectedByFunction.get(rangeKey(range)) ?? [],
       );
+      const defUse = collectFunctionDefUse({
+        functionNode: node,
+        cfg,
+        document: input.document,
+      });
+      return Object.freeze({ cfg, defUse });
     })
-    .sort((left, right) => left.range.from - right.range.from || left.range.to - right.range.to);
+    .sort(
+      (left, right) =>
+        left.cfg.range.from - right.cfg.range.from || left.cfg.range.to - right.cfg.range.to,
+    );
+  const functions = Object.freeze(functionAnalyses.map(({ cfg }) => cfg));
+  const defUse = Object.freeze(functionAnalyses.map((analysis) => analysis.defUse));
 
   return Object.freeze({
     revision: input.revision,
     sourceLength: input.source.length,
-    functions: Object.freeze(functions),
+    sourceFingerprint: fingerprintSource(input.source),
+    functions,
+    defUse,
   });
 }
 
@@ -771,6 +786,24 @@ function assertInput(input: ProgramAnalysisInput): void {
   }
   if (input.document.source !== input.source) {
     throw new TypeError("分析输入的 SourceDoc 与 CST 源码不一致");
+  }
+  let rootMatchesSource = false;
+  try {
+    const { startIndex, endIndex } = input.rootNode;
+    rootMatchesSource =
+      Number.isSafeInteger(startIndex) &&
+      Number.isSafeInteger(endIndex) &&
+      startIndex >= 0 &&
+      endIndex >= startIndex &&
+      endIndex <= input.source.length &&
+      /^(?:\uFEFF)?[ \t\r\n\f\v]*$/u.test(input.source.slice(0, startIndex)) &&
+      /^[ \t\r\n\f\v]*$/u.test(input.source.slice(endIndex)) &&
+      input.rootNode.text === input.source.slice(startIndex, endIndex);
+  } catch (error) {
+    throw new TypeError("分析根节点已释放或无法读取", { cause: error });
+  }
+  if (!rootMatchesSource) {
+    throw new TypeError("分析根节点与 source 不属于同一源码快照");
   }
 }
 
