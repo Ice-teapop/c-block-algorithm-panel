@@ -9,6 +9,7 @@ import {
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import { collectFunctionDefUse } from "./def-use.js";
 import { collectFunctionFindings } from "./findings.js";
+import { collectFunctionMemoryEvents } from "./memory-events.js";
 import type {
   CfgEdge,
   CfgEdgeKind,
@@ -100,8 +101,14 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
         cfg,
         document: input.document,
       });
+      const memoryEvents = collectFunctionMemoryEvents({
+        functionNode: node,
+        cfg,
+        defUse,
+        document: input.document,
+      });
       const findings = collectFunctionFindings({ cfg, defUse });
-      return Object.freeze({ cfg, defUse, findings });
+      return Object.freeze({ cfg, defUse, memoryEvents, findings });
     })
     .sort(
       (left, right) =>
@@ -109,6 +116,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
     );
   const functions = Object.freeze(functionAnalyses.map(({ cfg }) => cfg));
   const defUse = Object.freeze(functionAnalyses.map((analysis) => analysis.defUse));
+  const memoryEvents = Object.freeze(functionAnalyses.map((analysis) => analysis.memoryEvents));
   const findings = Object.freeze(functionAnalyses.flatMap((analysis) => analysis.findings));
 
   return Object.freeze({
@@ -117,6 +125,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
     sourceFingerprint: fingerprintSource(input.source),
     functions,
     defUse,
+    memoryEvents,
     findings,
   });
 }

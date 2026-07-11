@@ -188,6 +188,90 @@ export interface ArrayAccessFact {
   readonly indices: readonly ArrayAccessIndexFact[];
 }
 
+export type MemoryEventExecution = "always" | "conditional";
+export type MemoryAllocationSizeForm = "sizeof-handle" | "sizeof-pointee" | "other";
+
+interface MemoryEventBase {
+  /** Snapshot-local deterministic identity. */
+  readonly id: string;
+  readonly variableId: string;
+  /** Full operation expression, such as malloc(...), free(p), or p[0]. */
+  readonly range: TextRange;
+  /** Exact occurrence of the direct unique-handle identifier. */
+  readonly subjectRange: TextRange;
+  readonly execution: MemoryEventExecution;
+  /** True when the owning CFG node belongs to a loop cycle. */
+  readonly repeatable: boolean;
+}
+
+export interface MemoryAllocationEvent extends MemoryEventBase {
+  readonly kind: "allocation";
+  readonly allocator: "malloc" | "calloc";
+  readonly argumentRanges: readonly TextRange[];
+  readonly sizeForm: MemoryAllocationSizeForm;
+}
+
+export interface MemoryFreeEvent extends MemoryEventBase {
+  readonly kind: "free";
+}
+
+export interface MemoryDereferenceEvent extends MemoryEventBase {
+  readonly kind: "dereference";
+  readonly form: "indirection" | "subscript" | "arrow";
+}
+
+export interface MemoryNullAssignmentEvent extends MemoryEventBase {
+  readonly kind: "null-assignment";
+  readonly valueRange: TextRange;
+}
+
+export interface MemoryNullGuardEvent extends MemoryEventBase {
+  readonly kind: "null-guard";
+  readonly nonNullEdgeKind: "branch-true" | "branch-false";
+  readonly form: "truthy" | "logical-not" | "equals-null" | "not-equals-null" | "assert";
+}
+
+export interface MemoryEscapeEvent extends MemoryEventBase {
+  readonly kind: "escape";
+  readonly origin:
+    | "return"
+    | "call-argument"
+    | "stored-value"
+    | "address-taken"
+    | "overwritten"
+    | "unsupported-reallocation"
+    | "unsupported-use";
+}
+
+export type MemoryEvent =
+  | MemoryAllocationEvent
+  | MemoryFreeEvent
+  | MemoryDereferenceEvent
+  | MemoryNullAssignmentEvent
+  | MemoryNullGuardEvent
+  | MemoryEscapeEvent;
+
+export interface MemoryEventFact {
+  readonly nodeId: string;
+  readonly nodeRange: TextRange;
+  /** Deterministic source order only; it does not assert C runtime order. */
+  readonly events: readonly MemoryEvent[];
+}
+
+export type MemoryEventDisabledReasonCode =
+  DefUseDisabledReasonCode | "memory-cst-mismatch" | "unsupported-memory-effect-order";
+
+export interface FunctionMemoryEvents {
+  readonly functionId: string;
+  readonly functionRange: TextRange;
+  readonly status: "complete" | "disabled";
+  readonly disabledReasons: readonly MemoryEventDisabledReasonCode[];
+  /** Direct local pointer variables that receive at least one supported allocation. */
+  readonly handleVariableIds: readonly string[];
+  /** Complete functions contain one fact per CFG node in CFG order; disabled functions none. */
+  readonly facts: readonly MemoryEventFact[];
+}
+
 export type LoopKind = "while" | "do-while" | "for";
 export type LoopAvailability = "analyzable" | "unreachable" | "unsupported-control-flow";
 
@@ -340,6 +424,8 @@ export interface ProgramAnalysisSnapshot {
   readonly functions: readonly FunctionCfg[];
   /** One-to-one and in the same order as functions; functionId is the stable join key. */
   readonly defUse: readonly FunctionDefUse[];
+  /** One-to-one and in the same order as functions; functionId is the stable join key. */
+  readonly memoryEvents: readonly FunctionMemoryEvents[];
   /** Source-ordered, deterministic findings from complete function analyses only. */
   readonly findings: readonly AnalysisFinding[];
 }
