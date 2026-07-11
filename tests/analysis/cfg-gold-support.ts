@@ -552,8 +552,8 @@ function parseFinding(
   if (owner === undefined || owner.ownership !== "primary") {
     throw new TypeError(`${path}.ownerNode 必须是 primary 节点`);
   }
-  if (!containsGoldRange(owner.range, primaryRange)) {
-    throw new TypeError(`${path}.primaryRange 必须落在 ownerNode.range 内`);
+  if (!containsGoldRange(owner.ownerRange, primaryRange)) {
+    throw new TypeError(`${path}.primaryRange 必须落在 ownerNode.ownerRange 内`);
   }
   const evidence = unknownArray(record.evidence, `${path}.evidence`).map((entry, index) => {
     const evidenceRecord = exactRecord(entry, ["role", "range"], `${path}.evidence[${index}]`);

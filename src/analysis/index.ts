@@ -1,5 +1,10 @@
 export { analyzeProgramCst } from "./cfg.js";
 export type {
+  AnalysisEvidenceRole,
+  AnalysisFinding,
+  AnalysisFindingConfidence,
+  AnalysisFindingEvidence,
+  AnalysisFindingRuleId,
   CfgEdge,
   CfgEdgeKind,
   CfgNode,

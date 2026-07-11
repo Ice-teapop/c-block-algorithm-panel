@@ -216,6 +216,54 @@ export interface LoopPredicateFact {
   readonly variables: readonly LoopVariablePredicateFact[];
 }
 
+export type AnalysisFindingConfidence = "certain" | "likely" | "hint";
+export type AnalysisFindingRuleId =
+  | "unreachable-code"
+  | "uninitialized-read"
+  | "literal-out-of-bounds"
+  | "loop-off-by-one"
+  | "memory-leak"
+  | "possible-memory-leak"
+  | "double-free"
+  | "possible-double-free"
+  | "use-after-free"
+  | "possible-use-after-free"
+  | "malloc-sizeof-pointer"
+  | "unchecked-allocation"
+  | "runtime-bound-check"
+  | "loop-index-mismatch";
+export type AnalysisEvidenceRole =
+  | "allocation"
+  | "bound"
+  | "condition"
+  | "definition"
+  | "escape"
+  | "exit"
+  | "free"
+  | "index"
+  | "path"
+  | "state"
+  | "unreachable"
+  | "use";
+
+export interface AnalysisFindingEvidence {
+  readonly role: AnalysisEvidenceRole;
+  readonly range: TextRange;
+}
+
+export interface AnalysisFinding {
+  /** Snapshot-local deterministic identity. */
+  readonly id: string;
+  readonly functionId: string;
+  readonly ruleId: AnalysisFindingRuleId;
+  readonly confidence: AnalysisFindingConfidence;
+  readonly primaryRange: TextRange;
+  readonly ownerNodeId: string;
+  readonly subject: string | null;
+  readonly subjectVariableId: string | null;
+  readonly evidence: readonly AnalysisFindingEvidence[];
+}
+
 export interface FunctionDefUse {
   readonly functionId: string;
   readonly functionRange: TextRange;
@@ -240,6 +288,8 @@ export interface ProgramAnalysisSnapshot {
   readonly functions: readonly FunctionCfg[];
   /** One-to-one and in the same order as functions; functionId is the stable join key. */
   readonly defUse: readonly FunctionDefUse[];
+  /** Source-ordered, deterministic findings from complete function analyses only. */
+  readonly findings: readonly AnalysisFinding[];
 }
 
 export interface ProgramAnalysisInput {

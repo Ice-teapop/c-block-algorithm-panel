@@ -8,6 +8,7 @@ import {
 } from "../core/model.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import { collectFunctionDefUse } from "./def-use.js";
+import { collectFunctionFindings } from "./findings.js";
 import type {
   CfgEdge,
   CfgEdgeKind,
@@ -99,7 +100,8 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
         cfg,
         document: input.document,
       });
-      return Object.freeze({ cfg, defUse });
+      const findings = collectFunctionFindings({ cfg, defUse });
+      return Object.freeze({ cfg, defUse, findings });
     })
     .sort(
       (left, right) =>
@@ -107,6 +109,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
     );
   const functions = Object.freeze(functionAnalyses.map(({ cfg }) => cfg));
   const defUse = Object.freeze(functionAnalyses.map((analysis) => analysis.defUse));
+  const findings = Object.freeze(functionAnalyses.flatMap((analysis) => analysis.findings));
 
   return Object.freeze({
     revision: input.revision,
@@ -114,6 +117,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
     sourceFingerprint: fingerprintSource(input.source),
     functions,
     defUse,
+    findings,
   });
 }
 
