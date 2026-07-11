@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 1,
+  "caseId": "37-memory-mixed",
+  "sourceSha256": "1986722d9d0773304c30bcc360d06cb0f65fbb83f1fe48e1141f44279578a11b",
+  "sourceLengthUtf16": 297,
+  "tags": ["memory", "likely", "hint", "leak", "double-free", "use-after-free"],
+  "functions": [
+    {
+      "key": "fn:possible_leak:20:114",
+      "name": "possible_leak",
+      "range": [20, 114],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [20, 114],
+          "ownerRange": [20, 114],
+          "reachable": true,
+          "text": "int possible_leak(int release) { int *p = malloc(sizeof *p); if (release) free(p); return 0; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [20, 114],
+          "ownerRange": [20, 114],
+          "reachable": true,
+          "text": "int possible_leak(int release) { int *p = malloc(sizeof *p); if (release) free(p); return 0; }"
+        },
+        {
+          "key": "n:syntax:declaration:53:80",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [53, 80],
+          "ownerRange": [53, 80],
+          "reachable": true,
+          "text": "int *p = malloc(sizeof *p);"
+        },
+        {
+          "key": "n:syntax:expression_statement:94:102",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [94, 102],
+          "ownerRange": [94, 102],
+          "reachable": true,
+          "text": "free(p);"
+        },
+        {
+          "key": "n:syntax:if_statement:81:102",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [81, 102],
+          "ownerRange": [81, 102],
+          "reachable": true,
+          "text": "if (release) free(p);"
+        },
+        {
+          "key": "n:syntax:return_statement:103:112",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [103, 112],
+          "ownerRange": [103, 112],
+          "reachable": true,
+          "text": "return 0;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:53:80"
+        },
+        {
+          "from": "n:syntax:declaration:53:80",
+          "kind": "next",
+          "to": "n:syntax:if_statement:81:102"
+        },
+        {
+          "from": "n:syntax:expression_statement:94:102",
+          "kind": "next",
+          "to": "n:syntax:return_statement:103:112"
+        },
+        {
+          "from": "n:syntax:if_statement:81:102",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:103:112"
+        },
+        {
+          "from": "n:syntax:if_statement:81:102",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:94:102"
+        },
+        {
+          "from": "n:syntax:return_statement:103:112",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    },
+    {
+      "key": "fn:possible_temporal:115:222",
+      "name": "possible_temporal",
+      "range": [115, 222],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [115, 222],
+          "ownerRange": [115, 222],
+          "reachable": true,
+          "text": "int possible_temporal(int c) { int *p = malloc(4); if (c) free(p); int value = *p; free(p); return value; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [115, 222],
+          "ownerRange": [115, 222],
+          "reachable": true,
+          "text": "int possible_temporal(int c) { int *p = malloc(4); if (c) free(p); int value = *p; free(p); return value; }"
+        },
+        {
+          "key": "n:syntax:declaration:146:165",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [146, 165],
+          "ownerRange": [146, 165],
+          "reachable": true,
+          "text": "int *p = malloc(4);"
+        },
+        {
+          "key": "n:syntax:declaration:182:197",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [182, 197],
+          "ownerRange": [182, 197],
+          "reachable": true,
+          "text": "int value = *p;"
+        },
+        {
+          "key": "n:syntax:expression_statement:173:181",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [173, 181],
+          "ownerRange": [173, 181],
+          "reachable": true,
+          "text": "free(p);"
+        },
+        {
+          "key": "n:syntax:expression_statement:198:206",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [198, 206],
+          "ownerRange": [198, 206],
+          "reachable": true,
+          "text": "free(p);"
+        },
+        {
+          "key": "n:syntax:if_statement:166:181",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [166, 181],
+          "ownerRange": [166, 181],
+          "reachable": true,
+          "text": "if (c) free(p);"
+        },
+        {
+          "key": "n:syntax:return_statement:207:220",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [207, 220],
+          "ownerRange": [207, 220],
+          "reachable": true,
+          "text": "return value;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:146:165"
+        },
+        {
+          "from": "n:syntax:declaration:146:165",
+          "kind": "next",
+          "to": "n:syntax:if_statement:166:181"
+        },
+        {
+          "from": "n:syntax:declaration:182:197",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:198:206"
+        },
+        {
+          "from": "n:syntax:expression_statement:173:181",
+          "kind": "next",
+          "to": "n:syntax:declaration:182:197"
+        },
+        {
+          "from": "n:syntax:expression_statement:198:206",
+          "kind": "next",
+          "to": "n:syntax:return_statement:207:220"
+        },
+        {
+          "from": "n:syntax:if_statement:166:181",
+          "kind": "branch-false",
+          "to": "n:syntax:declaration:182:197"
+        },
+        {
+          "from": "n:syntax:if_statement:166:181",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:173:181"
+        },
+        {
+          "from": "n:syntax:return_statement:207:220",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    },
+    {
+      "key": "fn:hints:223:296",
+      "name": "hints",
+      "range": [223, 296],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [223, 296],
+          "ownerRange": [223, 296],
+          "reachable": true,
+          "text": "int hints(void) { int *p = malloc(sizeof p); *p = 1; free(p); return 0; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [223, 296],
+          "ownerRange": [223, 296],
+          "reachable": true,
+          "text": "int hints(void) { int *p = malloc(sizeof p); *p = 1; free(p); return 0; }"
+        },
+        {
+          "key": "n:syntax:declaration:241:267",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [241, 267],
+          "ownerRange": [241, 267],
+          "reachable": true,
+          "text": "int *p = malloc(sizeof p);"
+        },
+        {
+          "key": "n:syntax:expression_statement:268:275",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [268, 275],
+          "ownerRange": [268, 275],
+          "reachable": true,
+          "text": "*p = 1;"
+        },
+        {
+          "key": "n:syntax:expression_statement:276:284",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [276, 284],
+          "ownerRange": [276, 284],
+          "reachable": true,
+          "text": "free(p);"
+        },
+        {
+          "key": "n:syntax:return_statement:285:294",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [285, 294],
+          "ownerRange": [285, 294],
+          "reachable": true,
+          "text": "return 0;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:241:267"
+        },
+        {
+          "from": "n:syntax:declaration:241:267",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:268:275"
+        },
+        {
+          "from": "n:syntax:expression_statement:268:275",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:276:284"
+        },
+        {
+          "from": "n:syntax:expression_statement:276:284",
+          "kind": "next",
+          "to": "n:syntax:return_statement:285:294"
+        },
+        {
+          "from": "n:syntax:return_statement:285:294",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

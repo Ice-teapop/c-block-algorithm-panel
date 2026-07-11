@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "expectedFixtureCount": 35,
-  "expectedFunctionCount": 36,
+  "expectedFixtureCount": 37,
+  "expectedFunctionCount": 41,
   "requiredTags": [
     "sequence",
     "if",
@@ -16,7 +16,8 @@
     "duplicate-text",
     "short-circuit",
     "ternary",
-    "unsupported-syntax"
+    "unsupported-syntax",
+    "memory"
   ],
   "fixtures": [
     "01-sequence-return",
@@ -53,6 +54,8 @@
     "32-do-terminator",
     "33-case-outside-switch",
     "34-uninitialized-read",
-    "35-literal-out-of-bounds"
+    "35-literal-out-of-bounds",
+    "36-memory-certain",
+    "37-memory-mixed"
   ]
 }

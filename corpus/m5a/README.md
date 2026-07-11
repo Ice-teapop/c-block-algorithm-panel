@@ -15,3 +15,8 @@
 CFG 门禁还会独立检查：每条边的端点存在且不重复、reachability 与从 ENTRY 做的独立 BFS 一致、
 每条投影语句或声明恰好归属一个 `primary` CFG 教学节点。`do` 条件可作为所属积木的 primary
 控制点；`for` 初始化/更新是 `auxiliary`，必须指回一个 primary owner。`partial` 样本仍需精确列出原因。
+
+内存金标只覆盖直接、唯一的一级局部指针句柄。分配结果一旦 return、存储或传给未知调用，整句柄
+按 escape-silence 规则不再发布内存 finding；重复分配与循环内分配的状态事实可以保留，但状态型
+finding 暂不跨 allocation epoch 猜测。`certain` 内存 finding 还必须有顺序边或已建模空值守卫组成的
+可信路径；普通条件相关性、回边和同一静态 `free` 的重复执行不会被提升为红色结论。

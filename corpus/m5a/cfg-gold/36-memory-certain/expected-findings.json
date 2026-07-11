@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "sourceSha256": "a4f9d3723d0fb9355f8068944fd1e8f7eb1fc4a39cba8edbe9c0fd876d43e29b",
+  "findings": [
+    {
+      "function": "fn:leak:21:72",
+      "ruleId": "memory-leak",
+      "reason": "live-at-all-normal-exits",
+      "confidence": "certain",
+      "primaryRange": [50, 59],
+      "ownerNode": "n:syntax:declaration:41:60",
+      "subject": "p",
+      "evidence": [
+        { "role": "allocation", "range": [50, 59] },
+        { "role": "exit", "range": [63, 70] }
+      ]
+    },
+    {
+      "function": "fn:temporal:74:153",
+      "ruleId": "double-free",
+      "reason": "must-freed-before-free",
+      "confidence": "certain",
+      "primaryRange": [130, 137],
+      "ownerNode": "n:syntax:expression_statement:130:138",
+      "subject": "p",
+      "evidence": [
+        { "role": "free", "range": [119, 126] },
+        { "role": "free", "range": [130, 137] }
+      ]
+    },
+    {
+      "function": "fn:temporal:74:153",
+      "ruleId": "use-after-free",
+      "reason": "must-freed-before-dereference",
+      "confidence": "certain",
+      "primaryRange": [148, 150],
+      "ownerNode": "n:syntax:return_statement:141:151",
+      "subject": "p",
+      "evidence": [
+        { "role": "free", "range": [130, 137] },
+        { "role": "use", "range": [148, 150] }
+      ]
+    }
+  ]
+}

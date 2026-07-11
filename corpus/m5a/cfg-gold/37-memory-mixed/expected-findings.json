@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 2,
+  "sourceSha256": "1986722d9d0773304c30bcc360d06cb0f65fbb83f1fe48e1141f44279578a11b",
+  "findings": [
+    {
+      "function": "fn:hints:223:296",
+      "ruleId": "malloc-sizeof-pointer",
+      "reason": "pointer-size-used-for-pointee-allocation",
+      "confidence": "hint",
+      "primaryRange": [257, 265],
+      "ownerNode": "n:syntax:declaration:241:267",
+      "subject": "p",
+      "evidence": [{ "role": "allocation", "range": [250, 266] }]
+    },
+    {
+      "function": "fn:hints:223:296",
+      "ruleId": "unchecked-allocation",
+      "reason": "maybe-null-before-dereference",
+      "confidence": "hint",
+      "primaryRange": [268, 270],
+      "ownerNode": "n:syntax:expression_statement:268:275",
+      "subject": "p",
+      "evidence": [
+        { "role": "allocation", "range": [250, 266] },
+        { "role": "use", "range": [268, 270] }
+      ]
+    },
+    {
+      "function": "fn:possible_leak:20:114",
+      "ruleId": "possible-memory-leak",
+      "reason": "live-at-some-normal-exit",
+      "confidence": "likely",
+      "primaryRange": [62, 79],
+      "ownerNode": "n:syntax:declaration:53:80",
+      "subject": "p",
+      "evidence": [
+        { "role": "allocation", "range": [62, 79] },
+        { "role": "free", "range": [94, 101] },
+        { "role": "exit", "range": [103, 112] }
+      ]
+    },
+    {
+      "function": "fn:possible_temporal:115:222",
+      "ruleId": "possible-double-free",
+      "reason": "may-freed-before-free",
+      "confidence": "likely",
+      "primaryRange": [198, 205],
+      "ownerNode": "n:syntax:expression_statement:198:206",
+      "subject": "p",
+      "evidence": [
+        { "role": "free", "range": [173, 180] },
+        { "role": "free", "range": [198, 205] }
+      ]
+    },
+    {
+      "function": "fn:possible_temporal:115:222",
+      "ruleId": "possible-use-after-free",
+      "reason": "may-freed-before-dereference",
+      "confidence": "likely",
+      "primaryRange": [194, 196],
+      "ownerNode": "n:syntax:declaration:182:197",
+      "subject": "p",
+      "evidence": [
+        { "role": "free", "range": [173, 180] },
+        { "role": "use", "range": [194, 196] }
+      ]
+    }
+  ]
+}

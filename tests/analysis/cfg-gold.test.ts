@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   analyzeProgramCst,
+  type AnalysisFindingConfidence,
+  type AnalysisFindingRuleId,
   type CfgEdgeKind,
   type CfgPartialReasonCode,
   type FunctionCfg,
@@ -47,6 +49,24 @@ const REQUIRED_GOLD_PARTIAL_REASONS = (
 )
   .filter(([, suite]) => suite === "gold")
   .map(([reason]) => reason);
+const REQUIRED_MEMORY_FINDING_RULES = [
+  "memory-leak",
+  "possible-memory-leak",
+  "double-free",
+  "possible-double-free",
+  "use-after-free",
+  "possible-use-after-free",
+  "malloc-sizeof-pointer",
+  "unchecked-allocation",
+] as const satisfies readonly AnalysisFindingRuleId[];
+const REQUIRED_MEMORY_FINDING_RULE_SET = new Set<AnalysisFindingRuleId>(
+  REQUIRED_MEMORY_FINDING_RULES,
+);
+const REQUIRED_MEMORY_CONFIDENCE = [
+  "certain",
+  "likely",
+  "hint",
+] as const satisfies readonly AnalysisFindingConfidence[];
 
 describe("M5a CFG gold corpus contract", () => {
   let parser: CParser;
@@ -105,6 +125,15 @@ describe("M5a CFG gold corpus contract", () => {
     expect(findings.some((finding) => finding.ruleId === "unreachable-code")).toBe(true);
     expect(findings.some((finding) => finding.ruleId === "uninitialized-read")).toBe(true);
     expect(findings.some((finding) => finding.ruleId === "literal-out-of-bounds")).toBe(true);
+    const memoryFindings = findings.filter((finding) =>
+      REQUIRED_MEMORY_FINDING_RULE_SET.has(finding.ruleId),
+    );
+    expect([...new Set(memoryFindings.map((finding) => finding.ruleId))].sort()).toEqual(
+      [...REQUIRED_MEMORY_FINDING_RULES].sort(),
+    );
+    expect([...new Set(memoryFindings.map((finding) => finding.confidence))].sort()).toEqual(
+      [...REQUIRED_MEMORY_CONFIDENCE].sort(),
+    );
     expect(findings.every((finding) => finding.reason.length > 0)).toBe(true);
   });
 
