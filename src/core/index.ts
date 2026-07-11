@@ -28,8 +28,10 @@ export type {
 export { textRange, utf16Offset } from "./model.js";
 export {
   CParser,
+  type BorrowedCstReadContext,
   type CAnalysisSnapshot,
   type CParserAssets,
+  type CParserInspection,
   type LocalRenamePlanningRequest,
 } from "./parser.js";
 export {

@@ -44,6 +44,16 @@ module.exports = {
       to: { path: "^(?:\\.dependency-cruiser-build/)?src/analysis/" },
     },
     {
+      // Analysis is a read-only consumer. It must not acquire patch-producing
+      // interfaces, including write paths that are added after M5.
+      name: "analysis-cannot-import-core-write-paths",
+      severity: "error",
+      from: { path: "^(?:\\.dependency-cruiser-build/)?src/analysis/" },
+      to: {
+        path: "^(?:\\.dependency-cruiser-build/)?src/core/(?:editing|emitter|patch)(?:/|\\.|$)",
+      },
+    },
+    {
       // This protects the emitted runtime graph. The matching TypeScript source
       // fitness test also catches imports erased by compilation (import type).
       name: "workbench-metadata-can-only-import-workbench-or-shared",

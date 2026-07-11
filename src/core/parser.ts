@@ -1,4 +1,5 @@
 import { Language, Parser } from "web-tree-sitter";
+import type { Node } from "web-tree-sitter";
 import type { SourceDoc } from "./model.js";
 import { planConservativeLocalRename, type ConservativeLocalRenamePlan } from "./editing/rename.js";
 import {
@@ -17,6 +18,24 @@ export interface CAnalysisSnapshot {
   readonly document: SourceDoc;
   readonly editTargets: EditTargetSnapshot;
   readonly statementEdits: StatementEditTargetSnapshot;
+}
+
+/**
+ * A synchronously borrowed view of the live CST.
+ *
+ * `rootNode` becomes invalid as soon as the reader returns. Readers must copy
+ * only plain immutable values out of it and must never retain the node.
+ */
+export interface BorrowedCstReadContext {
+  readonly source: string;
+  readonly revision: number;
+  readonly rootNode: Node;
+  readonly document: SourceDoc;
+}
+
+export interface CParserInspection<T> {
+  readonly analysis: CAnalysisSnapshot;
+  readonly result: T;
 }
 
 /** Pure-value input for a parser-owned local rename analysis. */
@@ -56,6 +75,14 @@ export class CParser {
   }
 
   analyze(source: string, revision: number): CAnalysisSnapshot {
+    return this.inspect(source, revision, () => undefined).analysis;
+  }
+
+  inspect<T>(
+    source: string,
+    revision: number,
+    reader: (context: BorrowedCstReadContext) => T,
+  ): CParserInspection<T> {
     if (this.#disposed) {
       throw new Error("CParser 已释放，不能继续解析");
     }
@@ -64,11 +91,19 @@ export class CParser {
       throw new Error("tree-sitter 未返回语法树");
     }
     try {
-      return Object.freeze({
+      const analysis = Object.freeze({
         document: projectCst(source, tree.rootNode),
         editTargets: extractEditTargets(tree.rootNode, source, revision),
         statementEdits: extractStatementEditTargets(tree.rootNode, source, revision),
       });
+      const result = reader(
+        Object.freeze({ source, revision, rootNode: tree.rootNode, document: analysis.document }),
+      );
+      if (isPromiseLike(result)) {
+        throw new TypeError("CST reader 必须同步返回，不能跨越 Tree 生命周期");
+      }
+      assertDetachedCstResult(result);
+      return Object.freeze({ analysis, result });
     } finally {
       tree.delete();
     }
@@ -110,6 +145,62 @@ export class CParser {
       this.#parser.delete();
     }
   }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof (value as { readonly then?: unknown }).then === "function"
+  );
+}
+
+function assertDetachedCstResult(value: unknown): void {
+  const visited = new Set<object>();
+  const active = new Set<object>();
+
+  const visit = (candidate: unknown): void => {
+    if (
+      candidate === undefined ||
+      candidate === null ||
+      typeof candidate === "string" ||
+      typeof candidate === "boolean" ||
+      (typeof candidate === "number" && Number.isFinite(candidate))
+    ) {
+      return;
+    }
+    if (typeof candidate !== "object") {
+      throw new TypeError("CST reader 只能返回纯冻结值");
+    }
+    if (active.has(candidate)) {
+      throw new TypeError("CST reader 返回值不得包含循环引用");
+    }
+    if (visited.has(candidate)) return;
+    const prototype = Object.getPrototypeOf(candidate);
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) {
+      throw new TypeError("CST reader 不得返回 Tree Node 或其他带原型实例");
+    }
+    if (!Object.isFrozen(candidate)) {
+      throw new TypeError("CST reader 返回的对象图必须完全冻结");
+    }
+
+    active.add(candidate);
+    for (const key of Reflect.ownKeys(candidate)) {
+      if (typeof key !== "string") {
+        throw new TypeError("CST reader 返回值不得包含 symbol 属性");
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(candidate, key);
+      if (descriptor === undefined || !("value" in descriptor)) {
+        throw new TypeError("CST reader 返回值不得包含访问器属性");
+      }
+      visit(descriptor.value);
+    }
+    active.delete(candidate);
+    visited.add(candidate);
+  };
+
+  visit(value);
 }
 
 async function initializeRuntime(runtimeWasmUrl: string): Promise<void> {

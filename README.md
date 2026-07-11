@@ -8,6 +8,8 @@
 
 **M4：降级健壮化与组装学习工作台已完成。** 2026-07-11 的当前版本在 M4 底座上增加了 Dashboard、Documents 托管工作区、跨页面视觉引导与 Software Library。最新回归覆盖 481 个单元/集成测试和 60 个 Electron E2E，并保留 20 个金样本、5 个压力样本、2000 例变异 fuzz、5000 例课程 C 生成式 fuzz和 16 份困难语料。它仍属于 M4 工作台增强，不冒充 M5 之后的 CFG、数据流、算法识别或 AI。
 
+**M5a：确定性程序分析正在推进。** 当前已建立与编辑管线隔离的只读 CST 检查边界，以及顺序语句、`if/else`、`return` 和显式不可达后缀的函数级 CFG 地基。分析输出是可跨 Tree 生命周期使用的深冻结纯值；遇到尚未支持的控制结构会标记 `partial` 并保守保持后续可达，不产生确定性误报。此阶段尚未接入工作台 UI，也尚未完成循环、`switch/goto`、def-use 或内存风险分析，因此不视为 M5a 完成。
+
 已建立：
 
 - Electron + Vite + TypeScript 本地应用骨架
@@ -92,6 +94,7 @@ npm run verify:m4
 node scripts/generator-fuzz.mjs --runs 5000
 npm run test:e2e:m4
 npm run accept:m4
+npm run verify:m5a:cfg
 ```
 
 ### M4 使用与验收
@@ -100,6 +103,7 @@ npm run accept:m4
 - `node scripts/generator-fuzz.mjs --runs 5000`：执行深度生成式检查；失败时输出 seed、shrink path，并可写入本地回归样本。
 - `npm run test:e2e:m4`：生产构建后运行积木组装 E2E，并逐份通过可见“打开 C 文件”入口导入 16 份 M4 语料，检查解析状态、无损往返、积木交互与 renderer 崩溃。
 - `npm run accept:m4`：依次执行 M3 全量回归、M4 专项测试、5000 例深度生成 fuzz 和 M4 Electron E2E；任一阶段失败即停止并返回非零状态。
+- `npm run verify:m5a:cfg`：验证只读 CST 生命周期边界、基础 CFG 精确边集、不可达标记、深冻结确定性和分析/编辑依赖隔离；它只是 M5a 的阶段门，不等同于最终 `accept:m5a`。
 
 Electron 43 不再在 `npm ci` 的 `postinstall` 阶段下载原生二进制；首次执行 Electron 命令时会按需下载并校验。离线开发前应先在有网络或已有 Electron 缓存的环境启动一次。
 

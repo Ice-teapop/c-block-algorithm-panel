@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,6 +83,39 @@ describe("workbench architecture boundaries", () => {
     expect(to.test("src/ui/workbench-shell.js")).toBe(false);
   });
 
+  it("keeps analysis out of emitted core write paths while preserving the core-to-analysis ban", () => {
+    const analysisRule = requiredRule("analysis-cannot-import-core-write-paths");
+    const analysisFrom = new RegExp(requiredPath(analysisRule.from.path));
+    const coreWriteTarget = new RegExp(requiredPath(analysisRule.to.path));
+
+    expect(analysisFrom.test("src/analysis/cfg.js")).toBe(true);
+    expect(analysisFrom.test(".dependency-cruiser-build/src/analysis/def-use.js")).toBe(true);
+    for (const forbiddenPath of [
+      "src/core/editing/index.js",
+      "src/core/emitter.js",
+      "src/core/patch/engine.js",
+      ".dependency-cruiser-build/src/core/editing/engine.js",
+      ".dependency-cruiser-build/src/core/emitter/index.js",
+      ".dependency-cruiser-build/src/core/patch.js",
+    ]) {
+      expect(coreWriteTarget.test(forbiddenPath), forbiddenPath).toBe(true);
+    }
+    for (const allowedPath of [
+      "src/core/parser.js",
+      "src/core/model.js",
+      "src/analysis/cfg.js",
+      ".dependency-cruiser-build/src/core/blocks.js",
+    ]) {
+      expect(coreWriteTarget.test(allowedPath), allowedPath).toBe(false);
+    }
+
+    const coreRule = requiredRule("core-write-path-cannot-import-analysis");
+    const coreFrom = new RegExp(requiredPath(coreRule.from.path));
+    const analysisTarget = new RegExp(requiredPath(coreRule.to.path));
+    expect(coreFrom.test("src/core/editing/engine.js")).toBe(true);
+    expect(analysisTarget.test("src/analysis/cfg.js")).toBe(true);
+  });
+
   it("checks every TypeScript source import before type-only imports are erased", () => {
     const sources = architectureSourceFiles().map((file) => ({
       file,
@@ -125,6 +158,60 @@ describe("workbench architecture boundaries", () => {
         target: "src/workbench/contracts.js",
       },
     ]);
+
+    const analysisProbe = 'import type { FunctionCfg } from "../../analysis/model.js";';
+    expect(() =>
+      enforceSourceBoundaries([{ file: "src/core/editing/engine.ts", text: analysisProbe }]),
+    ).toThrowError(/core-write-path-cannot-import-analysis/u);
+    expect(inspectSourceImports("src/core/editing/engine.ts", analysisProbe)).toEqual([
+      {
+        rule: "core-write-path-cannot-import-analysis",
+        source: "src/core/editing/engine.ts",
+        target: "src/analysis/model.js",
+      },
+    ]);
+  });
+
+  it("rejects analysis type imports from current and future core write paths", () => {
+    const analysisProbe = [
+      'import type { EditPlan } from "../core/editing/model.js";',
+      'export type { SourceEmitter } from "../core/emitter.js";',
+      'import type { TextPatch } from "../core/patch/contracts.js";',
+    ].join("\n");
+
+    expect(() =>
+      enforceSourceBoundaries([{ file: "src/analysis/probe.ts", text: analysisProbe }]),
+    ).toThrowError(/analysis-cannot-import-core-write-paths/u);
+    expect(inspectSourceImports("src/analysis/probe.ts", analysisProbe)).toEqual([
+      {
+        rule: "analysis-cannot-import-core-write-paths",
+        source: "src/analysis/probe.ts",
+        target: "src/core/editing/model.js",
+      },
+      {
+        rule: "analysis-cannot-import-core-write-paths",
+        source: "src/analysis/probe.ts",
+        target: "src/core/patch/contracts.js",
+      },
+      {
+        rule: "analysis-cannot-import-core-write-paths",
+        source: "src/analysis/probe.ts",
+        target: "src/core/emitter.js",
+      },
+    ]);
+  });
+
+  it("allows analysis to consume read-only core, analysis-local, and shared types", () => {
+    expect(
+      inspectSourceImports(
+        "src/analysis/probe.ts",
+        [
+          'import type { CDocument } from "../core/model.js";',
+          'import type { CfgNode } from "./contracts.js";',
+          'export type { SourceEnvelope } from "../shared/protocol.js";',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
   });
 
   it("allows workbench-local and explicitly shared type imports", () => {
@@ -148,9 +235,11 @@ describe("workbench architecture boundaries", () => {
 });
 
 function architectureSourceFiles(): readonly string[] {
-  return ["src/core", "src/workbench"].flatMap((directory) =>
-    collectTypeScriptFiles(resolve(PROJECT_ROOT, directory)).map((file) => toProjectPath(file)),
-  );
+  return ["src/core", "src/workbench", "src/analysis"].flatMap((directory) => {
+    const absoluteDirectory = resolve(PROJECT_ROOT, directory);
+    if (!existsSync(absoluteDirectory)) return [];
+    return collectTypeScriptFiles(absoluteDirectory).map((file) => toProjectPath(file));
+  });
 }
 
 function collectTypeScriptFiles(directory: string): readonly string[] {
@@ -195,6 +284,26 @@ function inspectSourceImports(source: string, text: string): readonly BoundaryVi
       return [
         {
           rule: "core-cannot-import-workbench-shell-metadata",
+          source,
+          target,
+        },
+      ];
+    }
+
+    if (isInLayer(source, "src/core") && isInLayer(target, "src/analysis")) {
+      return [
+        {
+          rule: "core-write-path-cannot-import-analysis",
+          source,
+          target,
+        },
+      ];
+    }
+
+    if (isInLayer(source, "src/analysis") && isCoreWritePath(target)) {
+      return [
+        {
+          rule: "analysis-cannot-import-core-write-paths",
           source,
           target,
         },
@@ -296,6 +405,10 @@ function normalizeProjectPath(path: string): string {
 
 function isInLayer(path: string, layer: string): boolean {
   return path === layer || path.startsWith(`${layer}/`);
+}
+
+function isCoreWritePath(path: string): boolean {
+  return /^src\/core\/(?:editing|emitter|patch)(?:$|\/|\.)/u.test(path);
 }
 
 function toProjectPath(path: string): string {
