@@ -1,8 +1,9 @@
 import type { TextRange } from "../core/model.js";
 
-export type CfgNodeKind = "entry" | "exit" | "syntax";
-export type CfgNodeRole = "boundary" | "statement" | "declaration";
-export type CfgEdgeKind = "entry" | "next" | "branch-true" | "branch-false" | "return";
+export type CfgNodeKind = "entry" | "exit" | "syntax" | "control";
+export type CfgNodeRole = "boundary" | "statement" | "declaration" | "control";
+export type CfgEdgeKind =
+  "entry" | "next" | "branch-true" | "branch-false" | "break" | "continue" | "return" | "terminate";
 
 export interface CfgNode {
   /** Snapshot-local deterministic identity. */
@@ -11,6 +12,7 @@ export interface CfgNode {
   readonly role: CfgNodeRole;
   readonly nodeType: string | null;
   readonly range: TextRange;
+  readonly ownerBlockRange: TextRange;
   readonly reachable: boolean;
 }
 

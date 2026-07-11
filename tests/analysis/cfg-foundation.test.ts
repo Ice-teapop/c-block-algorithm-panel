@@ -117,16 +117,211 @@ describe("M5a CFG foundation", () => {
     ]);
   });
 
-  it("fails closed with an explicit partial reason for unsupported control flow", () => {
+  it("builds a while condition, back edge and false exit", () => {
     const source = "int f(int x) { while (x) x--; return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "while (x) x--;", "entry"],
+      ["while (x) x--;", "x--;", "branch-true"],
+      ["while (x) x--;", "return x;", "branch-false"],
+      ["x--;", "while (x) x--;", "next"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("routes continue to the while condition and leaves its suffix unreachable", () => {
+    const source = "int f(int x) { while (x) { x--; continue; x = 9; } return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "while (x) { x--; continue; x = 9; }", "entry"],
+      ["while (x) { x--; continue; x = 9; }", "x--;", "branch-true"],
+      ["while (x) { x--; continue; x = 9; }", "return x;", "branch-false"],
+      ["x--;", "continue;", "next"],
+      ["continue;", "while (x) { x--; continue; x = 9; }", "continue"],
+      ["x = 9;", "while (x) { x--; continue; x = 9; }", "next"],
+      ["return x;", "EXIT", "return"],
+    ]);
+    expect(reachability(cfg, source)["x = 9;"]).toBe(false);
+  });
+
+  it("enters a do-while body before evaluating its condition", () => {
+    const source = "int f(int x) { do x--; while (x); return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "x--;", "entry"],
+      ["x--;", "(x)", "next"],
+      ["(x)", "x--;", "branch-true"],
+      ["(x)", "return x;", "branch-false"],
+      ["return x;", "EXIT", "return"],
+    ]);
+    const condition = cfg.nodes.find((node) => node.nodeType === "do_condition");
+    expect(
+      condition === undefined
+        ? null
+        : source.slice(condition.ownerBlockRange.from, condition.ownerBlockRange.to),
+    ).toBe("do x--; while (x);");
+    expect(
+      condition === undefined ? null : source.slice(condition.range.from, condition.range.to),
+    ).toBe("(x)");
+  });
+
+  it("routes do-while continue to the bottom condition phase", () => {
+    const source = "int f(int x) { do { continue; } while (x); return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "continue;", "entry"],
+      ["continue;", "(x)", "continue"],
+      ["(x)", "continue;", "branch-true"],
+      ["(x)", "return x;", "branch-false"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("routes nested break to the inner loop continuation", () => {
+    const source = "int f(int x) { while (x) { while (x > 1) break; x--; } return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "while (x) { while (x > 1) break; x--; }", "entry"],
+      ["while (x) { while (x > 1) break; x--; }", "while (x > 1) break;", "branch-true"],
+      ["while (x) { while (x > 1) break; x--; }", "return x;", "branch-false"],
+      ["while (x > 1) break;", "break;", "branch-true"],
+      ["while (x > 1) break;", "x--;", "branch-false"],
+      ["break;", "x--;", "break"],
+      ["x--;", "while (x) { while (x > 1) break; x--; }", "next"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("routes for initialization, continue, update and condition in order", () => {
+    const source = "int f(int n) { for (int i = 0; i < n; i++) { continue; } return n; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "int i = 0;", "entry"],
+      ["for (int i = 0; i < n; i++) { continue; }", "continue;", "branch-true"],
+      ["for (int i = 0; i < n; i++) { continue; }", "return n;", "branch-false"],
+      ["int i = 0;", "for (int i = 0; i < n; i++) { continue; }", "next"],
+      ["i++", "for (int i = 0; i < n; i++) { continue; }", "next"],
+      ["continue;", "i++", "continue"],
+      ["return n;", "EXIT", "return"],
+    ]);
+    const controls = cfg.nodes.filter((node) => node.kind === "control");
+    expect(controls.map((node) => source.slice(node.range.from, node.range.to))).toEqual([
+      "int i = 0;",
+      "i++",
+    ]);
+    const forNode = cfg.nodes.find((node) => node.nodeType === "for_statement");
+    expect(forNode).toBeDefined();
+    expect(controls.map((node) => node.ownerBlockRange)).toEqual([forNode?.range, forNode?.range]);
+  });
+
+  it("omits the false edge for an endless for loop while preserving break", () => {
+    const source = "int f(void) { for (;;) { break; } return 0; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "for (;;) { break; }", "entry"],
+      ["for (;;) { break; }", "break;", "branch-true"],
+      ["break;", "return 0;", "break"],
+      ["return 0;", "EXIT", "return"],
+    ]);
+  });
+
+  it("honors direct terminators in for initializer and update phases", () => {
+    const source = "void f(int x) { for (exit(1); x; abort()) x--; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "exit(1)", "entry"],
+      ["for (exit(1); x; abort()) x--;", "x--;", "branch-true"],
+      ["for (exit(1); x; abort()) x--;", "EXIT", "branch-false"],
+      ["exit(1)", "EXIT", "terminate"],
+      ["abort()", "EXIT", "terminate"],
+      ["x--;", "abort()", "next"],
+    ]);
+    expect(reachability(cfg, source)).toMatchObject({
+      "for (exit(1); x; abort()) x--;": false,
+      "x--;": false,
+    });
+  });
+
+  it("branches assert in both for header phases", () => {
+    const source = "void f(int x) { for (assert(x > 0); x; assert(x > 1)) x--; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "assert(x > 0)", "entry"],
+      ["for (assert(x > 0); x; assert(x > 1)) x--;", "x--;", "branch-true"],
+      ["for (assert(x > 0); x; assert(x > 1)) x--;", "EXIT", "branch-false"],
+      ["assert(x > 0)", "for (assert(x > 0); x; assert(x > 1)) x--;", "branch-true"],
+      ["assert(x > 0)", "EXIT", "branch-false"],
+      ["assert(x > 1)", "for (assert(x > 0); x; assert(x > 1)) x--;", "branch-true"],
+      ["assert(x > 1)", "EXIT", "branch-false"],
+      ["x--;", "assert(x > 1)", "next"],
+    ]);
+  });
+
+  it("models assert as a true continuation and false terminating edge", () => {
+    const source = "void f(int x) { assert(x); x--; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "assert(x);", "entry"],
+      ["assert(x);", "x--;", "branch-true"],
+      ["assert(x);", "EXIT", "branch-false"],
+      ["x--;", "EXIT", "next"],
+    ]);
+  });
+
+  it("treats direct exit and abort calls as terminators", () => {
+    const source = "void f(void) { exit(1); abort(); }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "exit(1);", "entry"],
+      ["exit(1);", "EXIT", "terminate"],
+      ["abort();", "EXIT", "terminate"],
+    ]);
+    expect(reachability(cfg, source)["abort();"]).toBe(false);
+  });
+
+  it("does not terminate indirect or nested exit calls", () => {
+    const source = "void f(void) { (exit)(1); foo(exit(1)); return; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "(exit)(1);", "entry"],
+      ["(exit)(1);", "foo(exit(1));", "next"],
+      ["foo(exit(1));", "return;", "next"],
+      ["return;", "EXIT", "return"],
+    ]);
+  });
+
+  it("fails closed with an explicit partial reason for unsupported control flow", () => {
+    const source = "int f(int x) { switch (x) { default: break; } return x; }";
     const cfg = analyzeOne(parser, source);
 
     expect(cfg.partial).toBe(true);
     expect(cfg.partialReasons).toEqual([
-      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "while_statement" }),
+      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "switch_statement" }),
     ]);
-    expect(edgeShapes(cfg, source)).toContainEqual(["ENTRY", "while (x) x--;", "entry"]);
-    expect(edgeShapes(cfg, source)).toContainEqual(["while (x) x--;", "return x;", "next"]);
+    expect(edgeShapes(cfg, source)).toContainEqual([
+      "ENTRY",
+      "switch (x) { default: break; }",
+      "entry",
+    ]);
+    expect(edgeShapes(cfg, source)).toContainEqual([
+      "switch (x) { default: break; }",
+      "return x;",
+      "next",
+    ]);
     expect(reachability(cfg, source)["return x;"]).toBe(true);
   });
 
@@ -163,6 +358,9 @@ describe("M5a CFG foundation", () => {
     "int f(int x) { if (x) x++; return x; }",
     "int f(int x) { if (x) x++; else x--; return x; }",
     "int f(int x, int y) { if (x) return 1; else if (y) return 2; else return 3; }",
+    "int f(int x) { while (x) x--; return x; }",
+    "int f(int x) { do x--; while (x); return x; }",
+    "int f(int n) { for (int i = 0; i < n; i++) continue; return n; }",
   ])("owns every projected statement or declaration exactly once: %s", (source) => {
     const inspected = parser.inspect(source, 3, ({ rootNode }) =>
       analyzeProgramCst({ source, revision: 3, rootNode }),
@@ -172,8 +370,8 @@ describe("M5a CFG foundation", () => {
 
     const projected = collectStructuredStatementRanges(inspected.analysis.document.blocks);
     const analyzed = cfg.nodes
-      .filter((node) => node.kind === "syntax")
-      .map((node) => `${node.range.from}:${node.range.to}`)
+      .filter((node) => node.kind === "syntax" || node.nodeType === "do_condition")
+      .map((node) => `${node.ownerBlockRange.from}:${node.ownerBlockRange.to}`)
       .sort();
 
     expect(analyzed).toEqual(projected);
