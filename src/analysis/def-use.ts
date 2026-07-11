@@ -7,6 +7,7 @@ import {
   type TextRange,
 } from "../core/model.js";
 import { collectFunctionEffects } from "./def-use-effects.js";
+import { collectLoopPredicates } from "./loop-predicates.js";
 import { collectLoopRegions } from "./loop-regions.js";
 import { collectReachingDefinitions } from "./reaching-definitions.js";
 import type {
@@ -132,6 +133,11 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
       ? variables
       : variables.map((variable) => Object.freeze({ ...variable, tracking: "untracked" as const }));
   const facts = status === "complete" ? effectCollection.facts : Object.freeze([]);
+  const reachingDefinitions =
+    status === "complete"
+      ? collectReachingDefinitions({ cfg: input.cfg, facts })
+      : Object.freeze([]);
+  const loopRegions = status === "complete" ? collectLoopRegions(input.cfg) : Object.freeze([]);
   return Object.freeze({
     functionId: input.cfg.id,
     functionRange,
@@ -139,11 +145,18 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
     disabledReasons,
     variables: Object.freeze(outputVariables),
     facts,
-    reachingDefinitions:
+    reachingDefinitions,
+    loopRegions,
+    loopPredicates:
       status === "complete"
-        ? collectReachingDefinitions({ cfg: input.cfg, facts })
+        ? collectLoopPredicates({
+            cfg: input.cfg,
+            variables: outputVariables,
+            facts,
+            reachingDefinitions,
+            loopRegions,
+          })
         : Object.freeze([]),
-    loopRegions: status === "complete" ? collectLoopRegions(input.cfg) : Object.freeze([]),
   });
 }
 

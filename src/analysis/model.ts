@@ -175,6 +175,47 @@ export interface LoopRegion {
   readonly availability: LoopAvailability;
 }
 
+export type LoopPredicateVerdict = "yes" | "no" | "unknown";
+export type LoopPredicateReason =
+  | "escaped"
+  | "no-definitions"
+  | "has-definitions"
+  | "single-definition"
+  | "multiple-definitions"
+  | "not-constant-step"
+  | "weak-step"
+  | "no-external-definition"
+  | "uninitialized-entry"
+  | "nested-step"
+  | "no-backedge"
+  | "step-not-on-every-backedge"
+  | "induction-variable";
+
+export interface LoopPredicateResult {
+  readonly verdict: LoopPredicateVerdict;
+  readonly reason: LoopPredicateReason;
+  readonly definitionEffectIds: readonly string[];
+  readonly nodeIds: readonly string[];
+}
+
+export interface LoopInductionResult extends LoopPredicateResult {
+  readonly stepDefinitionEffectId: string | null;
+  readonly delta: number | null;
+}
+
+export interface LoopVariablePredicateFact {
+  readonly variableId: string;
+  readonly isLoopInvariant: LoopPredicateResult;
+  readonly singleDefIn: LoopPredicateResult;
+  readonly isInductionVar: LoopInductionResult;
+}
+
+export interface LoopPredicateFact {
+  readonly loopId: string;
+  /** Reachable precise scalars referenced by an analyzable loop, in function variable order. */
+  readonly variables: readonly LoopVariablePredicateFact[];
+}
+
 export interface FunctionDefUse {
   readonly functionId: string;
   readonly functionRange: TextRange;
@@ -187,6 +228,8 @@ export interface FunctionDefUse {
   readonly reachingDefinitions: readonly ReachingDefinitionFact[];
   /** Source-ordered loop regions derived only for complete functions. */
   readonly loopRegions: readonly LoopRegion[];
+  /** One predicate fact per loop region in the same order. */
+  readonly loopPredicates: readonly LoopPredicateFact[];
 }
 
 export interface ProgramAnalysisSnapshot {
