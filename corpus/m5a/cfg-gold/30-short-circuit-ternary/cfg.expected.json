@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "caseId": "30-short-circuit-ternary",
+  "sourceSha256": "7960a086af218c1db6109db7e40fddb30dd7db03d450339d26971d76ccdafe78",
+  "sourceLengthUtf16": 68,
+  "tags": ["if", "short-circuit", "ternary"],
+  "functions": [
+    {
+      "key": "fn:f:0:67",
+      "name": "f",
+      "range": [0, 67],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 67],
+          "ownerRange": [0, 67],
+          "reachable": true,
+          "text": "int f(int x, int y) { if (x && y || x > 2) x++; return x ? x : y; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 67],
+          "ownerRange": [0, 67],
+          "reachable": true,
+          "text": "int f(int x, int y) { if (x && y || x > 2) x++; return x ? x : y; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:43:47",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [43, 47],
+          "ownerRange": [43, 47],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:if_statement:22:47",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [22, 47],
+          "ownerRange": [22, 47],
+          "reachable": true,
+          "text": "if (x && y || x > 2) x++;"
+        },
+        {
+          "key": "n:syntax:return_statement:48:65",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [48, 65],
+          "ownerRange": [48, 65],
+          "reachable": true,
+          "text": "return x ? x : y;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:if_statement:22:47"
+        },
+        {
+          "from": "n:syntax:expression_statement:43:47",
+          "kind": "next",
+          "to": "n:syntax:return_statement:48:65"
+        },
+        {
+          "from": "n:syntax:if_statement:22:47",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:48:65"
+        },
+        {
+          "from": "n:syntax:if_statement:22:47",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:43:47"
+        },
+        {
+          "from": "n:syntax:return_statement:48:65",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

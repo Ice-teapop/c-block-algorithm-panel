@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "caseId": "19-assert-termination",
+  "sourceSha256": "4b2150d92c595568dc869926badfd185acf75d8435e59987123df17bd36ec194",
+  "sourceLengthUtf16": 34,
+  "tags": ["assert", "terminate", "branch"],
+  "functions": [
+    {
+      "key": "fn:f:0:33",
+      "name": "f",
+      "range": [0, 33],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 33],
+          "ownerRange": [0, 33],
+          "reachable": true,
+          "text": "void f(int x) { assert(x); x--; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 33],
+          "ownerRange": [0, 33],
+          "reachable": true,
+          "text": "void f(int x) { assert(x); x--; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:16:26",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [16, 26],
+          "ownerRange": [16, 26],
+          "reachable": true,
+          "text": "assert(x);"
+        },
+        {
+          "key": "n:syntax:expression_statement:27:31",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [27, 31],
+          "ownerRange": [27, 31],
+          "reachable": true,
+          "text": "x--;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:expression_statement:16:26"
+        },
+        {
+          "from": "n:syntax:expression_statement:16:26",
+          "kind": "branch-false",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:expression_statement:16:26",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:27:31"
+        },
+        {
+          "from": "n:syntax:expression_statement:27:31",
+          "kind": "next",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

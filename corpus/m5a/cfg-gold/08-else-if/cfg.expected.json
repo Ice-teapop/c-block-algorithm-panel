@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "caseId": "08-else-if",
+  "sourceSha256": "b57f74883224e2bde0757346247b6c65a39675a97ef565bb34448ec1c6719680",
+  "sourceLengthUtf16": 78,
+  "tags": ["if", "else-if", "return"],
+  "functions": [
+    {
+      "key": "fn:f:0:77",
+      "name": "f",
+      "range": [0, 77],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 77],
+          "ownerRange": [0, 77],
+          "reachable": true,
+          "text": "int f(int x, int y) { if (x) return 1; else if (y) return 2; else return 3; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 77],
+          "ownerRange": [0, 77],
+          "reachable": true,
+          "text": "int f(int x, int y) { if (x) return 1; else if (y) return 2; else return 3; }"
+        },
+        {
+          "key": "n:syntax:if_statement:22:75",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [22, 75],
+          "ownerRange": [22, 75],
+          "reachable": true,
+          "text": "if (x) return 1; else if (y) return 2; else return 3;"
+        },
+        {
+          "key": "n:syntax:if_statement:44:75",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [44, 75],
+          "ownerRange": [44, 75],
+          "reachable": true,
+          "text": "if (y) return 2; else return 3;"
+        },
+        {
+          "key": "n:syntax:return_statement:29:38",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [29, 38],
+          "ownerRange": [29, 38],
+          "reachable": true,
+          "text": "return 1;"
+        },
+        {
+          "key": "n:syntax:return_statement:51:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [51, 60],
+          "ownerRange": [51, 60],
+          "reachable": true,
+          "text": "return 2;"
+        },
+        {
+          "key": "n:syntax:return_statement:66:75",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [66, 75],
+          "ownerRange": [66, 75],
+          "reachable": true,
+          "text": "return 3;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:if_statement:22:75"
+        },
+        {
+          "from": "n:syntax:if_statement:22:75",
+          "kind": "branch-false",
+          "to": "n:syntax:if_statement:44:75"
+        },
+        {
+          "from": "n:syntax:if_statement:22:75",
+          "kind": "branch-true",
+          "to": "n:syntax:return_statement:29:38"
+        },
+        {
+          "from": "n:syntax:if_statement:44:75",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:66:75"
+        },
+        {
+          "from": "n:syntax:if_statement:44:75",
+          "kind": "branch-true",
+          "to": "n:syntax:return_statement:51:60"
+        },
+        {
+          "from": "n:syntax:return_statement:29:38",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:return_statement:51:60",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:return_statement:66:75",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

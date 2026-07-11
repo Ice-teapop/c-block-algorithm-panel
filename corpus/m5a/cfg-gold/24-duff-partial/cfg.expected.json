@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "caseId": "24-duff-partial",
+  "sourceSha256": "2566bda07944a04848629e26416e54a2455f09a2eb1e23a875a749ac89b4b451",
+  "sourceLengthUtf16": 77,
+  "tags": ["switch", "duff-style", "partial"],
+  "functions": [
+    {
+      "key": "fn:f:0:76",
+      "name": "f",
+      "range": [0, 76],
+      "partial": true,
+      "partialReasons": [
+        {
+          "code": "unsupported-control-flow",
+          "nodeType": "case_statement",
+          "range": [48, 60],
+          "text": "case 2: x--;"
+        }
+      ],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 76],
+          "ownerRange": [0, 76],
+          "reachable": true,
+          "text": "int f(int x) { switch (x) { case 1: while (x) { case 2: x--; } } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 76],
+          "ownerRange": [0, 76],
+          "reachable": true,
+          "text": "int f(int x) { switch (x) { case 1: while (x) { case 2: x--; } } return x; }"
+        },
+        {
+          "key": "n:syntax:case_statement:28:62",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [28, 62],
+          "ownerRange": [28, 62],
+          "reachable": false,
+          "text": "case 1: while (x) { case 2: x--; }"
+        },
+        {
+          "key": "n:syntax:case_statement:48:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [48, 60],
+          "ownerRange": [48, 60],
+          "reachable": false,
+          "text": "case 2: x--;"
+        },
+        {
+          "key": "n:syntax:expression_statement:56:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [56, 60],
+          "ownerRange": [56, 60],
+          "reachable": false,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:65:74",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [65, 74],
+          "ownerRange": [65, 74],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:switch_statement:15:64",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "switch_statement",
+          "range": [15, 64],
+          "ownerRange": [15, 64],
+          "reachable": true,
+          "text": "switch (x) { case 1: while (x) { case 2: x--; } }"
+        },
+        {
+          "key": "n:syntax:while_statement:36:62",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [36, 62],
+          "ownerRange": [36, 62],
+          "reachable": false,
+          "text": "while (x) { case 2: x--; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:switch_statement:15:64"
+        },
+        {
+          "from": "n:syntax:return_statement:65:74",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:switch_statement:15:64",
+          "kind": "next",
+          "to": "n:syntax:return_statement:65:74"
+        }
+      ]
+    }
+  ]
+}

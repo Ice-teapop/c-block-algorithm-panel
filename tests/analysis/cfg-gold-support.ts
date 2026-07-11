@@ -113,12 +113,25 @@ const EDGE_KINDS = new Set<CfgEdgeKind>([
   "terminate",
 ]);
 const PARTIAL_CODES = new Set<CfgPartialReasonCode>([
-  "missing-function-body",
   "parse-error",
   "unsupported-control-flow",
   "unsupported-syntax",
 ]);
 const FINDING_CONFIDENCE = new Set<GoldFinding["confidence"]>(["certain", "likely", "hint"]);
+const EVIDENCE_ROLES = new Set([
+  "allocation",
+  "bound",
+  "condition",
+  "definition",
+  "escape",
+  "exit",
+  "free",
+  "index",
+  "path",
+  "state",
+  "unreachable",
+  "use",
+]);
 
 export function loadCfgGoldCorpus(root: string): CfgGoldCorpus {
   const entries = readdirSync(root, { withFileTypes: true });
@@ -130,11 +143,11 @@ export function loadCfgGoldCorpus(root: string): CfgGoldCorpus {
     .map((entry) => entry.name)
     .sort();
   assertStringArrayEqual(directories, [...manifest.fixtures].sort(), "manifest fixtures 与目录");
-  const unexpectedFiles = entries
-    .filter((entry) => entry.isFile() && entry.name !== "manifest.json")
+  const unexpectedEntries = entries
+    .filter((entry) => !entry.isDirectory() && !(entry.isFile() && entry.name === "manifest.json"))
     .map((entry) => entry.name);
-  if (unexpectedFiles.length > 0) {
-    throw new Error(`CFG gold corpus 存在未登记文件：${unexpectedFiles.join(", ")}`);
+  if (unexpectedEntries.length > 0) {
+    throw new Error(`CFG gold corpus 存在未登记条目：${unexpectedEntries.join(", ")}`);
   }
 
   const cases = manifest.fixtures.map((fixtureName) => loadCase(root, fixtureName));
@@ -409,17 +422,41 @@ function parseNode(
   const boundaryKey = kind === "entry" ? "entry" : kind === "exit" ? "exit" : null;
   const expectedKey = boundaryKey ?? goldNodeKey(kind, nodeType, range);
   if (key !== expectedKey) throw new TypeError(`${path}.key 与 kind/nodeType/range 不一致`);
-  if (boundaryKey === null) {
-    if (ownership === "boundary" || role === "boundary") {
-      throw new TypeError(`${path}: 非边界节点不得声明 boundary`);
+  if (boundaryKey !== null) {
+    if (
+      ownership !== "boundary" ||
+      role !== "boundary" ||
+      nodeType !== "function_definition" ||
+      rangeKey(range) !== rangeKey(functionRange) ||
+      rangeKey(ownerRange) !== rangeKey(functionRange)
+    ) {
+      throw new TypeError(`${path}: entry/exit 必须覆盖函数范围并声明 boundary`);
     }
-  } else if (
-    ownership !== "boundary" ||
-    role !== "boundary" ||
-    rangeKey(range) !== rangeKey(functionRange) ||
-    rangeKey(ownerRange) !== rangeKey(functionRange)
-  ) {
-    throw new TypeError(`${path}: entry/exit 必须覆盖函数范围并声明 boundary`);
+  } else if (kind === "syntax") {
+    if (
+      (role !== "statement" && role !== "declaration") ||
+      ownership !== "primary" ||
+      nodeType === null ||
+      rangeKey(ownerRange) !== rangeKey(range)
+    ) {
+      throw new TypeError(`${path}: syntax 必须是拥有自身 range 的 primary 语句或声明`);
+    }
+  } else if (kind === "control") {
+    const expectedOwnership =
+      nodeType === "do_condition"
+        ? "primary"
+        : nodeType === "for_initializer" || nodeType === "for_update"
+          ? "auxiliary"
+          : null;
+    if (
+      role !== "control" ||
+      ownership !== expectedOwnership ||
+      !containsGoldRange(ownerRange, range)
+    ) {
+      throw new TypeError(`${path}: control 的类型、ownership 或 ownerRange 非法`);
+    }
+  } else {
+    throw new TypeError(`${path}: 非法的非边界 kind`);
   }
   return Object.freeze({
     key,
@@ -511,13 +548,17 @@ function parseFinding(
     functionGold.range,
   );
   const ownerNode = nonEmptyString(record.ownerNode, `${path}.ownerNode`);
-  if (!functionGold.nodes.some((node) => node.key === ownerNode)) {
-    throw new TypeError(`${path}.ownerNode 不存在`);
+  const owner = functionGold.nodes.find((node) => node.key === ownerNode);
+  if (owner === undefined || owner.ownership !== "primary") {
+    throw new TypeError(`${path}.ownerNode 必须是 primary 节点`);
+  }
+  if (!containsGoldRange(owner.range, primaryRange)) {
+    throw new TypeError(`${path}.primaryRange 必须落在 ownerNode.range 内`);
   }
   const evidence = unknownArray(record.evidence, `${path}.evidence`).map((entry, index) => {
     const evidenceRecord = exactRecord(entry, ["role", "range"], `${path}.evidence[${index}]`);
     return Object.freeze({
-      role: nonEmptyString(evidenceRecord.role, `${path}.evidence[${index}].role`),
+      role: enumString(evidenceRecord.role, EVIDENCE_ROLES, `${path}.evidence[${index}].role`),
       range: nestedSourceRange(
         evidenceRecord.range,
         `${path}.evidence[${index}].range`,
@@ -526,6 +567,11 @@ function parseFinding(
       ),
     });
   });
+  if (evidence.length === 0) throw new TypeError(`${path}.evidence 不得为空`);
+  ensureUnique(
+    evidence.map((entry) => `${entry.role}\u0000${rangeKey(entry.range)}`),
+    `${path}.evidence`,
+  );
   return Object.freeze({
     function: functionKey,
     ruleId: nonEmptyString(record.ruleId, `${path}.ruleId`),
@@ -596,6 +642,10 @@ function nestedSourceRange(
   const range = sourceRange(value, path, source);
   if (range[0] < parent[0] || range[1] > parent[1]) throw new RangeError(`${path} 超出函数范围`);
   return range;
+}
+
+function containsGoldRange(parent: GoldRange, child: GoldRange): boolean {
+  return child[0] >= parent[0] && child[1] <= parent[1];
 }
 
 function parseRange(value: unknown, path: string): GoldRange {

@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "caseId": "17-for-header-assert",
+  "sourceSha256": "ef43111ec482eef4ade1de5072175484c85a75843737fe828483b2840d55e631",
+  "sourceLengthUtf16": 61,
+  "tags": ["for", "assert", "header-phase"],
+  "functions": [
+    {
+      "key": "fn:f:0:60",
+      "name": "f",
+      "range": [0, 60],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 60],
+          "ownerRange": [0, 60],
+          "reachable": true,
+          "text": "void f(int x) { for (assert(x > 0); x; assert(x > 1)) x--; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 60],
+          "ownerRange": [0, 60],
+          "reachable": true,
+          "text": "void f(int x) { for (assert(x > 0); x; assert(x > 1)) x--; }"
+        },
+        {
+          "key": "n:control:for_initializer:21:34",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [21, 34],
+          "ownerRange": [16, 58],
+          "reachable": true,
+          "text": "assert(x > 0)"
+        },
+        {
+          "key": "n:control:for_update:39:52",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [39, 52],
+          "ownerRange": [16, 58],
+          "reachable": true,
+          "text": "assert(x > 1)"
+        },
+        {
+          "key": "n:syntax:expression_statement:54:58",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [54, 58],
+          "ownerRange": [54, 58],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:for_statement:16:58",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [16, 58],
+          "ownerRange": [16, 58],
+          "reachable": true,
+          "text": "for (assert(x > 0); x; assert(x > 1)) x--;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:control:for_initializer:21:34"
+        },
+        {
+          "from": "n:control:for_initializer:21:34",
+          "kind": "branch-false",
+          "to": "exit"
+        },
+        {
+          "from": "n:control:for_initializer:21:34",
+          "kind": "branch-true",
+          "to": "n:syntax:for_statement:16:58"
+        },
+        {
+          "from": "n:control:for_update:39:52",
+          "kind": "branch-false",
+          "to": "exit"
+        },
+        {
+          "from": "n:control:for_update:39:52",
+          "kind": "branch-true",
+          "to": "n:syntax:for_statement:16:58"
+        },
+        {
+          "from": "n:syntax:expression_statement:54:58",
+          "kind": "next",
+          "to": "n:control:for_update:39:52"
+        },
+        {
+          "from": "n:syntax:for_statement:16:58",
+          "kind": "branch-false",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:for_statement:16:58",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:54:58"
+        }
+      ]
+    }
+  ]
+}

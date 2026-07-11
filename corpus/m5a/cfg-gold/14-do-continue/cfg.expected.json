@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "caseId": "14-do-continue",
+  "sourceSha256": "dfbc2b513d21c3c755d50e5b44db32f0860e2b7286f3539f8f8ed1c207e86c3d",
+  "sourceLengthUtf16": 64,
+  "tags": ["do", "continue", "bottom-condition"],
+  "functions": [
+    {
+      "key": "fn:f:0:63",
+      "name": "f",
+      "range": [0, 63],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 63],
+          "ownerRange": [0, 63],
+          "reachable": true,
+          "text": "int f(int x) { do { x--; continue; } while (x > 0); return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 63],
+          "ownerRange": [0, 63],
+          "reachable": true,
+          "text": "int f(int x) { do { x--; continue; } while (x > 0); return x; }"
+        },
+        {
+          "key": "n:control:do_condition:43:50",
+          "kind": "control",
+          "role": "control",
+          "ownership": "primary",
+          "nodeType": "do_condition",
+          "range": [43, 50],
+          "ownerRange": [15, 51],
+          "reachable": true,
+          "text": "(x > 0)"
+        },
+        {
+          "key": "n:syntax:continue_statement:25:34",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "continue_statement",
+          "range": [25, 34],
+          "ownerRange": [25, 34],
+          "reachable": true,
+          "text": "continue;"
+        },
+        {
+          "key": "n:syntax:expression_statement:20:24",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [20, 24],
+          "ownerRange": [20, 24],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:52:61",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [52, 61],
+          "ownerRange": [52, 61],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:expression_statement:20:24"
+        },
+        {
+          "from": "n:control:do_condition:43:50",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:52:61"
+        },
+        {
+          "from": "n:control:do_condition:43:50",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:20:24"
+        },
+        {
+          "from": "n:syntax:continue_statement:25:34",
+          "kind": "continue",
+          "to": "n:control:do_condition:43:50"
+        },
+        {
+          "from": "n:syntax:expression_statement:20:24",
+          "kind": "next",
+          "to": "n:syntax:continue_statement:25:34"
+        },
+        {
+          "from": "n:syntax:return_statement:52:61",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

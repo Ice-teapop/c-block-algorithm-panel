@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "caseId": "20-direct-indirect-termination",
+  "sourceSha256": "17fac1ec28db0065b677625f80b9163f0b95c3735f1cd194e182939923b95428",
+  "sourceLengthUtf16": 108,
+  "tags": ["terminate", "direct-call", "indirect-call", "unreachable", "multi-function"],
+  "functions": [
+    {
+      "key": "fn:direct_stop:0:44",
+      "name": "direct_stop",
+      "range": [0, 44],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 44],
+          "ownerRange": [0, 44],
+          "reachable": true,
+          "text": "void direct_stop(void) { exit(1); abort(); }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 44],
+          "ownerRange": [0, 44],
+          "reachable": true,
+          "text": "void direct_stop(void) { exit(1); abort(); }"
+        },
+        {
+          "key": "n:syntax:expression_statement:25:33",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [25, 33],
+          "ownerRange": [25, 33],
+          "reachable": true,
+          "text": "exit(1);"
+        },
+        {
+          "key": "n:syntax:expression_statement:34:42",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [34, 42],
+          "ownerRange": [34, 42],
+          "reachable": false,
+          "text": "abort();"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:expression_statement:25:33"
+        },
+        {
+          "from": "n:syntax:expression_statement:25:33",
+          "kind": "terminate",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:expression_statement:34:42",
+          "kind": "terminate",
+          "to": "exit"
+        }
+      ]
+    },
+    {
+      "key": "fn:indirect_calls:45:107",
+      "name": "indirect_calls",
+      "range": [45, 107],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [45, 107],
+          "ownerRange": [45, 107],
+          "reachable": true,
+          "text": "void indirect_calls(void) { (exit)(1); foo(exit(1)); return; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [45, 107],
+          "ownerRange": [45, 107],
+          "reachable": true,
+          "text": "void indirect_calls(void) { (exit)(1); foo(exit(1)); return; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:73:83",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [73, 83],
+          "ownerRange": [73, 83],
+          "reachable": true,
+          "text": "(exit)(1);"
+        },
+        {
+          "key": "n:syntax:expression_statement:84:97",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [84, 97],
+          "ownerRange": [84, 97],
+          "reachable": true,
+          "text": "foo(exit(1));"
+        },
+        {
+          "key": "n:syntax:return_statement:98:105",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [98, 105],
+          "ownerRange": [98, 105],
+          "reachable": true,
+          "text": "return;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:expression_statement:73:83"
+        },
+        {
+          "from": "n:syntax:expression_statement:73:83",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:84:97"
+        },
+        {
+          "from": "n:syntax:expression_statement:84:97",
+          "kind": "next",
+          "to": "n:syntax:return_statement:98:105"
+        },
+        {
+          "from": "n:syntax:return_statement:98:105",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

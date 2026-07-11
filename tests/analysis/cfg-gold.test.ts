@@ -1,6 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { analyzeProgramCst, type FunctionCfg } from "../../src/analysis/index.js";
+import {
+  analyzeProgramCst,
+  type CfgEdgeKind,
+  type CfgPartialReasonCode,
+  type FunctionCfg,
+} from "../../src/analysis/index.js";
 import { type Block, type CParser, type TextRange } from "../../src/core/index.js";
 import { createTestParser } from "../core/parser-fixture.js";
 import {
@@ -14,6 +19,33 @@ import {
 
 const GOLD_ROOT = fileURLToPath(new URL("../../corpus/m5a/cfg-gold/", import.meta.url));
 const corpus = loadCfgGoldCorpus(GOLD_ROOT);
+const REQUIRED_EDGE_KIND_MAP = {
+  entry: true,
+  next: true,
+  "branch-true": true,
+  "branch-false": true,
+  "switch-case": true,
+  "switch-default": true,
+  "switch-miss": true,
+  break: true,
+  continue: true,
+  goto: true,
+  return: true,
+  terminate: true,
+} as const satisfies Readonly<Record<CfgEdgeKind, true>>;
+const REQUIRED_EDGE_KINDS = Object.keys(REQUIRED_EDGE_KIND_MAP) as CfgEdgeKind[];
+const PARTIAL_REASON_COVERAGE = {
+  "parse-error": "foundation",
+  "unsupported-control-flow": "gold",
+  "unsupported-syntax": "gold",
+} as const satisfies Readonly<Record<CfgPartialReasonCode, "foundation" | "gold">>;
+const REQUIRED_GOLD_PARTIAL_REASONS = (
+  Object.entries(PARTIAL_REASON_COVERAGE) as Array<
+    [CfgPartialReasonCode, (typeof PARTIAL_REASON_COVERAGE)[CfgPartialReasonCode]]
+  >
+)
+  .filter(([, suite]) => suite === "gold")
+  .map(([reason]) => reason);
 
 describe("M5a CFG gold corpus contract", () => {
   let parser: CParser;
@@ -26,12 +58,43 @@ describe("M5a CFG gold corpus contract", () => {
     parser.dispose();
   });
 
-  it("pins a unique seed corpus through the manifest", () => {
+  it("pins a unique 30–50 function corpus through the manifest", () => {
     expect(corpus.cases).toHaveLength(corpus.manifest.expectedFixtureCount);
     expect(
       corpus.cases.reduce((count, fixture) => count + fixture.expected.functions.length, 0),
     ).toBe(corpus.manifest.expectedFunctionCount);
-    expect(corpus.manifest.expectedFixtureCount).toBeGreaterThanOrEqual(4);
+    expect(corpus.manifest.expectedFunctionCount).toBeGreaterThanOrEqual(30);
+    expect(corpus.manifest.expectedFunctionCount).toBeLessThanOrEqual(50);
+  });
+
+  it("derives the required CFG coverage from gold structure", () => {
+    const functions = corpus.cases.flatMap((fixture) => fixture.expected.functions);
+    const nodes = functions.flatMap((cfg) => cfg.nodes);
+    const edges = functions.flatMap((cfg) => cfg.edges);
+    const partialReasonCodes = [
+      ...new Set(functions.flatMap((cfg) => cfg.partialReasons.map((reason) => reason.code))),
+    ].sort();
+    const edgeKinds = [...new Set(edges.map((edge) => edge.kind))].sort();
+    expect(edgeKinds).toEqual([...REQUIRED_EDGE_KINDS].sort());
+    expect(partialReasonCodes).toEqual([...REQUIRED_GOLD_PARTIAL_REASONS].sort());
+    expect(functions.some((cfg) => cfg.partial)).toBe(true);
+    expect(nodes.some((node) => !node.reachable)).toBe(true);
+    expect(nodes.some((node) => node.ownership === "auxiliary")).toBe(true);
+    expect(nodes.some((node) => node.kind === "control" && node.ownership === "primary")).toBe(
+      true,
+    );
+    expect(edges.some((edge) => edge.kind === "switch-miss")).toBe(true);
+    expect(
+      functions.some((cfg) => {
+        const nonBoundary = cfg.nodes.filter((node) => node.ownership !== "boundary");
+        return nonBoundary.some(
+          (node, index) =>
+            nonBoundary.findIndex(
+              (candidate) => candidate.text === node.text && candidate.key !== node.key,
+            ) > index,
+        );
+      }),
+    ).toBe(true);
   });
 
   it.each(corpus.cases)(

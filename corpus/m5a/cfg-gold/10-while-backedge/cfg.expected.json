@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "caseId": "10-while-backedge",
+  "sourceSha256": "fcb60270f324b67ac4cc1a607f4c418f7e93c8645c91328d04ed43f8b916306b",
+  "sourceLengthUtf16": 42,
+  "tags": ["while", "back-edge"],
+  "functions": [
+    {
+      "key": "fn:f:0:41",
+      "name": "f",
+      "range": [0, 41],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 41],
+          "ownerRange": [0, 41],
+          "reachable": true,
+          "text": "int f(int x) { while (x) x--; return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 41],
+          "ownerRange": [0, 41],
+          "reachable": true,
+          "text": "int f(int x) { while (x) x--; return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:25:29",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [25, 29],
+          "ownerRange": [25, 29],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:30:39",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [30, 39],
+          "ownerRange": [30, 39],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:while_statement:15:29",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [15, 29],
+          "ownerRange": [15, 29],
+          "reachable": true,
+          "text": "while (x) x--;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:while_statement:15:29"
+        },
+        {
+          "from": "n:syntax:expression_statement:25:29",
+          "kind": "next",
+          "to": "n:syntax:while_statement:15:29"
+        },
+        {
+          "from": "n:syntax:return_statement:30:39",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:while_statement:15:29",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:30:39"
+        },
+        {
+          "from": "n:syntax:while_statement:15:29",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:25:29"
+        }
+      ]
+    }
+  ]
+}

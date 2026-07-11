@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "caseId": "12-nested-loop-break",
+  "sourceSha256": "c0793ecb6d6099554e7ebc8aa289bdcc20e08e88193f2f1ac7720a1b2f81ed29",
+  "sourceLengthUtf16": 92,
+  "tags": ["while", "nested-loop", "break", "duplicate-text"],
+  "functions": [
+    {
+      "key": "fn:f:0:91",
+      "name": "f",
+      "range": [0, 91],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 91],
+          "ownerRange": [0, 91],
+          "reachable": true,
+          "text": "int f(int x, int y) { while (x) { while (y) { break; } if (x < 0) break; x--; } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 91],
+          "ownerRange": [0, 91],
+          "reachable": true,
+          "text": "int f(int x, int y) { while (x) { while (y) { break; } if (x < 0) break; x--; } return x; }"
+        },
+        {
+          "key": "n:syntax:break_statement:46:52",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "break_statement",
+          "range": [46, 52],
+          "ownerRange": [46, 52],
+          "reachable": true,
+          "text": "break;"
+        },
+        {
+          "key": "n:syntax:break_statement:66:72",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "break_statement",
+          "range": [66, 72],
+          "ownerRange": [66, 72],
+          "reachable": true,
+          "text": "break;"
+        },
+        {
+          "key": "n:syntax:expression_statement:73:77",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [73, 77],
+          "ownerRange": [73, 77],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:if_statement:55:72",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [55, 72],
+          "ownerRange": [55, 72],
+          "reachable": true,
+          "text": "if (x < 0) break;"
+        },
+        {
+          "key": "n:syntax:return_statement:80:89",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [80, 89],
+          "ownerRange": [80, 89],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:while_statement:22:79",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [22, 79],
+          "ownerRange": [22, 79],
+          "reachable": true,
+          "text": "while (x) { while (y) { break; } if (x < 0) break; x--; }"
+        },
+        {
+          "key": "n:syntax:while_statement:34:54",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [34, 54],
+          "ownerRange": [34, 54],
+          "reachable": true,
+          "text": "while (y) { break; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:while_statement:22:79"
+        },
+        {
+          "from": "n:syntax:break_statement:46:52",
+          "kind": "break",
+          "to": "n:syntax:if_statement:55:72"
+        },
+        {
+          "from": "n:syntax:break_statement:66:72",
+          "kind": "break",
+          "to": "n:syntax:return_statement:80:89"
+        },
+        {
+          "from": "n:syntax:expression_statement:73:77",
+          "kind": "next",
+          "to": "n:syntax:while_statement:22:79"
+        },
+        {
+          "from": "n:syntax:if_statement:55:72",
+          "kind": "branch-false",
+          "to": "n:syntax:expression_statement:73:77"
+        },
+        {
+          "from": "n:syntax:if_statement:55:72",
+          "kind": "branch-true",
+          "to": "n:syntax:break_statement:66:72"
+        },
+        {
+          "from": "n:syntax:return_statement:80:89",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:while_statement:22:79",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:80:89"
+        },
+        {
+          "from": "n:syntax:while_statement:22:79",
+          "kind": "branch-true",
+          "to": "n:syntax:while_statement:34:54"
+        },
+        {
+          "from": "n:syntax:while_statement:34:54",
+          "kind": "branch-false",
+          "to": "n:syntax:if_statement:55:72"
+        },
+        {
+          "from": "n:syntax:while_statement:34:54",
+          "kind": "branch-true",
+          "to": "n:syntax:break_statement:46:52"
+        }
+      ]
+    }
+  ]
+}

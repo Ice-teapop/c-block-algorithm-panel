@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "caseId": "31-duplicate-text",
+  "sourceSha256": "3754ed0714a5a565f71135e7b2608f73b632469c1635c3ba0e0b43234bb7c629",
+  "sourceLengthUtf16": 54,
+  "tags": ["if", "duplicate-text", "range-key"],
+  "functions": [
+    {
+      "key": "fn:f:0:53",
+      "name": "f",
+      "range": [0, 53],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 53],
+          "ownerRange": [0, 53],
+          "reachable": true,
+          "text": "int f(int x) { if (x) x++; else x++; x++; return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 53],
+          "ownerRange": [0, 53],
+          "reachable": true,
+          "text": "int f(int x) { if (x) x++; else x++; x++; return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:22:26",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [22, 26],
+          "ownerRange": [22, 26],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:expression_statement:32:36",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [32, 36],
+          "ownerRange": [32, 36],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:expression_statement:37:41",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [37, 41],
+          "ownerRange": [37, 41],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:if_statement:15:36",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [15, 36],
+          "ownerRange": [15, 36],
+          "reachable": true,
+          "text": "if (x) x++; else x++;"
+        },
+        {
+          "key": "n:syntax:return_statement:42:51",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [42, 51],
+          "ownerRange": [42, 51],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:if_statement:15:36"
+        },
+        {
+          "from": "n:syntax:expression_statement:22:26",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:37:41"
+        },
+        {
+          "from": "n:syntax:expression_statement:32:36",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:37:41"
+        },
+        {
+          "from": "n:syntax:expression_statement:37:41",
+          "kind": "next",
+          "to": "n:syntax:return_statement:42:51"
+        },
+        {
+          "from": "n:syntax:if_statement:15:36",
+          "kind": "branch-false",
+          "to": "n:syntax:expression_statement:32:36"
+        },
+        {
+          "from": "n:syntax:if_statement:15:36",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:22:26"
+        },
+        {
+          "from": "n:syntax:return_statement:42:51",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

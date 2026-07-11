@@ -128,7 +128,7 @@ function buildFunctionCfg(
   if (functionNode.hasError) addPartial(context, "parse-error", functionNode);
   const body = functionNode.childForFieldName("body");
   if (body === null || body.type !== "compound_statement") {
-    addPartial(context, "missing-function-body", functionNode);
+    addPartial(context, "unsupported-syntax", functionNode);
     addEdge(context, entryId, exitId, "entry");
   } else {
     const first = buildSequence(body.namedChildren, exitId, context, NO_CONTROL_TARGETS);

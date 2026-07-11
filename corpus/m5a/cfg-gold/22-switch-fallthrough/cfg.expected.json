@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "caseId": "22-switch-fallthrough",
+  "sourceSha256": "ce5ee7458cb41af31d6d63edb2fcf1fd88c117d1c0f308d423269914e26f807c",
+  "sourceLengthUtf16": 75,
+  "tags": ["switch", "switch-no-default", "fallthrough", "break"],
+  "functions": [
+    {
+      "key": "fn:f:0:74",
+      "name": "f",
+      "range": [0, 74],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 74],
+          "ownerRange": [0, 74],
+          "reachable": true,
+          "text": "int f(int x) { switch (x) { case 1: x++; case 2: x--; break; } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 74],
+          "ownerRange": [0, 74],
+          "reachable": true,
+          "text": "int f(int x) { switch (x) { case 1: x++; case 2: x--; break; } return x; }"
+        },
+        {
+          "key": "n:syntax:break_statement:54:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "break_statement",
+          "range": [54, 60],
+          "ownerRange": [54, 60],
+          "reachable": true,
+          "text": "break;"
+        },
+        {
+          "key": "n:syntax:case_statement:28:40",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [28, 40],
+          "ownerRange": [28, 40],
+          "reachable": true,
+          "text": "case 1: x++;"
+        },
+        {
+          "key": "n:syntax:case_statement:41:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [41, 60],
+          "ownerRange": [41, 60],
+          "reachable": true,
+          "text": "case 2: x--; break;"
+        },
+        {
+          "key": "n:syntax:expression_statement:36:40",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [36, 40],
+          "ownerRange": [36, 40],
+          "reachable": true,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:expression_statement:49:53",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [49, 53],
+          "ownerRange": [49, 53],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:63:72",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [63, 72],
+          "ownerRange": [63, 72],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:switch_statement:15:62",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "switch_statement",
+          "range": [15, 62],
+          "ownerRange": [15, 62],
+          "reachable": true,
+          "text": "switch (x) { case 1: x++; case 2: x--; break; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:switch_statement:15:62"
+        },
+        {
+          "from": "n:syntax:break_statement:54:60",
+          "kind": "break",
+          "to": "n:syntax:return_statement:63:72"
+        },
+        {
+          "from": "n:syntax:case_statement:28:40",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:36:40"
+        },
+        {
+          "from": "n:syntax:case_statement:41:60",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:49:53"
+        },
+        {
+          "from": "n:syntax:expression_statement:36:40",
+          "kind": "next",
+          "to": "n:syntax:case_statement:41:60"
+        },
+        {
+          "from": "n:syntax:expression_statement:49:53",
+          "kind": "next",
+          "to": "n:syntax:break_statement:54:60"
+        },
+        {
+          "from": "n:syntax:return_statement:63:72",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:switch_statement:15:62",
+          "kind": "switch-case",
+          "to": "n:syntax:case_statement:28:40"
+        },
+        {
+          "from": "n:syntax:switch_statement:15:62",
+          "kind": "switch-case",
+          "to": "n:syntax:case_statement:41:60"
+        },
+        {
+          "from": "n:syntax:switch_statement:15:62",
+          "kind": "switch-miss",
+          "to": "n:syntax:return_statement:63:72"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "caseId": "11-while-continue-unreachable",
+  "sourceSha256": "e1881d2c2045eb7c3c223c9d0b9a7e78d8906249314fbe423d5ce51f00a128d6",
+  "sourceLengthUtf16": 63,
+  "tags": ["while", "continue", "unreachable"],
+  "functions": [
+    {
+      "key": "fn:f:0:62",
+      "name": "f",
+      "range": [0, 62],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 62],
+          "ownerRange": [0, 62],
+          "reachable": true,
+          "text": "int f(int x) { while (x) { x--; continue; x = 9; } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 62],
+          "ownerRange": [0, 62],
+          "reachable": true,
+          "text": "int f(int x) { while (x) { x--; continue; x = 9; } return x; }"
+        },
+        {
+          "key": "n:syntax:continue_statement:32:41",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "continue_statement",
+          "range": [32, 41],
+          "ownerRange": [32, 41],
+          "reachable": true,
+          "text": "continue;"
+        },
+        {
+          "key": "n:syntax:expression_statement:27:31",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [27, 31],
+          "ownerRange": [27, 31],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:expression_statement:42:48",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [42, 48],
+          "ownerRange": [42, 48],
+          "reachable": false,
+          "text": "x = 9;"
+        },
+        {
+          "key": "n:syntax:return_statement:51:60",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [51, 60],
+          "ownerRange": [51, 60],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:while_statement:15:50",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [15, 50],
+          "ownerRange": [15, 50],
+          "reachable": true,
+          "text": "while (x) { x--; continue; x = 9; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:while_statement:15:50"
+        },
+        {
+          "from": "n:syntax:continue_statement:32:41",
+          "kind": "continue",
+          "to": "n:syntax:while_statement:15:50"
+        },
+        {
+          "from": "n:syntax:expression_statement:27:31",
+          "kind": "next",
+          "to": "n:syntax:continue_statement:32:41"
+        },
+        {
+          "from": "n:syntax:expression_statement:42:48",
+          "kind": "next",
+          "to": "n:syntax:while_statement:15:50"
+        },
+        {
+          "from": "n:syntax:return_statement:51:60",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:while_statement:15:50",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:51:60"
+        },
+        {
+          "from": "n:syntax:while_statement:15:50",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:27:31"
+        }
+      ]
+    }
+  ]
+}

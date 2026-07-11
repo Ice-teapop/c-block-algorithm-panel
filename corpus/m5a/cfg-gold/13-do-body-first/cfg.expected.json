@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "caseId": "13-do-body-first",
+  "sourceSha256": "cbb7bff1d76275a9966479f77fe0fb6c9a3182153118c60844ef3a86586954c9",
+  "sourceLengthUtf16": 50,
+  "tags": ["do", "body-first", "loop"],
+  "functions": [
+    {
+      "key": "fn:f:0:49",
+      "name": "f",
+      "range": [0, 49],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 49],
+          "ownerRange": [0, 49],
+          "reachable": true,
+          "text": "int f(int x) { do x--; while (x > 0); return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 49],
+          "ownerRange": [0, 49],
+          "reachable": true,
+          "text": "int f(int x) { do x--; while (x > 0); return x; }"
+        },
+        {
+          "key": "n:control:do_condition:29:36",
+          "kind": "control",
+          "role": "control",
+          "ownership": "primary",
+          "nodeType": "do_condition",
+          "range": [29, 36],
+          "ownerRange": [15, 37],
+          "reachable": true,
+          "text": "(x > 0)"
+        },
+        {
+          "key": "n:syntax:expression_statement:18:22",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [18, 22],
+          "ownerRange": [18, 22],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:38:47",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [38, 47],
+          "ownerRange": [38, 47],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:expression_statement:18:22"
+        },
+        {
+          "from": "n:control:do_condition:29:36",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:38:47"
+        },
+        {
+          "from": "n:control:do_condition:29:36",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:18:22"
+        },
+        {
+          "from": "n:syntax:expression_statement:18:22",
+          "kind": "next",
+          "to": "n:control:do_condition:29:36"
+        },
+        {
+          "from": "n:syntax:return_statement:38:47",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

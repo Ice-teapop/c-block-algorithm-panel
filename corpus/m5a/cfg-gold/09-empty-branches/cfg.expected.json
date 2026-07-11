@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "caseId": "09-empty-branches",
+  "sourceSha256": "32ea168ba539e253d6f9244d209bd0ebd62170f21c0a9904cc850c1394e1d5c2",
+  "sourceLengthUtf16": 45,
+  "tags": ["if", "empty-branches", "parallel-typed-edges"],
+  "functions": [
+    {
+      "key": "fn:f:0:44",
+      "name": "f",
+      "range": [0, 44],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 44],
+          "ownerRange": [0, 44],
+          "reachable": true,
+          "text": "int f(int x) { if (x) {} else {} return 0; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 44],
+          "ownerRange": [0, 44],
+          "reachable": true,
+          "text": "int f(int x) { if (x) {} else {} return 0; }"
+        },
+        {
+          "key": "n:syntax:if_statement:15:32",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [15, 32],
+          "ownerRange": [15, 32],
+          "reachable": true,
+          "text": "if (x) {} else {}"
+        },
+        {
+          "key": "n:syntax:return_statement:33:42",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [33, 42],
+          "ownerRange": [33, 42],
+          "reachable": true,
+          "text": "return 0;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:if_statement:15:32"
+        },
+        {
+          "from": "n:syntax:if_statement:15:32",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:33:42"
+        },
+        {
+          "from": "n:syntax:if_statement:15:32",
+          "kind": "branch-true",
+          "to": "n:syntax:return_statement:33:42"
+        },
+        {
+          "from": "n:syntax:return_statement:33:42",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

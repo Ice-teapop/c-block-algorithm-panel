@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "caseId": "26-goto-forward",
+  "sourceSha256": "02a43c8971d0e8e533947f696a740286d9e99d6d6edb65458ff6da2cee112810",
+  "sourceLengthUtf16": 49,
+  "tags": ["goto", "forward-goto", "unreachable"],
+  "functions": [
+    {
+      "key": "fn:f:0:48",
+      "name": "f",
+      "range": [0, 48],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "int f(int x) { goto done; x++; done: return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "int f(int x) { goto done; x++; done: return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:26:30",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [26, 30],
+          "ownerRange": [26, 30],
+          "reachable": false,
+          "text": "x++;"
+        },
+        {
+          "key": "n:syntax:goto_statement:15:25",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "goto_statement",
+          "range": [15, 25],
+          "ownerRange": [15, 25],
+          "reachable": true,
+          "text": "goto done;"
+        },
+        {
+          "key": "n:syntax:labeled_statement:31:46",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "labeled_statement",
+          "range": [31, 46],
+          "ownerRange": [31, 46],
+          "reachable": true,
+          "text": "done: return x;"
+        },
+        {
+          "key": "n:syntax:return_statement:37:46",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [37, 46],
+          "ownerRange": [37, 46],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:goto_statement:15:25"
+        },
+        {
+          "from": "n:syntax:expression_statement:26:30",
+          "kind": "next",
+          "to": "n:syntax:labeled_statement:31:46"
+        },
+        {
+          "from": "n:syntax:goto_statement:15:25",
+          "kind": "goto",
+          "to": "n:syntax:labeled_statement:31:46"
+        },
+        {
+          "from": "n:syntax:labeled_statement:31:46",
+          "kind": "next",
+          "to": "n:syntax:return_statement:37:46"
+        },
+        {
+          "from": "n:syntax:return_statement:37:46",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

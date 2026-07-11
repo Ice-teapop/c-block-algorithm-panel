@@ -426,6 +426,18 @@ describe("M5a CFG foundation", () => {
     ]);
   });
 
+  it("fails closed with parse-error reasons for a malformed function", () => {
+    const source = "int f(int x) { if (x) return 1; else }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(true);
+    expect(cfg.partialReasons).toEqual([
+      expect.objectContaining({ code: "parse-error", nodeType: "function_definition" }),
+      expect.objectContaining({ code: "parse-error", nodeType: "ERROR" }),
+    ]);
+    expect(cfg.nodes.filter((node) => node.ownership === "primary")).toHaveLength(3);
+  });
+
   it("fails closed with an explicit partial reason for unsupported control flow", () => {
     const source = "int f(int x) { switch (x) { case 1: while (x) { case 2: x--; } } return x; }";
     const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>

@@ -37,7 +37,7 @@ export interface CfgEdge {
 }
 
 export type CfgPartialReasonCode =
-  "missing-function-body" | "parse-error" | "unsupported-control-flow" | "unsupported-syntax";
+  "parse-error" | "unsupported-control-flow" | "unsupported-syntax";
 
 export interface CfgPartialReason {
   readonly code: CfgPartialReasonCode;

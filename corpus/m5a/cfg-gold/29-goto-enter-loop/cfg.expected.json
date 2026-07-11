@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "caseId": "29-goto-enter-loop",
+  "sourceSha256": "c416eb8535afba2ce0cc2b801e987b811fad28efa09cabbc0634d2748369e6b6",
+  "sourceLengthUtf16": 67,
+  "tags": ["goto", "partial", "enter-loop"],
+  "functions": [
+    {
+      "key": "fn:f:0:66",
+      "name": "f",
+      "range": [0, 66],
+      "partial": true,
+      "partialReasons": [
+        {
+          "code": "unsupported-control-flow",
+          "nodeType": "goto_statement",
+          "range": [15, 27],
+          "text": "goto inside;"
+        }
+      ],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 66],
+          "ownerRange": [0, 66],
+          "reachable": true,
+          "text": "int f(int x) { goto inside; while (x) { inside: x--; } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 66],
+          "ownerRange": [0, 66],
+          "reachable": true,
+          "text": "int f(int x) { goto inside; while (x) { inside: x--; } return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:48:52",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [48, 52],
+          "ownerRange": [48, 52],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:goto_statement:15:27",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "goto_statement",
+          "range": [15, 27],
+          "ownerRange": [15, 27],
+          "reachable": true,
+          "text": "goto inside;"
+        },
+        {
+          "key": "n:syntax:labeled_statement:40:52",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "labeled_statement",
+          "range": [40, 52],
+          "ownerRange": [40, 52],
+          "reachable": true,
+          "text": "inside: x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:55:64",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [55, 64],
+          "ownerRange": [55, 64],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:while_statement:28:54",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [28, 54],
+          "ownerRange": [28, 54],
+          "reachable": true,
+          "text": "while (x) { inside: x--; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:goto_statement:15:27"
+        },
+        {
+          "from": "n:syntax:expression_statement:48:52",
+          "kind": "next",
+          "to": "n:syntax:while_statement:28:54"
+        },
+        {
+          "from": "n:syntax:goto_statement:15:27",
+          "kind": "goto",
+          "to": "n:syntax:labeled_statement:40:52"
+        },
+        {
+          "from": "n:syntax:labeled_statement:40:52",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:48:52"
+        },
+        {
+          "from": "n:syntax:return_statement:55:64",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:while_statement:28:54",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:55:64"
+        },
+        {
+          "from": "n:syntax:while_statement:28:54",
+          "kind": "branch-true",
+          "to": "n:syntax:labeled_statement:40:52"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "caseId": "28-goto-missing",
+  "sourceSha256": "ae6383ff285c97ff2da5af447adacece52914403dd837f628971837512bd4221",
+  "sourceLengthUtf16": 40,
+  "tags": ["goto", "missing-label", "partial", "unreachable"],
+  "functions": [
+    {
+      "key": "fn:f:0:39",
+      "name": "f",
+      "range": [0, 39],
+      "partial": true,
+      "partialReasons": [
+        {
+          "code": "unsupported-control-flow",
+          "nodeType": "goto_statement",
+          "range": [14, 27],
+          "text": "goto missing;"
+        }
+      ],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 39],
+          "ownerRange": [0, 39],
+          "reachable": true,
+          "text": "int f(void) { goto missing; return 0; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 39],
+          "ownerRange": [0, 39],
+          "reachable": false,
+          "text": "int f(void) { goto missing; return 0; }"
+        },
+        {
+          "key": "n:syntax:goto_statement:14:27",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "goto_statement",
+          "range": [14, 27],
+          "ownerRange": [14, 27],
+          "reachable": true,
+          "text": "goto missing;"
+        },
+        {
+          "key": "n:syntax:return_statement:28:37",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [28, 37],
+          "ownerRange": [28, 37],
+          "reachable": false,
+          "text": "return 0;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:goto_statement:14:27"
+        },
+        {
+          "from": "n:syntax:return_statement:28:37",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 `cfg-gold/` 中每个目录只允许包含：
 
-- `source.c`：恰好一个函数定义的 C 源码。
+- `source.c`：一个或多个独立验收的 C 函数定义。
 - `cfg.expected.json`：人工审阅的完整函数级节点、边集、partial 原因和显式 reachability。
 - `expected-findings.json`：同一源码的精确分析发现；CFG 切片先固定空结果，后续分析器接入后逐项精确比对。
 

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "caseId": "27-goto-backward",
+  "sourceSha256": "af4616086712eedf0410c6ad6bc870992bf24d9aa452b437c56ad23ea7e8c4eb",
+  "sourceLengthUtf16": 58,
+  "tags": ["goto", "backward-goto", "cycle"],
+  "functions": [
+    {
+      "key": "fn:f:0:57",
+      "name": "f",
+      "range": [0, 57],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 57],
+          "ownerRange": [0, 57],
+          "reachable": true,
+          "text": "int f(int x) { start: x--; if (x) goto start; return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 57],
+          "ownerRange": [0, 57],
+          "reachable": true,
+          "text": "int f(int x) { start: x--; if (x) goto start; return x; }"
+        },
+        {
+          "key": "n:syntax:expression_statement:22:26",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [22, 26],
+          "ownerRange": [22, 26],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:goto_statement:34:45",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "goto_statement",
+          "range": [34, 45],
+          "ownerRange": [34, 45],
+          "reachable": true,
+          "text": "goto start;"
+        },
+        {
+          "key": "n:syntax:if_statement:27:45",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "if_statement",
+          "range": [27, 45],
+          "ownerRange": [27, 45],
+          "reachable": true,
+          "text": "if (x) goto start;"
+        },
+        {
+          "key": "n:syntax:labeled_statement:15:26",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "labeled_statement",
+          "range": [15, 26],
+          "ownerRange": [15, 26],
+          "reachable": true,
+          "text": "start: x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:46:55",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [46, 55],
+          "ownerRange": [46, 55],
+          "reachable": true,
+          "text": "return x;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:labeled_statement:15:26"
+        },
+        {
+          "from": "n:syntax:expression_statement:22:26",
+          "kind": "next",
+          "to": "n:syntax:if_statement:27:45"
+        },
+        {
+          "from": "n:syntax:goto_statement:34:45",
+          "kind": "goto",
+          "to": "n:syntax:labeled_statement:15:26"
+        },
+        {
+          "from": "n:syntax:if_statement:27:45",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:46:55"
+        },
+        {
+          "from": "n:syntax:if_statement:27:45",
+          "kind": "branch-true",
+          "to": "n:syntax:goto_statement:34:45"
+        },
+        {
+          "from": "n:syntax:labeled_statement:15:26",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:22:26"
+        },
+        {
+          "from": "n:syntax:return_statement:46:55",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "caseId": "15-for-endless-break",
+  "sourceSha256": "55bf04c4fe7130c95445cb714ac432c410aea857ec39b40aa8c31dcdc52bef0d",
+  "sourceLengthUtf16": 46,
+  "tags": ["for", "endless", "break"],
+  "functions": [
+    {
+      "key": "fn:f:0:45",
+      "name": "f",
+      "range": [0, 45],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 45],
+          "ownerRange": [0, 45],
+          "reachable": true,
+          "text": "int f(void) { for (;;) { break; } return 0; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 45],
+          "ownerRange": [0, 45],
+          "reachable": true,
+          "text": "int f(void) { for (;;) { break; } return 0; }"
+        },
+        {
+          "key": "n:syntax:break_statement:25:31",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "break_statement",
+          "range": [25, 31],
+          "ownerRange": [25, 31],
+          "reachable": true,
+          "text": "break;"
+        },
+        {
+          "key": "n:syntax:for_statement:14:33",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [14, 33],
+          "ownerRange": [14, 33],
+          "reachable": true,
+          "text": "for (;;) { break; }"
+        },
+        {
+          "key": "n:syntax:return_statement:34:43",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [34, 43],
+          "ownerRange": [34, 43],
+          "reachable": true,
+          "text": "return 0;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:for_statement:14:33"
+        },
+        {
+          "from": "n:syntax:break_statement:25:31",
+          "kind": "break",
+          "to": "n:syntax:return_statement:34:43"
+        },
+        {
+          "from": "n:syntax:for_statement:14:33",
+          "kind": "branch-true",
+          "to": "n:syntax:break_statement:25:31"
+        },
+        {
+          "from": "n:syntax:return_statement:34:43",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

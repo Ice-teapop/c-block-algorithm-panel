@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "caseId": "25-loop-switch",
+  "sourceSha256": "0f6404b410e012b7f85cfe99f127a1a5642964631ebf98996343b4bad698ba34",
+  "sourceLengthUtf16": 100,
+  "tags": ["while", "switch", "break", "continue"],
+  "functions": [
+    {
+      "key": "fn:f:0:99",
+      "name": "f",
+      "range": [0, 99],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 99],
+          "ownerRange": [0, 99],
+          "reachable": true,
+          "text": "int f(int x) { while (x) { switch (x) { case 1: x--; break; default: continue; } x--; } return x; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 99],
+          "ownerRange": [0, 99],
+          "reachable": true,
+          "text": "int f(int x) { while (x) { switch (x) { case 1: x--; break; default: continue; } x--; } return x; }"
+        },
+        {
+          "key": "n:syntax:break_statement:53:59",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "break_statement",
+          "range": [53, 59],
+          "ownerRange": [53, 59],
+          "reachable": true,
+          "text": "break;"
+        },
+        {
+          "key": "n:syntax:case_statement:40:59",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [40, 59],
+          "ownerRange": [40, 59],
+          "reachable": true,
+          "text": "case 1: x--; break;"
+        },
+        {
+          "key": "n:syntax:case_statement:60:78",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [60, 78],
+          "ownerRange": [60, 78],
+          "reachable": true,
+          "text": "default: continue;"
+        },
+        {
+          "key": "n:syntax:continue_statement:69:78",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "continue_statement",
+          "range": [69, 78],
+          "ownerRange": [69, 78],
+          "reachable": true,
+          "text": "continue;"
+        },
+        {
+          "key": "n:syntax:expression_statement:48:52",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [48, 52],
+          "ownerRange": [48, 52],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:expression_statement:81:85",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [81, 85],
+          "ownerRange": [81, 85],
+          "reachable": true,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:return_statement:88:97",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [88, 97],
+          "ownerRange": [88, 97],
+          "reachable": true,
+          "text": "return x;"
+        },
+        {
+          "key": "n:syntax:switch_statement:27:80",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "switch_statement",
+          "range": [27, 80],
+          "ownerRange": [27, 80],
+          "reachable": true,
+          "text": "switch (x) { case 1: x--; break; default: continue; }"
+        },
+        {
+          "key": "n:syntax:while_statement:15:87",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "while_statement",
+          "range": [15, 87],
+          "ownerRange": [15, 87],
+          "reachable": true,
+          "text": "while (x) { switch (x) { case 1: x--; break; default: continue; } x--; }"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:while_statement:15:87"
+        },
+        {
+          "from": "n:syntax:break_statement:53:59",
+          "kind": "break",
+          "to": "n:syntax:expression_statement:81:85"
+        },
+        {
+          "from": "n:syntax:case_statement:40:59",
+          "kind": "next",
+          "to": "n:syntax:expression_statement:48:52"
+        },
+        {
+          "from": "n:syntax:case_statement:60:78",
+          "kind": "next",
+          "to": "n:syntax:continue_statement:69:78"
+        },
+        {
+          "from": "n:syntax:continue_statement:69:78",
+          "kind": "continue",
+          "to": "n:syntax:while_statement:15:87"
+        },
+        {
+          "from": "n:syntax:expression_statement:48:52",
+          "kind": "next",
+          "to": "n:syntax:break_statement:53:59"
+        },
+        {
+          "from": "n:syntax:expression_statement:81:85",
+          "kind": "next",
+          "to": "n:syntax:while_statement:15:87"
+        },
+        {
+          "from": "n:syntax:return_statement:88:97",
+          "kind": "return",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:switch_statement:27:80",
+          "kind": "switch-case",
+          "to": "n:syntax:case_statement:40:59"
+        },
+        {
+          "from": "n:syntax:switch_statement:27:80",
+          "kind": "switch-default",
+          "to": "n:syntax:case_statement:60:78"
+        },
+        {
+          "from": "n:syntax:while_statement:15:87",
+          "kind": "branch-false",
+          "to": "n:syntax:return_statement:88:97"
+        },
+        {
+          "from": "n:syntax:while_statement:15:87",
+          "kind": "branch-true",
+          "to": "n:syntax:switch_statement:27:80"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "caseId": "18-for-header-termination",
+  "sourceSha256": "b5d500f92f5f416e8830713b1a90c904a8f078b63e2cc41a071d28a881f86f46",
+  "sourceLengthUtf16": 49,
+  "tags": ["for", "terminate", "header-phase", "exit", "abort"],
+  "functions": [
+    {
+      "key": "fn:f:0:48",
+      "name": "f",
+      "range": [0, 48],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "void f(int x) { for (exit(1); x; abort()) x--; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "void f(int x) { for (exit(1); x; abort()) x--; }"
+        },
+        {
+          "key": "n:control:for_initializer:21:28",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_initializer",
+          "range": [21, 28],
+          "ownerRange": [16, 46],
+          "reachable": true,
+          "text": "exit(1)"
+        },
+        {
+          "key": "n:control:for_update:33:40",
+          "kind": "control",
+          "role": "control",
+          "ownership": "auxiliary",
+          "nodeType": "for_update",
+          "range": [33, 40],
+          "ownerRange": [16, 46],
+          "reachable": false,
+          "text": "abort()"
+        },
+        {
+          "key": "n:syntax:expression_statement:42:46",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "expression_statement",
+          "range": [42, 46],
+          "ownerRange": [42, 46],
+          "reachable": false,
+          "text": "x--;"
+        },
+        {
+          "key": "n:syntax:for_statement:16:46",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "for_statement",
+          "range": [16, 46],
+          "ownerRange": [16, 46],
+          "reachable": false,
+          "text": "for (exit(1); x; abort()) x--;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:control:for_initializer:21:28"
+        },
+        {
+          "from": "n:control:for_initializer:21:28",
+          "kind": "terminate",
+          "to": "exit"
+        },
+        {
+          "from": "n:control:for_update:33:40",
+          "kind": "terminate",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:expression_statement:42:46",
+          "kind": "next",
+          "to": "n:control:for_update:33:40"
+        },
+        {
+          "from": "n:syntax:for_statement:16:46",
+          "kind": "branch-false",
+          "to": "exit"
+        },
+        {
+          "from": "n:syntax:for_statement:16:46",
+          "kind": "branch-true",
+          "to": "n:syntax:expression_statement:42:46"
+        }
+      ]
+    }
+  ]
+}

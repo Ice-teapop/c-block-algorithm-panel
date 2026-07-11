@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "caseId": "33-case-outside-switch",
+  "sourceSha256": "be19e9ca94401a1edaaad1d29105a1b1cdf444bf7124b93e5faa0bc2e9e16082",
+  "sourceLengthUtf16": 34,
+  "tags": ["unsupported-syntax", "partial", "case"],
+  "functions": [
+    {
+      "key": "fn:f:0:33",
+      "name": "f",
+      "range": [0, 33],
+      "partial": true,
+      "partialReasons": [
+        {
+          "code": "unsupported-syntax",
+          "nodeType": "case_statement",
+          "range": [14, 31],
+          "text": "case 1: return 1;"
+        }
+      ],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 33],
+          "ownerRange": [0, 33],
+          "reachable": true,
+          "text": "int f(void) { case 1: return 1; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 33],
+          "ownerRange": [0, 33],
+          "reachable": true,
+          "text": "int f(void) { case 1: return 1; }"
+        },
+        {
+          "key": "n:syntax:case_statement:14:31",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "case_statement",
+          "range": [14, 31],
+          "ownerRange": [14, 31],
+          "reachable": true,
+          "text": "case 1: return 1;"
+        },
+        {
+          "key": "n:syntax:return_statement:22:31",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [22, 31],
+          "ownerRange": [22, 31],
+          "reachable": false,
+          "text": "return 1;"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:case_statement:14:31"
+        },
+        {
+          "from": "n:syntax:case_statement:14:31",
+          "kind": "next",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}
