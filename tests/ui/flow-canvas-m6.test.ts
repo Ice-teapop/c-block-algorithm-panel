@@ -10,11 +10,16 @@ import {
 } from "../../src/flow/index.js";
 import {
   alignFlowCanvasPositions,
+  canonicalizeFlowCanvasWireEndpoints,
   createFlowCanvasDraftConnectionIntent,
   createFlowWirePath,
+  distanceToFlowWire,
+  exceedsFlowCanvasDragThreshold,
+  fitFlowCanvasViewport,
   normalizeFlowCanvasDraftState,
   normalizeFlowCanvasViewState,
   type FlowCanvasDraftNode,
+  type FlowCanvasWireEndpoint,
 } from "../../src/ui/flow-canvas.js";
 
 describe("M6 flow canvas contracts", () => {
@@ -72,6 +77,77 @@ describe("M6 flow canvas contracts", () => {
       "M 10 20 C 100 20, 120 120, 210 120",
     );
     expect(() => createFlowWirePath({ x: Number.NaN, y: 0 }, { x: 1, y: 1 })).toThrow(/有限坐标/u);
+  });
+
+  it("uses the visible cubic geometry for edge insertion hit testing", () => {
+    const from = { x: 10, y: 20 };
+    const to = { x: 210, y: 120 };
+    expect(distanceToFlowWire({ x: 110, y: 70 }, from, to)).toBeLessThan(8);
+    expect(distanceToFlowWire({ x: 110, y: 220 }, from, to)).toBeGreaterThan(100);
+  });
+
+  it("keeps a click stable until pointer movement exceeds four pixels", () => {
+    expect(exceedsFlowCanvasDragThreshold({ x: 10, y: 10 }, { x: 14, y: 10 })).toBe(false);
+    expect(exceedsFlowCanvasDragThreshold({ x: 10, y: 10 }, { x: 13, y: 14 })).toBe(true);
+    expect(() => exceedsFlowCanvasDragThreshold({ x: 0, y: 0 }, { x: 1, y: 1 }, -1)).toThrow(
+      /非负距离/u,
+    );
+  });
+
+  it("fits all flow items into the viewport around their shared center", () => {
+    expect(
+      fitFlowCanvasViewport(
+        { left: 0, top: 0, right: 400, bottom: 200 },
+        { width: 1000, height: 600 },
+        50,
+      ),
+    ).toEqual({ x: 200, y: 150, zoom: 1.5 });
+    expect(() =>
+      fitFlowCanvasViewport({ left: 0, top: 0, right: 1, bottom: 1 }, { width: 0, height: 100 }),
+    ).toThrow(/正尺寸/u);
+  });
+
+  it("canonicalizes control-wire gestures from either endpoint to the same directed edge", () => {
+    const output = wireEndpoint("projection", "branch", "branch:true", "output", "branch-true");
+    const input = wireEndpoint("projection", "target", "target:in", "input", null);
+
+    const forward = canonicalizeFlowCanvasWireEndpoints(output, input);
+    const reverse = canonicalizeFlowCanvasWireEndpoints(input, output);
+
+    expect(reverse).toEqual(forward);
+    expect(reverse).toEqual({ from: output, to: input, edgeKind: "branch-true" });
+    expect(Object.isFrozen(reverse)).toBe(true);
+  });
+
+  it("takes semantics from the output port and rejects incompatible endpoint pairs", () => {
+    const output = wireEndpoint("draft", "draft", "draft:false", "output", "branch-false");
+    const misleadingInput = wireEndpoint(
+      "projection",
+      "target",
+      "target:in",
+      "input",
+      "branch-true",
+    );
+
+    expect(canonicalizeFlowCanvasWireEndpoints(misleadingInput, output)?.edgeKind).toBe(
+      "branch-false",
+    );
+    expect(
+      canonicalizeFlowCanvasWireEndpoints(output, { ...output, portId: "other:out" }),
+    ).toBeNull();
+    expect(
+      canonicalizeFlowCanvasWireEndpoints(misleadingInput, {
+        ...misleadingInput,
+        nodeId: "other",
+        portId: "other:in",
+      }),
+    ).toBeNull();
+    expect(
+      canonicalizeFlowCanvasWireEndpoints({ ...output, channel: "data" }, misleadingInput),
+    ).toBeNull();
+    expect(
+      canonicalizeFlowCanvasWireEndpoints({ ...output, edgeKind: null }, misleadingInput),
+    ).toBeNull();
   });
 
   it("aligns mixed free nodes without changing their unconstrained axis", () => {
@@ -250,6 +326,23 @@ function controlPort(
     editable: true,
     capacity: direction === "input" ? "many" : "one",
     allowsFanOut: false,
+  });
+}
+
+function wireEndpoint(
+  source: FlowCanvasWireEndpoint["source"],
+  nodeId: string,
+  portId: string,
+  direction: FlowCanvasWireEndpoint["direction"],
+  edgeKind: FlowCanvasWireEndpoint["edgeKind"],
+): FlowCanvasWireEndpoint {
+  return Object.freeze({
+    source,
+    nodeId,
+    portId,
+    direction,
+    channel: "control",
+    edgeKind,
   });
 }
 

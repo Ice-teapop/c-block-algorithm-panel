@@ -18,6 +18,23 @@ import type {
   SaveLearningCatalogRequest,
 } from "./learning-catalog-store.js";
 import type { TraceBatch, TraceCancelResult, TraceRequest, TraceStartResult } from "./trace.js";
+import type {
+  AiMentorCancelResult,
+  AiMentorReadResult,
+  AiMentorStartResult,
+  AiProviderConnectResult,
+  AiProviderDisconnectResult,
+  AiProviderModelsResult,
+  AiProviderModelSelectResult,
+  AiProviderReadResult,
+  CancelAiMentorRequest,
+  ConnectAiProviderRequest,
+  DisconnectAiProviderRequest,
+  ListAiProviderModelsRequest,
+  ReadAiMentorRequest,
+  SelectAiProviderModelRequest,
+  StartAiMentorRequest,
+} from "./ai-provider.js";
 
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
 
@@ -239,6 +256,17 @@ export interface PanelApi {
   /** Reads the fixed global custom-block catalog; no filesystem path crosses this boundary. */
   readLearningCatalog(): Promise<LearningCatalogReadResult>;
   saveLearningCatalog(request: SaveLearningCatalogRequest): Promise<LearningCatalogSaveResult>;
+  /** Returns only public metadata; credentials and ciphertext never cross into the renderer. */
+  getAiProviderConfig(): Promise<AiProviderReadResult>;
+  connectAiProvider(request: ConnectAiProviderRequest): Promise<AiProviderConnectResult>;
+  listAiProviderModels(request: ListAiProviderModelsRequest): Promise<AiProviderModelsResult>;
+  selectAiProviderModel(
+    request: SelectAiProviderModelRequest,
+  ): Promise<AiProviderModelSelectResult>;
+  disconnectAiProvider(request: DisconnectAiProviderRequest): Promise<AiProviderDisconnectResult>;
+  startAiMentor(request: StartAiMentorRequest): Promise<AiMentorStartResult>;
+  readAiMentor(request: ReadAiMentorRequest): Promise<AiMentorReadResult>;
+  cancelAiMentor(request: CancelAiMentorRequest): Promise<AiMentorCancelResult>;
   onWorkspaceCloseRequested(handler: () => Promise<void>): () => void;
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;

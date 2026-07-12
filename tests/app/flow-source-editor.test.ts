@@ -16,6 +16,11 @@ import {
   type FlowProjection,
 } from "../../src/flow/index.js";
 import type { ImportedSource } from "../../src/shared/api.js";
+import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
+import {
+  FIRST_ALGORITHM_SKELETON_SOURCE,
+  MAXIMUM_UPDATE_PRESET_ID,
+} from "../../src/tutorials/first-lesson.js";
 import { createTestParser } from "../core/parser-fixture.js";
 
 const SOURCE = [
@@ -152,6 +157,53 @@ describe("flow source editor connection postconditions", () => {
       }),
     ).toThrow(/相邻/u);
     expect(liveSource).toBe(source);
+  });
+
+  it("commits the named lesson preset through a compiling slot and full CFG gate", () => {
+    let source = FIRST_ALGORITHM_SKELETON_SOURCE;
+    let revision = 1;
+    let session = analyzeSession(parser, source, revision);
+    let projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+    const editor = createFlowSourceEditor({
+      getSession: () => session,
+      getProjection: () => projection,
+      getParser: () => parser,
+      getProjectionMode: () => "synced",
+      getEditorSource: () => source,
+      applyPatches(patches) {
+        source = applyTextPatches(source, patches).source;
+        return true;
+      },
+      resetProjection: vi.fn(),
+      nextRevision: () => ++revision,
+      adopt(imported, analysis) {
+        session = analyzeSession(parser, imported.source, analysis.editTargets.revision, analysis);
+        projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+      },
+      confirm: () => true,
+      onCommitted: vi.fn(),
+    });
+    const slot = requiredNode(projection, ";");
+    const port = slot.ports.find(
+      (candidate) => candidate.direction === "input" && candidate.channel === "control",
+    );
+    if (port === undefined) throw new Error("课程插槽缺少控制输入");
+
+    expect(
+      editor.connectDraft({
+        sourceFingerprint: projection.sourceFingerprint,
+        draftNodeId: "draft:update-maximum",
+        draftPortId: "draft:update-maximum:next",
+        presetId: MAXIMUM_UPDATE_PRESET_ID,
+        sourceText: "if (value > maximum) {\n  maximum = value;\n}",
+        toNodeId: slot.id,
+        toPortId: port.id,
+        edgeKind: "next",
+      }),
+    ).toBe(true);
+    expect(source).toBe(FIRST_ALGORITHM_SOURCE);
+    expect(projection.documentHasError).toBe(false);
+    expect(projection.functions.every((item) => !item.partial)).toBe(true);
   });
 
   it("moves a proven expression target to the front of an if branch and verifies the new CFG edge", () => {
@@ -322,6 +374,65 @@ describe("flow source editor connection postconditions", () => {
     ).toThrow(/降级为 partial CFG/u);
     expect(applyPatches).not.toHaveBeenCalled();
     expect(source).toBe(SOURCE);
+  });
+
+  it("atomically replaces one next edge with predecessor -> inserted block -> successor", () => {
+    let source = SOURCE;
+    let revision = 1;
+    let session = analyzeSession(parser, source, revision);
+    let projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+    const editor = createFlowSourceEditor({
+      getSession: () => session,
+      getProjection: () => projection,
+      getParser: () => parser,
+      getProjectionMode: () => "synced",
+      getEditorSource: () => source,
+      applyPatches(patches) {
+        source = applyTextPatches(source, patches).source;
+        return true;
+      },
+      resetProjection: vi.fn(),
+      nextRevision: () => ++revision,
+      adopt(imported, analysis) {
+        session = analyzeSession(parser, imported.source, analysis.editTargets.revision, analysis);
+        projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+      },
+      confirm: () => true,
+      onCommitted: vi.fn(),
+    });
+    const predecessor = requiredNode(projection, "a++;");
+    const successor = requiredNode(projection, "b++;");
+    const edge = projection.edges.find(
+      (candidate) =>
+        candidate.from.nodeId === predecessor.id &&
+        candidate.to.nodeId === successor.id &&
+        candidate.kind === "next",
+    );
+    const input = successor.ports.find((port) => port.direction === "input");
+    if (edge === undefined || input === undefined) throw new Error("fixture 缺少 next 插入锚点");
+
+    expect(
+      editor.connectDraft({
+        sourceFingerprint: projection.sourceFingerprint,
+        draftNodeId: "draft:insert",
+        draftPortId: "draft:insert:next",
+        presetId: "builtin.test.insert",
+        sourceText: "a += 10;",
+        toNodeId: successor.id,
+        toPortId: input.id,
+        edgeKind: "next",
+        insertOnEdge: {
+          edgeId: edge.id,
+          fromNodeId: edge.from.nodeId,
+          fromPortId: edge.from.portId,
+          toNodeId: edge.to.nodeId,
+          toPortId: edge.to.portId,
+          edgeKind: edge.kind,
+        },
+      }),
+    ).toBe(true);
+    expect(source.indexOf("a++;")).toBeLessThan(source.indexOf("a += 10;"));
+    expect(source.indexOf("a += 10;")).toBeLessThan(source.indexOf("b++;"));
   });
 });
 

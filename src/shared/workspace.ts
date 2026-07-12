@@ -47,6 +47,7 @@ export interface WorkspaceError {
 export interface CreateWorkspaceDocumentRequest {
   readonly kind: WorkspaceKind;
   readonly title: string;
+  readonly initialSource?: string;
 }
 
 export interface OpenWorkspaceDocumentRequest {

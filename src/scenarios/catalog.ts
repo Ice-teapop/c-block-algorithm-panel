@@ -393,7 +393,7 @@ function builtinEntry(
   provider: ScenarioProvider,
   definition: AlgorithmScenarioDefinition,
 ): ScenarioCatalogEntry {
-  const sizes = definition.sizeGenerator.defaultSizes;
+  const sizes = definition.sizeGenerator.caseSizes ?? definition.sizeGenerator.defaultSizes;
   return Object.freeze({
     id: definition.id,
     origin: "builtin",

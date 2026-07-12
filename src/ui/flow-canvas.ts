@@ -1,5 +1,6 @@
 import {
   FLOW_VIEW_STATE_SCHEMA_VERSION,
+  planFlowConnection,
   type FlowEdge,
   type FlowDataEdge,
   type FlowNode,
@@ -29,6 +30,28 @@ export interface FlowCanvasConnectionGesture {
   readonly toNodeId: string;
   readonly toPortId: string;
   readonly edgeKind: FlowPort["edgeKind"];
+}
+
+export interface FlowCanvasCompatibleBlockSearchRequest {
+  readonly sourceFingerprint: string;
+  readonly endpoint: FlowCanvasWireEndpoint;
+  readonly compatibleDirection: FlowPort["direction"];
+  readonly worldPosition: FlowPoint;
+}
+
+export interface FlowCanvasWireEndpoint {
+  readonly source: "projection" | "draft";
+  readonly nodeId: string;
+  readonly portId: string;
+  readonly direction: FlowPort["direction"];
+  readonly channel: FlowPort["channel"];
+  readonly edgeKind: FlowPort["edgeKind"];
+}
+
+export interface FlowCanvasCanonicalWireConnection {
+  readonly from: FlowCanvasWireEndpoint;
+  readonly to: FlowCanvasWireEndpoint;
+  readonly edgeKind: Exclude<FlowPort["edgeKind"], null>;
 }
 
 export interface FlowCanvasDraftNode {
@@ -62,6 +85,17 @@ export interface FlowCanvasDraftConnectionIntent {
   readonly toNodeId: string;
   readonly toPortId: string;
   readonly edgeKind: Exclude<FlowPort["edgeKind"], null>;
+  /** Present only when a detached source-backed preset is dropped directly on this exact edge. */
+  readonly insertOnEdge?:
+    | {
+        readonly edgeId: string;
+        readonly fromNodeId: string;
+        readonly fromPortId: string;
+        readonly toNodeId: string;
+        readonly toPortId: string;
+        readonly edgeKind: Exclude<FlowPort["edgeKind"], null>;
+      }
+    | undefined;
 }
 
 export interface FlowCanvasDraftConnection {
@@ -128,6 +162,9 @@ export interface FlowCanvasOptions {
   readonly onCopyNodes?: ((nodeIds: readonly string[]) => void) | undefined;
   readonly onUndo?: (() => void) | undefined;
   readonly onHistoryCheckpoint?: (() => void) | undefined;
+  readonly onCompatibleBlockSearch?:
+    ((request: FlowCanvasCompatibleBlockSearchRequest) => void) | undefined;
+  readonly onGlobalSearch?: (() => void) | undefined;
   readonly renderNodeDetail?: ((context: FlowCanvasDetailContext) => void) | undefined;
 }
 
@@ -139,6 +176,12 @@ export interface FlowCanvasController {
   setActivePath(path: FlowCanvasActivePath | readonly string[]): void;
   setDraftVisualState(state: FlowCanvasDraftVisualState | null): void;
   getDraftVisualState(): FlowCanvasDraftVisualState | null;
+  findEditableControlEdgeAtClientPoint(
+    clientX: number,
+    clientY: number,
+    tolerancePx?: number,
+  ): FlowEdge | null;
+  setEdgeInsertionPreview(edgeId: string | null): void;
   focusNode(nodeId: string): void;
   refreshDetail(): void;
   alignSelection(mode: "left" | "distribute-y"): void;
@@ -148,8 +191,12 @@ export interface FlowCanvasController {
 interface NodeDragGesture {
   readonly kind: "node";
   readonly pointerId: number;
+  readonly nodeId: string;
   readonly startClient: FlowPoint;
   readonly origins: Readonly<Record<string, FlowPoint>>;
+  readonly collapseSelectionOnClick: boolean;
+  readonly openDetailOnRelease: boolean;
+  activated: boolean;
 }
 
 interface PanGesture {
@@ -157,6 +204,8 @@ interface PanGesture {
   readonly pointerId: number;
   readonly startClient: FlowPoint;
   readonly origin: FlowPoint;
+  readonly clearSelectionOnClick: boolean;
+  activated: boolean;
 }
 
 interface MarqueeGesture {
@@ -180,8 +229,20 @@ interface WireGesture {
 interface DraftNodeDragGesture {
   readonly kind: "draft-node";
   readonly pointerId: number;
+  readonly nodeId: string;
   readonly startClient: FlowPoint;
   readonly origins: Readonly<Record<string, FlowPoint>>;
+  readonly collapseSelectionOnClick: boolean;
+  readonly openDetailOnRelease: boolean;
+  activated: boolean;
+}
+
+interface MinimapPanGesture {
+  readonly kind: "minimap-pan";
+  readonly pointerId: number;
+  readonly startClient: FlowPoint;
+  readonly origin: FlowPoint;
+  readonly worldPerPixel: FlowPoint;
 }
 
 interface DetailMoveGesture {
@@ -204,17 +265,24 @@ type CanvasGesture =
   | MarqueeGesture
   | WireGesture
   | DraftNodeDragGesture
+  | MinimapPanGesture
   | DetailMoveGesture
   | DetailResizeGesture;
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const NODE_WIDTH = 160;
-const NODE_HEIGHT = 36;
+const NODE_HEIGHT = 32;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2.5;
 const KEYBOARD_MOVE = 2;
 const DETAIL_MIN_WIDTH = 280;
 const DETAIL_MIN_HEIGHT = 180;
+const NODE_DRAG_THRESHOLD = 4;
+const PAN_DRAG_THRESHOLD = 2;
+const VIEWPORT_FIT_PADDING = 44;
+const MINIMAP_PADDING = 64;
+const FLOW_CANVAS_QUICK_ADD_EVENT = "flow-canvas-compatible-block-search";
+const FLOW_CANVAS_GLOBAL_SEARCH_EVENT = "flow-canvas-global-search";
 
 export function createFlowCanvas(
   host: HTMLElement,
@@ -225,7 +293,11 @@ export function createFlowCanvas(
   root.className = "flow-canvas";
   root.tabIndex = 0;
   root.setAttribute("role", "application");
-  root.setAttribute("aria-label", "算法流程画布。方向键移动所选节点，按住空格拖动画布，滚轮缩放。");
+  root.setAttribute(
+    "aria-label",
+    "算法流程画布。单击选择，双击或回车打开详情，拖动空白平移，Shift 拖动框选。",
+  );
+  root.setAttribute("aria-keyshortcuts", "Meta+K Control+K Home F Enter");
   root.dataset.flowCanvas = "true";
 
   const wires = ownerDocument.createElementNS(SVG_NAMESPACE, "svg");
@@ -261,7 +333,8 @@ export function createFlowCanvas(
   emptyState.textContent = "打开 C 文件后，这里会显示可自由摆放的流程节点。";
 
   const detail = createDetailWindow(ownerDocument);
-  root.append(wires, viewport, marquee, emptyState, detail.window);
+  const minimap = createMinimap(ownerDocument);
+  root.append(wires, viewport, marquee, emptyState, minimap.root, detail.window);
   host.replaceChildren(root);
 
   let projection: FlowProjection | null = null;
@@ -272,10 +345,18 @@ export function createFlowCanvas(
   let gesture: CanvasGesture | null = null;
   let spacePressed = false;
   let destroyed = false;
+  let edgeInsertionPreviewId: string | null = null;
+  let lastDetailPointerDown: {
+    readonly source: "projection" | "draft";
+    readonly nodeId: string;
+    readonly at: number;
+  } | null = null;
   const nodeElements = new Map<string, HTMLElement>();
   const edgeElements = new Map<string, SVGPathElement>();
   const virtualEdgeElements = new Map<string, SVGPathElement>();
   const draftNodeElements = new Map<string, HTMLElement>();
+  let minimapWorldBounds: Bounds | null = null;
+  let minimapAnimationFrame: number | null = null;
 
   const publishViewState = (reason: FlowCanvasViewChangeReason): void => {
     options.onViewStateChange?.(cloneViewState(viewState), reason);
@@ -326,6 +407,7 @@ export function createFlowCanvas(
       path.dataset.flowEdgeId = edge.id;
       path.dataset.edgeKind = edge.kind;
       path.dataset.editable = String(edge.editable);
+      if (edge.id === edgeInsertionPreviewId) path.classList.add("is-insertion-preview");
       edgeLayer.append(path);
       edgeElements.set(edge.id, path);
     }
@@ -341,7 +423,7 @@ export function createFlowCanvas(
     }
 
     for (const node of projection.nodes) {
-      const element = renderNode(ownerDocument, node);
+      const element = renderNode(ownerDocument, node, projection.edges);
       nodeLayer.append(element);
       nodeElements.set(node.id, element);
     }
@@ -354,6 +436,8 @@ export function createFlowCanvas(
 
   function renderViewport(): void {
     const { x, y, zoom } = viewState.viewport;
+    root.style.backgroundPosition = `${String(x)}px ${String(y)}px`;
+    root.style.backgroundSize = `${String(24 * zoom)}px ${String(24 * zoom)}px`;
     viewport.style.transform = `translate(${String(x)}px, ${String(y)}px) scale(${String(zoom)})`;
     wireViewport.setAttribute(
       "transform",
@@ -368,6 +452,85 @@ export function createFlowCanvas(
       }
     }
     renderWires();
+    renderMinimap();
+  }
+
+  function renderMinimap(): void {
+    const view = ownerDocument.defaultView;
+    if (view === null || typeof view.requestAnimationFrame !== "function") {
+      renderMinimapNow();
+      return;
+    }
+    if (minimapAnimationFrame !== null) return;
+    minimapAnimationFrame = view.requestAnimationFrame(() => {
+      minimapAnimationFrame = null;
+      if (!destroyed) renderMinimapNow();
+    });
+  }
+
+  function renderMinimapNow(): void {
+    const canvasSize = canvasPixelSize(root);
+    const visible = visibleWorldBounds(viewState, canvasSize);
+    const itemBounds = flowItemBounds(projection, viewState, draftState);
+    minimapWorldBounds = expandBounds(
+      itemBounds === null ? visible : unionBounds(itemBounds, visible),
+      MINIMAP_PADDING,
+    );
+    const bounds = minimapWorldBounds;
+    const width = Math.max(1, bounds.right - bounds.left);
+    const height = Math.max(1, bounds.bottom - bounds.top);
+    minimap.svg.setAttribute(
+      "viewBox",
+      `${formatCoordinate(bounds.left)} ${formatCoordinate(bounds.top)} ${formatCoordinate(width)} ${formatCoordinate(height)}`,
+    );
+    minimap.nodes.replaceChildren();
+    minimap.edges.replaceChildren();
+    const activeNodeIds = new Set(activePath.nodeIds);
+    const activeEdgeIds = new Set(activePath.edgeIds);
+    const nodePositions = new Map<string, FlowPoint>();
+    for (const node of projection?.nodes ?? []) {
+      const position = positionFor(node);
+      nodePositions.set(node.id, position);
+      const rectangle = ownerDocument.createElementNS(SVG_NAMESPACE, "rect");
+      rectangle.classList.add("flow-minimap__node");
+      if (activeNodeIds.has(node.id)) rectangle.classList.add("is-active-path");
+      rectangle.dataset.executionMode = activeNodeIds.has(node.id) ? activePath.mode : "idle";
+      rectangle.setAttribute("x", formatCoordinate(position.x));
+      rectangle.setAttribute("y", formatCoordinate(position.y));
+      rectangle.setAttribute("width", String(NODE_WIDTH));
+      rectangle.setAttribute("height", String(NODE_HEIGHT));
+      minimap.nodes.append(rectangle);
+    }
+    for (const node of draftState?.nodes ?? []) {
+      nodePositions.set(node.id, node.position);
+      const rectangle = ownerDocument.createElementNS(SVG_NAMESPACE, "rect");
+      rectangle.classList.add("flow-minimap__node", "flow-minimap__node--draft");
+      if (activeNodeIds.has(node.id)) rectangle.classList.add("is-active-path");
+      rectangle.dataset.executionMode = activeNodeIds.has(node.id) ? activePath.mode : "idle";
+      rectangle.setAttribute("x", formatCoordinate(node.position.x));
+      rectangle.setAttribute("y", formatCoordinate(node.position.y));
+      rectangle.setAttribute("width", String(NODE_WIDTH));
+      rectangle.setAttribute("height", String(NODE_HEIGHT));
+      minimap.nodes.append(rectangle);
+    }
+    for (const edge of projection?.edges ?? []) {
+      if (!activeEdgeIds.has(edge.id)) continue;
+      const from = nodePositions.get(edge.from.nodeId);
+      const to = nodePositions.get(edge.to.nodeId);
+      if (from === undefined || to === undefined) continue;
+      const line = ownerDocument.createElementNS(SVG_NAMESPACE, "line");
+      line.classList.add("flow-minimap__path");
+      line.dataset.executionMode = activePath.mode;
+      line.setAttribute("x1", formatCoordinate(from.x + NODE_WIDTH / 2));
+      line.setAttribute("y1", formatCoordinate(from.y + NODE_HEIGHT / 2));
+      line.setAttribute("x2", formatCoordinate(to.x + NODE_WIDTH / 2));
+      line.setAttribute("y2", formatCoordinate(to.y + NODE_HEIGHT / 2));
+      minimap.edges.append(line);
+    }
+    minimap.viewport.setAttribute("x", formatCoordinate(visible.left));
+    minimap.viewport.setAttribute("y", formatCoordinate(visible.top));
+    minimap.viewport.setAttribute("width", formatCoordinate(visible.right - visible.left));
+    minimap.viewport.setAttribute("height", formatCoordinate(visible.bottom - visible.top));
   }
 
   function renderWires(): void {
@@ -509,6 +672,7 @@ export function createFlowCanvas(
       element.classList.toggle("is-current", activePath.currentNodeId === nodeId);
       element.dataset.executionMode = activeNodes.has(nodeId) ? activePath.mode : "idle";
     }
+    renderMinimap();
   }
 
   function renderDraft(): void {
@@ -552,6 +716,7 @@ export function createFlowCanvas(
     renderSelection();
     renderVirtualEdges();
     renderGestureWire();
+    renderMinimap();
   }
 
   function renderDetail(): void {
@@ -607,7 +772,6 @@ export function createFlowCanvas(
     else selected.add(node.id);
     viewState = cloneViewState(viewState, {
       selectedNodeIds: [...selected],
-      detailNodeId: node.id,
     });
     renderSelection();
     renderDetail();
@@ -621,20 +785,55 @@ export function createFlowCanvas(
     if (additive && selected.has(node.id)) selected.delete(node.id);
     else selected.add(node.id);
     draftState = freezeDraftState({ ...draftState, selectedNodeIds: [...selected] });
-    if (viewState.selectedNodeIds.length > 0) {
+    if (viewState.selectedNodeIds.length > 0 || viewState.detailNodeId !== null) {
       viewState = cloneViewState(viewState, { selectedNodeIds: [], detailNodeId: null });
       publishViewState("selection");
     }
-    detailDraftNodeId = node.id;
     renderSelection();
     renderDetail();
     publishDraftState("selection");
     options.onDraftNodeClick?.(node, draftState.selectedNodeIds ?? []);
   }
 
+  function openNodeDetail(node: FlowNode): void {
+    detailDraftNodeId = null;
+    viewState = cloneViewState(viewState, { detailNodeId: node.id });
+    renderDetail();
+    publishViewState("detail");
+  }
+
+  function openDraftNodeDetail(node: FlowCanvasDraftNode): void {
+    detailDraftNodeId = node.id;
+    if (viewState.detailNodeId !== null) {
+      viewState = cloneViewState(viewState, { detailNodeId: null });
+    }
+    renderDetail();
+    publishViewState("detail");
+  }
+
+  function clearSelection(): void {
+    const hadProjectionSelection = viewState.selectedNodeIds.length > 0;
+    const hadProjectionDetail = viewState.detailNodeId !== null;
+    const hadDraftSelection = (draftState?.selectedNodeIds?.length ?? 0) > 0;
+    const hadDraftDetail = detailDraftNodeId !== null;
+    if (!hadProjectionSelection && !hadProjectionDetail && !hadDraftSelection && !hadDraftDetail) {
+      return;
+    }
+    viewState = cloneViewState(viewState, { selectedNodeIds: [], detailNodeId: null });
+    detailDraftNodeId = null;
+    if (draftState !== null && hadDraftSelection) {
+      draftState = freezeDraftState({ ...draftState, selectedNodeIds: [] });
+      publishDraftState("selection");
+    }
+    renderSelection();
+    renderDetail();
+    publishViewState("selection");
+  }
+
   function startNodeGesture(event: PointerEvent, node: FlowNode): void {
-    options.onHistoryCheckpoint?.();
-    selectNode(node, event.shiftKey || event.metaKey || event.ctrlKey);
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    const alreadySelected = viewState.selectedNodeIds.includes(node.id);
+    if (additive || !alreadySelected) selectNode(node, additive);
     const selected = viewState.selectedNodeIds.includes(node.id)
       ? viewState.selectedNodeIds
       : [node.id];
@@ -646,14 +845,19 @@ export function createFlowCanvas(
     gesture = {
       kind: "node",
       pointerId: event.pointerId,
+      nodeId: node.id,
       startClient: point(event.clientX, event.clientY),
       origins: Object.freeze(origins),
+      collapseSelectionOnClick: !additive && alreadySelected && selected.length > 1,
+      openDetailOnRelease: markDetailPointerDown("projection", node.id),
+      activated: false,
     };
   }
 
   function startDraftNodeGesture(event: PointerEvent, node: FlowCanvasDraftNode): void {
-    options.onHistoryCheckpoint?.();
-    selectDraftNode(node, event.shiftKey || event.metaKey || event.ctrlKey);
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    const alreadySelected = (draftState?.selectedNodeIds ?? []).includes(node.id);
+    if (additive || !alreadySelected) selectDraftNode(node, additive);
     const draftSelection = draftState?.selectedNodeIds ?? [];
     const selected = draftSelection.includes(node.id) ? draftSelection : [node.id];
     const origins: Record<string, FlowPoint> = {};
@@ -664,13 +868,22 @@ export function createFlowCanvas(
     gesture = {
       kind: "draft-node",
       pointerId: event.pointerId,
+      nodeId: node.id,
       startClient: point(event.clientX, event.clientY),
       origins: Object.freeze(origins),
+      collapseSelectionOnClick: !additive && alreadySelected && selected.length > 1,
+      openDetailOnRelease: markDetailPointerDown("draft", node.id),
+      activated: false,
     };
   }
 
   function startWireGesture(event: PointerEvent, node: FlowNode, port: FlowPort): void {
-    if (port.direction !== "output" || port.channel !== "control" || port.edgeKind === null) return;
+    if (
+      port.channel !== "control" ||
+      (port.direction === "input" ? !port.editable : port.edgeKind === null)
+    ) {
+      return;
+    }
     const start = flowPortPoint(node, port, positionFor(node));
     gesture = {
       kind: "wire",
@@ -681,6 +894,7 @@ export function createFlowCanvas(
       start,
       current: clientToWorld(root, viewState, event.clientX, event.clientY),
     };
+    renderWireCompatibility(wireEndpoint("projection", node.id, port));
     renderGestureWire();
   }
 
@@ -689,7 +903,13 @@ export function createFlowCanvas(
     node: FlowCanvasDraftNode,
     port: FlowCanvasDraftPort,
   ): void {
-    if (!port.editable || port.direction !== "output" || port.edgeKind === null) return;
+    if (
+      !port.editable ||
+      port.channel !== "control" ||
+      (port.direction === "output" && port.edgeKind === null)
+    ) {
+      return;
+    }
     gesture = {
       kind: "wire",
       source: "draft",
@@ -699,13 +919,135 @@ export function createFlowCanvas(
       start: draftPortPoint(node, port),
       current: clientToWorld(root, viewState, event.clientX, event.clientY),
     };
+    renderWireCompatibility(wireEndpoint("draft", node.id, port));
     renderGestureWire();
+  }
+
+  function renderWireCompatibility(started: FlowCanvasWireEndpoint | null): void {
+    root.classList.toggle("is-wiring", started !== null);
+    for (const element of [...nodeElements.values(), ...draftNodeElements.values()]) {
+      for (const portElement of element.querySelectorAll<HTMLElement>(
+        "[data-flow-port-id], [data-flow-draft-port-id]",
+      )) {
+        delete portElement.dataset.wireTarget;
+        if (started === null) continue;
+        const endpoint =
+          portElement.dataset.flowDraftPortId !== undefined
+            ? resolveWireEndpoint(
+                "draft",
+                portElement.dataset.flowDraftNodeId ?? "",
+                portElement.dataset.flowDraftPortId,
+              )
+            : resolveWireEndpoint(
+                "projection",
+                portElement.dataset.flowNodeId ?? "",
+                portElement.dataset.flowPortId ?? "",
+              );
+        if (endpoint === null) continue;
+        portElement.dataset.wireTarget =
+          endpoint.nodeId === started.nodeId && endpoint.portId === started.portId
+            ? "source"
+            : isStructurallyCompatibleWireTarget(started, endpoint)
+              ? "compatible"
+              : "invalid";
+      }
+    }
+  }
+
+  function isStructurallyCompatibleWireTarget(
+    started: FlowCanvasWireEndpoint,
+    target: FlowCanvasWireEndpoint,
+  ): boolean {
+    const canonical = canonicalizeFlowCanvasWireEndpoints(started, target);
+    if (canonical === null || started.nodeId === target.nodeId) return false;
+    const fromNode =
+      canonical.from.source === "projection"
+        ? nodeForId(canonical.from.nodeId)
+        : draftNodeForId(canonical.from.nodeId);
+    const toNode =
+      canonical.to.source === "projection"
+        ? nodeForId(canonical.to.nodeId)
+        : draftNodeForId(canonical.to.nodeId);
+    if (fromNode === undefined || toNode === undefined) return false;
+    if ("locked" in fromNode && fromNode.locked) return false;
+    if ("locked" in toNode && toNode.locked) return false;
+    if ("status" in fromNode && fromNode.status === "invalid") return false;
+    if ("status" in toNode && toNode.status === "invalid") return false;
+    const fromVirtual = "blockKind" in fromNode && fromNode.blockKind === "virtual";
+    const toVirtual = "blockKind" in toNode && toNode.blockKind === "virtual";
+    if (fromVirtual || toVirtual) {
+      return (
+        fromVirtual !== toVirtual &&
+        (canonical.from.source === "projection" || canonical.to.source === "projection")
+      );
+    }
+    if (canonical.from.source === "draft" || canonical.to.source === "draft") {
+      return (
+        canonical.from.source === "draft" &&
+        canonical.to.source === "projection" &&
+        endpointIsEditable(canonical.from) &&
+        endpointIsEditable(canonical.to)
+      );
+    }
+    if (!endpointIsEditable(canonical.from) || !endpointIsEditable(canonical.to)) return false;
+    if (projection === null) return false;
+    const occupiedEdges = projection.edges.filter(
+      (edge) =>
+        edge.from.nodeId === canonical.from.nodeId && edge.from.portId === canonical.from.portId,
+    );
+    return (
+      planFlowConnection(
+        projection,
+        Object.freeze({
+          sourceFingerprint: projection.sourceFingerprint,
+          fromNodeId: canonical.from.nodeId,
+          fromPortId: canonical.from.portId,
+          toNodeId: canonical.to.nodeId,
+          toPortId: canonical.to.portId,
+          kind: canonical.edgeKind,
+          replaceEdgeId: occupiedEdges.length === 1 ? occupiedEdges[0]!.id : null,
+        }),
+      ).status === "accepted"
+    );
+  }
+
+  function endpointIsEditable(endpoint: FlowCanvasWireEndpoint): boolean {
+    if (endpoint.source === "projection") {
+      return (
+        nodeForId(endpoint.nodeId)?.ports.find((port) => port.id === endpoint.portId)?.editable ??
+        false
+      );
+    }
+    return (
+      draftNodeForId(endpoint.nodeId)?.ports?.find((port) => port.id === endpoint.portId)
+        ?.editable ?? false
+    );
   }
 
   const onPointerDown = (event: PointerEvent): void => {
     if (destroyed || event.button > 1) return;
     const target = closestElement(event.target);
     if (target === null) return;
+
+    if (target.closest("[data-flow-minimap-viewport]") !== null) {
+      const world = minimapWorldBounds;
+      const map = minimap.svg.getBoundingClientRect();
+      if (world === null || map.width <= 0 || map.height <= 0) return;
+      event.preventDefault();
+      gesture = {
+        kind: "minimap-pan",
+        pointerId: event.pointerId,
+        startClient: point(event.clientX, event.clientY),
+        origin: point(viewState.viewport.x, viewState.viewport.y),
+        worldPerPixel: point(
+          (world.right - world.left) / map.width,
+          (world.bottom - world.top) / map.height,
+        ),
+      };
+      root.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    if (target.closest("[data-flow-minimap]") !== null) return;
 
     if (target.closest("[data-flow-detail-resize]") !== null) {
       event.preventDefault();
@@ -730,6 +1072,21 @@ export function createFlowCanvas(
       return;
     }
     if (target.closest("[data-flow-detail-window]") !== null) return;
+    root.focus({ preventScroll: true });
+
+    if (event.button === 1 || spacePressed) {
+      event.preventDefault();
+      gesture = {
+        kind: "pan",
+        pointerId: event.pointerId,
+        startClient: point(event.clientX, event.clientY),
+        origin: point(viewState.viewport.x, viewState.viewport.y),
+        clearSelectionOnClick: false,
+        activated: false,
+      };
+      root.setPointerCapture?.(event.pointerId);
+      return;
+    }
 
     const draftPortElement = target.closest<HTMLElement>("[data-flow-draft-port-id]");
     if (draftPortElement !== null) {
@@ -781,24 +1138,25 @@ export function createFlowCanvas(
 
     if (target.closest(".flow-canvas") !== root) return;
     event.preventDefault();
-    if (event.button === 1 || spacePressed) {
-      gesture = {
-        kind: "pan",
-        pointerId: event.pointerId,
-        startClient: point(event.clientX, event.clientY),
-        origin: point(viewState.viewport.x, viewState.viewport.y),
-      };
-      root.classList.add("is-panning");
-    } else {
+    if (event.button === 0 && event.shiftKey && !spacePressed) {
       gesture = {
         kind: "marquee",
         pointerId: event.pointerId,
         startClient: point(event.clientX, event.clientY),
         currentClient: point(event.clientX, event.clientY),
-        additive: event.shiftKey || event.metaKey || event.ctrlKey,
+        additive: true,
       };
       marquee.hidden = false;
       renderMarquee(root, marquee, gesture);
+    } else {
+      gesture = {
+        kind: "pan",
+        pointerId: event.pointerId,
+        startClient: point(event.clientX, event.clientY),
+        origin: point(viewState.viewport.x, viewState.viewport.y),
+        clearSelectionOnClick: event.button === 0 && !spacePressed,
+        activated: false,
+      };
     }
     root.setPointerCapture?.(event.pointerId);
   };
@@ -806,6 +1164,20 @@ export function createFlowCanvas(
   const onPointerMove = (event: PointerEvent): void => {
     if (destroyed || gesture === null || gesture.pointerId !== event.pointerId) return;
     if (gesture.kind === "node") {
+      if (!gesture.activated) {
+        if (
+          !exceedsFlowCanvasDragThreshold(
+            gesture.startClient,
+            point(event.clientX, event.clientY),
+            NODE_DRAG_THRESHOLD,
+          )
+        )
+          return;
+        gesture.activated = true;
+        lastDetailPointerDown = null;
+        options.onHistoryCheckpoint?.();
+        root.classList.add("is-moving-nodes");
+      }
       const dx = (event.clientX - gesture.startClient.x) / viewState.viewport.zoom;
       const dy = (event.clientY - gesture.startClient.y) / viewState.viewport.zoom;
       const positions = { ...viewState.positions };
@@ -817,6 +1189,20 @@ export function createFlowCanvas(
       publishViewState("node-move");
     } else if (gesture.kind === "draft-node") {
       if (draftState === null) return;
+      if (!gesture.activated) {
+        if (
+          !exceedsFlowCanvasDragThreshold(
+            gesture.startClient,
+            point(event.clientX, event.clientY),
+            NODE_DRAG_THRESHOLD,
+          )
+        )
+          return;
+        gesture.activated = true;
+        lastDetailPointerDown = null;
+        options.onHistoryCheckpoint?.();
+        root.classList.add("is-moving-nodes");
+      }
       const dx = (event.clientX - gesture.startClient.x) / viewState.viewport.zoom;
       const dy = (event.clientY - gesture.startClient.y) / viewState.viewport.zoom;
       draftState = freezeDraftState({
@@ -831,6 +1217,18 @@ export function createFlowCanvas(
       renderDraft();
       publishDraftState("node-move");
     } else if (gesture.kind === "pan") {
+      if (!gesture.activated) {
+        if (
+          !exceedsFlowCanvasDragThreshold(
+            gesture.startClient,
+            point(event.clientX, event.clientY),
+            PAN_DRAG_THRESHOLD,
+          )
+        )
+          return;
+        gesture.activated = true;
+        root.classList.add("is-panning");
+      }
       viewState = cloneViewState(viewState, {
         viewport: {
           ...viewState.viewport,
@@ -846,6 +1244,18 @@ export function createFlowCanvas(
     } else if (gesture.kind === "wire") {
       gesture.current = clientToWorld(root, viewState, event.clientX, event.clientY);
       renderGestureWire();
+    } else if (gesture.kind === "minimap-pan") {
+      const dx = (event.clientX - gesture.startClient.x) * gesture.worldPerPixel.x;
+      const dy = (event.clientY - gesture.startClient.y) * gesture.worldPerPixel.y;
+      viewState = cloneViewState(viewState, {
+        viewport: {
+          ...viewState.viewport,
+          x: gesture.origin.x - dx * viewState.viewport.zoom,
+          y: gesture.origin.y - dy * viewState.viewport.zoom,
+        },
+      });
+      renderViewport();
+      publishViewState("viewport");
     } else if (gesture.kind === "detail-move") {
       detail.window.style.left = `${String(Math.max(0, gesture.origin.x + event.clientX - gesture.startClient.x))}px`;
       detail.window.style.top = `${String(Math.max(0, gesture.origin.y + event.clientY - gesture.startClient.y))}px`;
@@ -859,12 +1269,58 @@ export function createFlowCanvas(
     if (destroyed || gesture === null || gesture.pointerId !== event.pointerId) return;
     if (gesture.kind === "marquee") finishMarquee(gesture);
     else if (gesture.kind === "wire") finishWire(gesture, event);
-    root.classList.remove("is-panning");
-    marquee.hidden = true;
-    root.releasePointerCapture?.(event.pointerId);
-    gesture = null;
-    renderGestureWire();
+    else if (gesture.kind === "node" && !gesture.activated) {
+      const node = nodeForId(gesture.nodeId);
+      if (node !== undefined) {
+        if (gesture.collapseSelectionOnClick) selectNode(node, false);
+        if (gesture.openDetailOnRelease) openNodeDetail(node);
+      }
+    } else if (gesture.kind === "draft-node" && !gesture.activated) {
+      const node = draftNodeForId(gesture.nodeId);
+      if (node !== undefined) {
+        if (gesture.collapseSelectionOnClick) selectDraftNode(node, false);
+        if (gesture.openDetailOnRelease) openDraftNodeDetail(node);
+      }
+    } else if (gesture.kind === "pan" && !gesture.activated && gesture.clearSelectionOnClick) {
+      clearSelection();
+    }
+    clearGesture(event.pointerId);
   };
+
+  function markDetailPointerDown(
+    source: "projection" | "draft",
+    nodeId: string,
+  ): boolean {
+    const at = Date.now();
+    const previous = lastDetailPointerDown;
+    if (
+      previous !== null &&
+      previous.source === source &&
+      previous.nodeId === nodeId &&
+      at - previous.at >= 0 &&
+      at - previous.at <= 500
+    ) {
+      lastDetailPointerDown = null;
+      return true;
+    }
+    lastDetailPointerDown = Object.freeze({ source, nodeId, at });
+    return false;
+  }
+
+  const cancelGesture = (event: PointerEvent): void => {
+    if (destroyed || gesture === null || gesture.pointerId !== event.pointerId) return;
+    clearGesture(event.pointerId);
+  };
+
+  function clearGesture(pointerId: number): void {
+    root.classList.remove("is-panning");
+    root.classList.remove("is-moving-nodes");
+    marquee.hidden = true;
+    if (root.hasPointerCapture?.(pointerId)) root.releasePointerCapture(pointerId);
+    gesture = null;
+    renderWireCompatibility(null);
+    renderGestureWire();
+  }
 
   function finishMarquee(current: MarqueeGesture): void {
     const start = clientToWorld(root, viewState, current.startClient.x, current.startClient.y);
@@ -908,71 +1364,62 @@ export function createFlowCanvas(
 
   function finishWire(current: WireGesture, event: PointerEvent): void {
     const target = ownerDocument.elementFromPoint?.(event.clientX, event.clientY);
-    const virtualPortElement =
-      target instanceof Element ? target.closest<HTMLElement>("[data-flow-draft-port-id]") : null;
-    if (virtualPortElement !== null) {
-      const targetNode = draftNodeForId(virtualPortElement.dataset.flowDraftNodeId ?? "");
-      const targetPort = targetNode?.ports?.find(
-        (port) => port.id === virtualPortElement.dataset.flowDraftPortId,
-      );
+    if (projection === null) return;
+    const started = resolveWireEndpoint(current.source, current.nodeId, current.portId);
+    if (started === null) return;
+    const dropped = target instanceof Element ? resolveWireDropEndpoint(target) : null;
+    if (dropped === null) {
       if (
-        targetNode?.blockKind !== "virtual" ||
-        targetPort === undefined ||
-        !targetPort.editable ||
-        targetPort.direction !== "input" ||
-        targetPort.channel !== "control"
+        target instanceof Element &&
+        target.closest("[data-flow-detail-window], [data-flow-minimap]") === null &&
+        target.closest(".flow-canvas") === root
+      ) {
+        requestCompatibleBlockSearch(
+          started,
+          clientToWorld(root, viewState, event.clientX, event.clientY),
+        );
+      }
+      return;
+    }
+    const connection = canonicalizeFlowCanvasWireEndpoints(started, dropped);
+    if (connection === null) return;
+
+    const fromDraft =
+      connection.from.source === "draft" ? draftNodeForId(connection.from.nodeId) : undefined;
+    const toDraft =
+      connection.to.source === "draft" ? draftNodeForId(connection.to.nodeId) : undefined;
+    const fromVirtual = fromDraft?.blockKind === "virtual";
+    const toVirtual = toDraft?.blockKind === "virtual";
+
+    if (fromVirtual || toVirtual) {
+      if (
+        (connection.from.source === "draft" && !fromVirtual) ||
+        (connection.to.source === "draft" && !toVirtual) ||
+        (fromVirtual && toVirtual)
       ) {
         return;
       }
-      const from = virtualSourceEndpoint(current);
-      if (from !== null) {
-        options.onVirtualConnectionIntent?.(
-          Object.freeze({
-            sourceFingerprint: projection?.sourceFingerprint ?? "",
-            from,
-            to: Object.freeze({
-              source: "virtual" as const,
-              nodeId: targetNode.id,
-              portId: targetPort.id,
-            }),
-          }),
-        );
-      }
+      options.onVirtualConnectionIntent?.(
+        Object.freeze({
+          sourceFingerprint: projection.sourceFingerprint,
+          from: virtualEndpoint(connection.from),
+          to: virtualEndpoint(connection.to),
+        }),
+      );
       return;
     }
-    const portElement =
-      target instanceof Element ? target.closest<HTMLElement>("[data-flow-port-id]") : null;
-    if (portElement === null) return;
-    const targetNode = nodeForId(portElement.dataset.flowNodeId ?? "");
-    const targetPort = targetNode?.ports.find((port) => port.id === portElement.dataset.flowPortId);
-    if (
-      projection === null ||
-      targetNode === undefined ||
-      targetPort === undefined ||
-      targetPort.direction !== "input"
-    ) {
-      return;
-    }
-    if (current.source === "draft") {
-      const sourceNode = draftNodeForId(current.nodeId);
-      const sourcePort = sourceNode?.ports?.find((port) => port.id === current.portId);
-      if (sourceNode === undefined || sourcePort === undefined) return;
-      if (sourceNode.blockKind === "virtual") {
-        options.onVirtualConnectionIntent?.(
-          Object.freeze({
-            sourceFingerprint: projection.sourceFingerprint,
-            from: Object.freeze({
-              source: "virtual" as const,
-              nodeId: sourceNode.id,
-              portId: sourcePort.id,
-            }),
-            to: Object.freeze({
-              source: "projection" as const,
-              nodeId: targetNode.id,
-              portId: targetPort.id,
-            }),
-          }),
-        );
+
+    if (connection.from.source === "draft" && connection.to.source === "projection") {
+      const sourceNode = fromDraft;
+      const sourcePort = sourceNode?.ports?.find((port) => port.id === connection.from.portId);
+      const targetNode = nodeForId(connection.to.nodeId);
+      const targetPort = targetNode?.ports.find((port) => port.id === connection.to.portId);
+      if (
+        sourceNode === undefined ||
+        sourcePort === undefined ||
+        targetNode === undefined ||
+        targetPort === undefined
+      ) {
         return;
       }
       const intent = createFlowCanvasDraftConnectionIntent(
@@ -985,9 +1432,22 @@ export function createFlowCanvas(
       if (intent !== null) options.onDraftConnectionIntent?.(intent);
       return;
     }
-    const sourceNode = nodeForId(current.nodeId);
-    const sourcePort = sourceNode?.ports.find((port) => port.id === current.portId);
-    if (sourceNode === undefined || sourcePort === undefined || !sourcePort.editable) return;
+
+    if (connection.from.source !== "projection" || connection.to.source !== "projection") return;
+    const sourceNode = nodeForId(connection.from.nodeId);
+    const sourcePort = sourceNode?.ports.find((port) => port.id === connection.from.portId);
+    const targetNode = nodeForId(connection.to.nodeId);
+    const targetPort = targetNode?.ports.find((port) => port.id === connection.to.portId);
+    if (
+      sourceNode === undefined ||
+      sourcePort === undefined ||
+      !sourcePort.editable ||
+      targetNode === undefined ||
+      targetPort === undefined ||
+      !targetPort.editable
+    ) {
+      return;
+    }
     options.onConnectionIntent?.(
       Object.freeze({
         sourceFingerprint: projection.sourceFingerprint,
@@ -995,33 +1455,71 @@ export function createFlowCanvas(
         fromPortId: sourcePort.id,
         toNodeId: targetNode.id,
         toPortId: targetPort.id,
-        edgeKind: sourcePort.edgeKind,
+        edgeKind: connection.edgeKind,
       }),
     );
   }
 
-  function virtualSourceEndpoint(current: WireGesture): FlowCanvasVirtualEndpoint | null {
-    if (current.source === "projection") {
-      return nodeForId(current.nodeId) === undefined
+  function requestCompatibleBlockSearch(
+    endpoint: FlowCanvasWireEndpoint,
+    worldPosition: FlowPoint,
+  ): void {
+    if (projection === null) return;
+    const request = Object.freeze({
+      sourceFingerprint: projection.sourceFingerprint,
+      endpoint,
+      compatibleDirection: endpoint.direction === "output" ? "input" : "output",
+      worldPosition: Object.freeze(point(worldPosition.x, worldPosition.y)),
+    });
+    options.onCompatibleBlockSearch?.(request);
+    dispatchCanvasEvent(root, FLOW_CANVAS_QUICK_ADD_EVENT, request);
+    if (options.onCompatibleBlockSearch === undefined) focusPresetSearch(ownerDocument);
+  }
+
+  function resolveWireEndpoint(
+    source: WireGesture["source"],
+    nodeId: string,
+    portId: string,
+  ): FlowCanvasWireEndpoint | null {
+    if (source === "projection") {
+      const node = nodeForId(nodeId);
+      const port = node?.ports.find((candidate) => candidate.id === portId);
+      return node === undefined || port === undefined
         ? null
-        : Object.freeze({
-            source: "projection" as const,
-            nodeId: current.nodeId,
-            portId: current.portId,
-          });
+        : wireEndpoint("projection", node.id, port);
     }
-    const source = draftNodeForId(current.nodeId);
-    return source?.blockKind === "virtual"
-      ? Object.freeze({
-          source: "virtual" as const,
-          nodeId: current.nodeId,
-          portId: current.portId,
-        })
-      : null;
+    const node = draftNodeForId(nodeId);
+    const port = node?.ports?.find((candidate) => candidate.id === portId);
+    return node === undefined || port === undefined ? null : wireEndpoint("draft", node.id, port);
+  }
+
+  function resolveWireDropEndpoint(target: Element): FlowCanvasWireEndpoint | null {
+    const draftPortElement = target.closest<HTMLElement>("[data-flow-draft-port-id]");
+    if (draftPortElement !== null) {
+      return resolveWireEndpoint(
+        "draft",
+        draftPortElement.dataset.flowDraftNodeId ?? "",
+        draftPortElement.dataset.flowDraftPortId ?? "",
+      );
+    }
+    const portElement = target.closest<HTMLElement>("[data-flow-port-id]");
+    return portElement === null
+      ? null
+      : resolveWireEndpoint(
+          "projection",
+          portElement.dataset.flowNodeId ?? "",
+          portElement.dataset.flowPortId ?? "",
+        );
   }
 
   const onWheel = (event: WheelEvent): void => {
     if (destroyed || projection === null) return;
+    const target = closestElement(event.target);
+    if (
+      target !== null &&
+      target.closest("[data-flow-detail-window], [data-flow-minimap]") !== null
+    )
+      return;
     event.preventDefault();
     const bounds = root.getBoundingClientRect();
     if (event.ctrlKey || event.metaKey) {
@@ -1054,16 +1552,62 @@ export function createFlowCanvas(
     publishViewState("viewport");
   };
 
+  function fitAllNodes(): void {
+    const bounds = flowItemBounds(projection, viewState, draftState);
+    if (bounds === null) return;
+    viewState = cloneViewState(viewState, {
+      viewport: fitFlowCanvasViewport(bounds, canvasPixelSize(root), VIEWPORT_FIT_PADDING, 1.5),
+    });
+    renderViewport();
+    publishViewState("viewport");
+  }
+
+  function focusSelectedNodes(): void {
+    const bounds = selectedItemBounds(projection, viewState, draftState);
+    if (bounds === null) return;
+    viewState = cloneViewState(viewState, {
+      viewport: fitFlowCanvasViewport(bounds, canvasPixelSize(root), VIEWPORT_FIT_PADDING, 1.8),
+    });
+    renderViewport();
+    publishViewState("viewport");
+  }
+
+  function openSelectedDetail(): boolean {
+    const selectedProjectionId = viewState.selectedNodeIds[0];
+    if (selectedProjectionId !== undefined) {
+      const node = nodeForId(selectedProjectionId);
+      if (node !== undefined) {
+        openNodeDetail(node);
+        return true;
+      }
+    }
+    const selectedDraftId = draftState?.selectedNodeIds?.[0];
+    if (selectedDraftId !== undefined) {
+      const node = draftNodeForId(selectedDraftId);
+      if (node !== undefined) {
+        openDraftNodeDetail(node);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function requestGlobalSearch(): void {
+    options.onGlobalSearch?.();
+    dispatchCanvasEvent(root, FLOW_CANVAS_GLOBAL_SEARCH_EVENT, Object.freeze({ scope: "blocks" }));
+    if (options.onGlobalSearch === undefined) focusPresetSearch(ownerDocument);
+  }
+
   const onKeydown = (event: KeyboardEvent): void => {
     if (destroyed || isEditableTarget(event.target)) return;
     if (event.key === " ") {
+      event.preventDefault();
       spacePressed = true;
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      gesture = null;
-      marquee.hidden = true;
+      if (gesture !== null) clearGesture(gesture.pointerId);
       if (viewState.detailNodeId !== null || detailDraftNodeId !== null) {
         viewState = cloneViewState(viewState, { detailNodeId: null });
         detailDraftNodeId = null;
@@ -1073,6 +1617,26 @@ export function createFlowCanvas(
       return;
     }
     const command = event.metaKey || event.ctrlKey;
+    if (command && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      event.stopPropagation();
+      requestGlobalSearch();
+      return;
+    }
+    if (!command && event.key === "Enter") {
+      if (openSelectedDetail()) event.preventDefault();
+      return;
+    }
+    if (!command && event.key === "Home") {
+      event.preventDefault();
+      fitAllNodes();
+      return;
+    }
+    if (!command && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      focusSelectedNodes();
+      return;
+    }
     if (command && event.key.toLowerCase() === "a") {
       event.preventDefault();
       viewState = cloneViewState(viewState, {
@@ -1114,9 +1678,7 @@ export function createFlowCanvas(
           nodes: [...draftState.nodes, ...copies],
           selectedNodeIds: copies.map((node) => node.id),
         });
-        detailDraftNodeId = copies[0]?.id ?? null;
         renderDraft();
-        renderDetail();
         publishDraftState("content");
       }
       return;
@@ -1213,14 +1775,77 @@ export function createFlowCanvas(
     }
   };
 
+  const onDoubleClick = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    if (
+      target === null ||
+      target.closest(
+        "[data-flow-port-id], [data-flow-draft-port-id], [data-flow-detail-window], [data-flow-minimap]",
+      ) !== null
+    ) {
+      return;
+    }
+    const draftElement = target.closest<HTMLElement>("[data-flow-draft-node-id]");
+    if (draftElement !== null) {
+      const node = draftNodeForId(draftElement.dataset.flowDraftNodeId ?? "");
+      if (node !== undefined) {
+        event.preventDefault();
+        if (!(draftState?.selectedNodeIds ?? []).includes(node.id)) selectDraftNode(node, false);
+        openDraftNodeDetail(node);
+      }
+      return;
+    }
+    const element = target.closest<HTMLElement>("[data-flow-node-id]");
+    if (element === null) return;
+    const node = nodeForId(element.dataset.flowNodeId ?? "");
+    if (node === undefined) return;
+    event.preventDefault();
+    if (!viewState.selectedNodeIds.includes(node.id)) selectNode(node, false);
+    openNodeDetail(node);
+  };
+
+  const onMinimapClick = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    if (target === null || target.closest("[data-flow-minimap-toggle]") === null) return;
+    const collapsed = minimap.root.dataset.collapsed !== "true";
+    minimap.root.dataset.collapsed = String(collapsed);
+    minimap.svg.style.display = collapsed ? "none" : "block";
+    minimap.toggle.setAttribute("aria-expanded", String(!collapsed));
+    minimap.toggle.setAttribute("aria-label", collapsed ? "展开画布概览" : "收起画布概览");
+  };
+
+  const onBlur = (): void => {
+    spacePressed = false;
+  };
+
+  const onDocumentKeydown = (event: KeyboardEvent): void => {
+    if (
+      destroyed ||
+      event.defaultPrevented ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.key.toLowerCase() !== "k"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    requestGlobalSearch();
+  };
+
   root.addEventListener("pointerdown", onPointerDown);
   root.addEventListener("pointermove", onPointerMove);
   root.addEventListener("pointerup", finishGesture);
-  root.addEventListener("pointercancel", finishGesture);
+  root.addEventListener("pointercancel", cancelGesture);
   root.addEventListener("wheel", onWheel, { passive: false });
   root.addEventListener("keydown", onKeydown);
   root.addEventListener("keyup", onKeyup);
+  root.addEventListener("dblclick", onDoubleClick);
+  root.addEventListener("blur", onBlur);
+  ownerDocument.addEventListener("keydown", onDocumentKeydown);
   detail.window.addEventListener("click", onDetailClick);
+  minimap.root.addEventListener("click", onMinimapClick);
+  const resizeObserver =
+    typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => renderMinimap());
+  resizeObserver?.observe(root);
 
   return Object.freeze({
     element: root,
@@ -1233,6 +1858,7 @@ export function createFlowCanvas(
           : normalizeFlowCanvasViewState(nextProjection, viewState);
       activePath = emptyActivePath();
       gesture = null;
+      root.classList.remove("is-panning", "is-moving-nodes", "is-wiring");
       renderProjection();
       publishViewState("projection");
     },
@@ -1259,7 +1885,9 @@ export function createFlowCanvas(
     setDraftVisualState(nextDraftState: FlowCanvasDraftVisualState | null): void {
       assertActive(destroyed);
       draftState = nextDraftState === null ? null : freezeDraftState(nextDraftState);
-      detailDraftNodeId = draftState?.selectedNodeIds?.[0] ?? null;
+      if (detailDraftNodeId !== null && draftNodeForId(detailDraftNodeId) === undefined) {
+        detailDraftNodeId = null;
+      }
       renderDraft();
       renderDetail();
       if (draftState !== null) publishDraftState("restore");
@@ -1267,6 +1895,63 @@ export function createFlowCanvas(
     getDraftVisualState(): FlowCanvasDraftVisualState | null {
       assertActive(destroyed);
       return draftState === null ? null : freezeDraftState(draftState);
+    },
+    findEditableControlEdgeAtClientPoint(
+      clientX: number,
+      clientY: number,
+      tolerancePx = 14,
+    ): FlowEdge | null {
+      assertActive(destroyed);
+      if (
+        projection === null ||
+        !Number.isFinite(clientX) ||
+        !Number.isFinite(clientY) ||
+        !Number.isFinite(tolerancePx) ||
+        tolerancePx <= 0
+      ) {
+        return null;
+      }
+      const world = clientToWorld(root, viewState, clientX, clientY);
+      const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
+      let nearest: { readonly edge: FlowEdge; readonly distance: number } | null = null;
+      for (const edge of projection.edges) {
+        if (edge.kind !== "next") continue;
+        const fromNode = nodes.get(edge.from.nodeId);
+        const toNode = nodes.get(edge.to.nodeId);
+        const fromPort = fromNode?.ports.find((port) => port.id === edge.from.portId);
+        const toPort = toNode?.ports.find((port) => port.id === edge.to.portId);
+        if (
+          fromNode === undefined ||
+          toNode === undefined ||
+          fromPort === undefined ||
+          toPort === undefined ||
+          fromNode.locked ||
+          toNode.locked ||
+          !toPort.editable
+        ) {
+          continue;
+        }
+        const from = flowPortPoint(fromNode, fromPort, positionFor(fromNode));
+        const to = flowPortPoint(toNode, toPort, positionFor(toNode));
+        const distance = distanceToFlowWire(world, from, to);
+        if (
+          distance <= tolerancePx / viewState.viewport.zoom &&
+          (nearest === null || distance < nearest.distance)
+        ) {
+          nearest = { edge, distance };
+        }
+      }
+      return nearest?.edge ?? null;
+    },
+    setEdgeInsertionPreview(edgeId: string | null): void {
+      assertActive(destroyed);
+      if (edgeId !== null && !edgeElements.has(edgeId)) return;
+      if (edgeInsertionPreviewId === edgeId) return;
+      if (edgeInsertionPreviewId !== null) {
+        edgeElements.get(edgeInsertionPreviewId)?.classList.remove("is-insertion-preview");
+      }
+      edgeInsertionPreviewId = edgeId;
+      if (edgeId !== null) edgeElements.get(edgeId)?.classList.add("is-insertion-preview");
     },
     focusNode(nodeId: string): void {
       assertActive(destroyed);
@@ -1323,11 +2008,20 @@ export function createFlowCanvas(
       root.removeEventListener("pointerdown", onPointerDown);
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerup", finishGesture);
-      root.removeEventListener("pointercancel", finishGesture);
+      root.removeEventListener("pointercancel", cancelGesture);
       root.removeEventListener("wheel", onWheel);
       root.removeEventListener("keydown", onKeydown);
       root.removeEventListener("keyup", onKeyup);
+      root.removeEventListener("dblclick", onDoubleClick);
+      root.removeEventListener("blur", onBlur);
+      ownerDocument.removeEventListener("keydown", onDocumentKeydown);
       detail.window.removeEventListener("click", onDetailClick);
+      minimap.root.removeEventListener("click", onMinimapClick);
+      resizeObserver?.disconnect();
+      if (minimapAnimationFrame !== null) {
+        ownerDocument.defaultView?.cancelAnimationFrame(minimapAnimationFrame);
+        minimapAnimationFrame = null;
+      }
       root.remove();
       nodeElements.clear();
       edgeElements.clear();
@@ -1441,6 +2135,99 @@ export function createFlowWirePath(from: FlowPoint, to: FlowPoint): string {
   return `M ${formatCoordinate(from.x)} ${formatCoordinate(from.y)} C ${formatCoordinate(from.x + controlDistance)} ${formatCoordinate(from.y)}, ${formatCoordinate(to.x - controlDistance)} ${formatCoordinate(to.y)}, ${formatCoordinate(to.x)} ${formatCoordinate(to.y)}`;
 }
 
+export function distanceToFlowWire(pointValue: FlowPoint, from: FlowPoint, to: FlowPoint): number {
+  if (!isFinitePoint(pointValue) || !isFinitePoint(from) || !isFinitePoint(to)) {
+    throw new TypeError("wire 距离需要有限坐标");
+  }
+  const controlDistance = Math.max(36, Math.abs(to.x - from.x) * 0.45);
+  const firstControl = point(from.x + controlDistance, from.y);
+  const secondControl = point(to.x - controlDistance, to.y);
+  let minimum = Number.POSITIVE_INFINITY;
+  let previous = from;
+  for (let step = 1; step <= 32; step += 1) {
+    const current = cubicPoint(from, firstControl, secondControl, to, step / 32);
+    minimum = Math.min(minimum, distanceToSegment(pointValue, previous, current));
+    previous = current;
+  }
+  return minimum;
+}
+
+function cubicPoint(
+  start: FlowPoint,
+  first: FlowPoint,
+  second: FlowPoint,
+  end: FlowPoint,
+  t: number,
+): FlowPoint {
+  const inverse = 1 - t;
+  return point(
+    inverse ** 3 * start.x +
+      3 * inverse ** 2 * t * first.x +
+      3 * inverse * t ** 2 * second.x +
+      t ** 3 * end.x,
+    inverse ** 3 * start.y +
+      3 * inverse ** 2 * t * first.y +
+      3 * inverse * t ** 2 * second.y +
+      t ** 3 * end.y,
+  );
+}
+
+function distanceToSegment(value: FlowPoint, start: FlowPoint, end: FlowPoint): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(value.x - start.x, value.y - start.y);
+  const ratio = Math.max(
+    0,
+    Math.min(1, ((value.x - start.x) * dx + (value.y - start.y) * dy) / lengthSquared),
+  );
+  return Math.hypot(value.x - (start.x + ratio * dx), value.y - (start.y + ratio * dy));
+}
+
+/**
+ * Accepts a gesture that began at either end, but always publishes the semantic control edge as
+ * output -> input. Drag direction never changes C control-flow direction or edge kind.
+ */
+export function canonicalizeFlowCanvasWireEndpoints(
+  first: FlowCanvasWireEndpoint,
+  second: FlowCanvasWireEndpoint,
+): FlowCanvasCanonicalWireConnection | null {
+  if (
+    first.channel !== "control" ||
+    second.channel !== "control" ||
+    first.direction === second.direction
+  ) {
+    return null;
+  }
+  const from = first.direction === "output" ? first : second;
+  const to = first.direction === "input" ? first : second;
+  if (from.edgeKind === null) return null;
+  return Object.freeze({ from, to, edgeKind: from.edgeKind });
+}
+
+function wireEndpoint(
+  source: FlowCanvasWireEndpoint["source"],
+  nodeId: string,
+  port: FlowPort | FlowCanvasDraftPort,
+): FlowCanvasWireEndpoint {
+  return Object.freeze({
+    source,
+    nodeId,
+    portId: port.id,
+    direction: port.direction,
+    channel: port.channel,
+    edgeKind: port.edgeKind,
+  });
+}
+
+function virtualEndpoint(endpoint: FlowCanvasWireEndpoint): FlowCanvasVirtualEndpoint {
+  return Object.freeze({
+    source: endpoint.source === "projection" ? "projection" : "virtual",
+    nodeId: endpoint.nodeId,
+    portId: endpoint.portId,
+  });
+}
+
 export function createFlowCanvasDraftConnectionIntent(
   projection: FlowProjection,
   draftNode: FlowCanvasDraftNode,
@@ -1476,7 +2263,11 @@ export function createFlowCanvasDraftConnectionIntent(
   });
 }
 
-function renderNode(ownerDocument: Document, node: FlowNode): HTMLElement {
+function renderNode(
+  ownerDocument: Document,
+  node: FlowNode,
+  edges: readonly FlowEdge[],
+): HTMLElement {
   const element = ownerDocument.createElement("article");
   element.className = "flow-node";
   element.dataset.flowNodeId = node.id;
@@ -1512,11 +2303,17 @@ function renderNode(ownerDocument: Document, node: FlowNode): HTMLElement {
     portElement.dataset.channel = port.channel;
     portElement.dataset.editable = String(port.editable);
     portElement.dataset.fanOut = String(port.allowsFanOut);
+    const connected = edges.some((edge) =>
+      port.direction === "output"
+        ? edge.from.nodeId === node.id && edge.from.portId === port.id
+        : edge.to.nodeId === node.id && edge.to.portId === port.id,
+    );
+    portElement.dataset.connected = String(connected);
     // Read-only CFG outputs may still be used as playback-overlay anchors. Dropping them on
     // another projected node remains blocked; only virtual nodes accept these anchors.
     portElement.disabled = !port.editable && port.direction !== "output";
     portElement.setAttribute("aria-label", `${node.label}：${port.label}`);
-    portElement.title = port.label;
+    portElement.title = connected ? `${port.label} · 拖动可改接` : port.label;
     element.append(portElement);
   }
   if (node.lockReasons.length > 0) {
@@ -1644,6 +2441,36 @@ function renderDefaultDraftDetail(
   save.addEventListener("click", () => onSave(textarea.value));
   editor.append(editorTitle, textarea, save);
   body.append(meta, lifecycle, ports, editor);
+}
+
+function createMinimap(ownerDocument: Document) {
+  const root = ownerDocument.createElement("aside");
+  root.className = "flow-minimap";
+  root.dataset.flowMinimap = "true";
+  root.dataset.collapsed = "false";
+  root.setAttribute("aria-label", "画布概览");
+  const toggle = ownerDocument.createElement("button");
+  toggle.className = "flow-minimap__toggle";
+  toggle.type = "button";
+  toggle.dataset.flowMinimapToggle = "true";
+  toggle.textContent = "概览";
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.setAttribute("aria-label", "收起画布概览");
+  const svg = ownerDocument.createElementNS(SVG_NAMESPACE, "svg");
+  svg.classList.add("flow-minimap__map");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "节点、运行路径与当前视口");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const edges = ownerDocument.createElementNS(SVG_NAMESPACE, "g");
+  edges.classList.add("flow-minimap__edges");
+  const nodes = ownerDocument.createElementNS(SVG_NAMESPACE, "g");
+  nodes.classList.add("flow-minimap__nodes");
+  const viewport = ownerDocument.createElementNS(SVG_NAMESPACE, "rect");
+  viewport.classList.add("flow-minimap__viewport");
+  viewport.dataset.flowMinimapViewport = "true";
+  svg.append(edges, nodes, viewport);
+  root.append(toggle, svg);
+  return { root, toggle, svg, edges, nodes, viewport };
 }
 
 function createDetailWindow(ownerDocument: Document) {
@@ -1835,12 +2662,19 @@ function renderMarquee(root: HTMLElement, element: HTMLElement, gesture: Marquee
   element.style.height = `${String(bounds.bottom - bounds.top)}px`;
 }
 
-interface Bounds {
+export interface FlowCanvasBounds {
   readonly left: number;
   readonly top: number;
   readonly right: number;
   readonly bottom: number;
 }
+
+export interface FlowCanvasSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+type Bounds = FlowCanvasBounds;
 
 function normalizedBounds(from: FlowPoint, to: FlowPoint): Bounds {
   return {
@@ -1860,6 +2694,129 @@ function rectanglesIntersect(left: Bounds, right: Bounds): boolean {
   );
 }
 
+export function fitFlowCanvasViewport(
+  bounds: FlowCanvasBounds,
+  canvas: FlowCanvasSize,
+  padding = VIEWPORT_FIT_PADDING,
+  maximumZoom = 1.5,
+): FlowViewState["viewport"] {
+  if (
+    !isFiniteBounds(bounds) ||
+    !Number.isFinite(canvas.width) ||
+    !Number.isFinite(canvas.height) ||
+    canvas.width <= 0 ||
+    canvas.height <= 0 ||
+    !Number.isFinite(padding) ||
+    padding < 0 ||
+    !Number.isFinite(maximumZoom) ||
+    maximumZoom <= 0
+  ) {
+    throw new TypeError("画布适配需要有限边界、正尺寸、非负留白与正缩放上限");
+  }
+  const contentWidth = Math.max(1, bounds.right - bounds.left);
+  const contentHeight = Math.max(1, bounds.bottom - bounds.top);
+  const availableWidth = Math.max(1, canvas.width - padding * 2);
+  const availableHeight = Math.max(1, canvas.height - padding * 2);
+  const zoom = clamp(
+    Math.min(availableWidth / contentWidth, availableHeight / contentHeight, maximumZoom),
+    MIN_ZOOM,
+    MAX_ZOOM,
+  );
+  const centerX = (bounds.left + bounds.right) / 2;
+  const centerY = (bounds.top + bounds.bottom) / 2;
+  return Object.freeze({
+    x: canvas.width / 2 - centerX * zoom,
+    y: canvas.height / 2 - centerY * zoom,
+    zoom,
+  });
+}
+
+function canvasPixelSize(element: HTMLElement): FlowCanvasSize {
+  const bounds = element.getBoundingClientRect();
+  return {
+    width: Math.max(1, element.clientWidth || bounds.width || 1),
+    height: Math.max(1, element.clientHeight || bounds.height || 1),
+  };
+}
+
+function visibleWorldBounds(state: FlowViewState, canvas: FlowCanvasSize): Bounds {
+  return {
+    left: -state.viewport.x / state.viewport.zoom,
+    top: -state.viewport.y / state.viewport.zoom,
+    right: (canvas.width - state.viewport.x) / state.viewport.zoom,
+    bottom: (canvas.height - state.viewport.y) / state.viewport.zoom,
+  };
+}
+
+function flowItemBounds(
+  projection: FlowProjection | null,
+  state: FlowViewState,
+  drafts: FlowCanvasDraftVisualState | null,
+): Bounds | null {
+  const positions = [
+    ...(projection?.nodes ?? []).map((node) => state.positions[node.id] ?? node.defaultPosition),
+    ...(drafts?.nodes ?? []).map((node) => node.position),
+  ];
+  return positionsToBounds(positions);
+}
+
+function selectedItemBounds(
+  projection: FlowProjection | null,
+  state: FlowViewState,
+  drafts: FlowCanvasDraftVisualState | null,
+): Bounds | null {
+  const selectedNodes = new Set(state.selectedNodeIds);
+  const selectedDrafts = new Set(drafts?.selectedNodeIds ?? []);
+  const positions = [
+    ...(projection?.nodes ?? [])
+      .filter((node) => selectedNodes.has(node.id))
+      .map((node) => state.positions[node.id] ?? node.defaultPosition),
+    ...(drafts?.nodes ?? [])
+      .filter((node) => selectedDrafts.has(node.id))
+      .map((node) => node.position),
+  ];
+  return positionsToBounds(positions);
+}
+
+function positionsToBounds(positions: readonly FlowPoint[]): Bounds | null {
+  if (positions.length === 0) return null;
+  return {
+    left: Math.min(...positions.map((position) => position.x)),
+    top: Math.min(...positions.map((position) => position.y)),
+    right: Math.max(...positions.map((position) => position.x + NODE_WIDTH)),
+    bottom: Math.max(...positions.map((position) => position.y + NODE_HEIGHT)),
+  };
+}
+
+function unionBounds(left: Bounds, right: Bounds): Bounds {
+  return {
+    left: Math.min(left.left, right.left),
+    top: Math.min(left.top, right.top),
+    right: Math.max(left.right, right.right),
+    bottom: Math.max(left.bottom, right.bottom),
+  };
+}
+
+function expandBounds(bounds: Bounds, amount: number): Bounds {
+  return {
+    left: bounds.left - amount,
+    top: bounds.top - amount,
+    right: bounds.right + amount,
+    bottom: bounds.bottom + amount,
+  };
+}
+
+function isFiniteBounds(bounds: Bounds): boolean {
+  return (
+    Number.isFinite(bounds.left) &&
+    Number.isFinite(bounds.top) &&
+    Number.isFinite(bounds.right) &&
+    Number.isFinite(bounds.bottom) &&
+    bounds.right >= bounds.left &&
+    bounds.bottom >= bounds.top
+  );
+}
+
 function clientToWorld(
   root: HTMLElement,
   state: FlowViewState,
@@ -1871,6 +2828,35 @@ function clientToWorld(
     (clientX - bounds.left - state.viewport.x) / state.viewport.zoom,
     (clientY - bounds.top - state.viewport.y) / state.viewport.zoom,
   );
+}
+
+export function exceedsFlowCanvasDragThreshold(
+  start: FlowPoint,
+  current: FlowPoint,
+  threshold = NODE_DRAG_THRESHOLD,
+): boolean {
+  if (
+    !isFinitePoint(start) ||
+    !isFinitePoint(current) ||
+    !Number.isFinite(threshold) ||
+    threshold < 0
+  ) {
+    throw new TypeError("拖动阈值需要有限坐标与非负距离");
+  }
+  return Math.hypot(current.x - start.x, current.y - start.y) > threshold;
+}
+
+function focusPresetSearch(ownerDocument: Document): void {
+  const search = ownerDocument.querySelector<HTMLInputElement>(".block-palette__search");
+  if (search === null) return;
+  search.focus({ preventScroll: true });
+  search.select();
+}
+
+function dispatchCanvasEvent(target: HTMLElement, name: string, detail: unknown): void {
+  const CustomEventConstructor = target.ownerDocument.defaultView?.CustomEvent;
+  if (CustomEventConstructor === undefined) return;
+  target.dispatchEvent(new CustomEventConstructor(name, { bubbles: true, detail }));
 }
 
 function keyboardDelta(key: string, amount: number): FlowPoint | null {

@@ -67,6 +67,38 @@ describe("Documents workspace store", () => {
     },
   );
 
+  it("creates a workspace atomically with a validated initial source", async () => {
+    const store = createWorkspaceStore(rootPath);
+    const initialSource = [
+      "#include <stdio.h>",
+      "",
+      "int main(void) {",
+      '  printf("8\\n");',
+      "  return 0;",
+      "}",
+      "",
+    ].join("\n");
+
+    const created = await store.create({
+      kind: "sandbox",
+      title: "教程 · 扫描求最大值",
+      initialSource,
+    });
+    expect(created).toMatchObject({
+      status: "opened",
+      document: {
+        entry: { kind: "sandbox", revision: 0, byteLength: Buffer.byteLength(initialSource) },
+        source: initialSource,
+      },
+    });
+    if (created.status !== "opened") throw new Error("教学沙箱创建失败");
+
+    const directory = join(rootPath, "Sandboxes", created.document.entry.id);
+    expect(await readdir(directory)).toEqual(["entry.json", "main.c"]);
+    expect(await readFile(join(directory, "main.c"), "utf8")).toBe(initialSource);
+    await expect(store.open({ entryId: created.document.entry.id })).resolves.toEqual(created);
+  });
+
   it("opens and serializes concurrent saves with optimistic revision checks", async () => {
     const store = createWorkspaceStore(rootPath);
     const created = await store.create({ kind: "sandbox", title: "指针实验" });
@@ -98,6 +130,23 @@ describe("Documents workspace store", () => {
     await expect(store.create({ kind: "project", title: "\u0000hidden" })).resolves.toMatchObject({
       status: "failed",
       error: { code: "WORKSPACE_INVALID_TITLE" },
+    });
+    await expect(
+      store.create({ kind: "sandbox", title: "教程", initialSource: "bad\0source" }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_INVALID_SOURCE" },
+    });
+    await expect(
+      store.create({
+        kind: "sandbox",
+        title: "教程",
+        initialSource: "int main(void) {}",
+        extra: 1,
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_INVALID_REQUEST" },
     });
     await expect(store.open({ entryId: "../../outside" })).resolves.toMatchObject({
       status: "failed",
@@ -203,6 +252,71 @@ describe("Documents workspace store", () => {
     ).resolves.toMatchObject({
       status: "failed",
       error: { code: "WORKSPACE_INVALID_REQUEST" },
+    });
+  });
+
+  it("persists bounded tutorial progress and rejects stale revisions", async () => {
+    const store = createWorkspaceStore(rootPath);
+    const created = await store.create({ kind: "sandbox", title: "教学进度" });
+    if (created.status !== "opened") throw new Error("教学沙箱创建失败");
+    const entryId = created.document.entry.id;
+    const serialized = JSON.stringify({
+      schemaVersion: 1,
+      lessonId: "first-algorithm.maximum",
+      missionIndex: 1,
+      satisfiedRequirementIds: ["run.normal.exit", "run.normal.stdout"],
+    });
+
+    const saved = await store.saveSidecar({
+      entryId,
+      kind: "tutorial-progress",
+      expectedRevision: null,
+      sourceFingerprint: "lesson-source:v1",
+      serialized,
+    });
+    expect(saved).toMatchObject({
+      status: "saved",
+      document: {
+        kind: "tutorial-progress",
+        revision: 0,
+        sourceFingerprint: "lesson-source:v1",
+        serialized,
+      },
+    });
+    if (saved.status !== "saved") throw new Error("教学进度保存失败");
+    await expect(store.readSidecar({ entryId, kind: "tutorial-progress" })).resolves.toEqual({
+      status: "ready",
+      document: saved.document,
+    });
+    expect(
+      JSON.parse(
+        await readFile(join(rootPath, "Sandboxes", entryId, "tutorial-progress.json"), "utf8"),
+      ),
+    ).toMatchObject({ kind: "tutorial-progress", revision: 0, payload: JSON.parse(serialized) });
+
+    await expect(
+      store.saveSidecar({
+        entryId,
+        kind: "tutorial-progress",
+        expectedRevision: null,
+        sourceFingerprint: "lesson-source:v1",
+        serialized,
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_CONFLICT" },
+    });
+    await expect(
+      store.saveSidecar({
+        entryId,
+        kind: "tutorial-progress",
+        expectedRevision: 0,
+        sourceFingerprint: "lesson-source:v1",
+        serialized: JSON.stringify({ value: "x".repeat(512 * 1024) }),
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "WORKSPACE_SIDECAR_TOO_LARGE" },
     });
   });
 });

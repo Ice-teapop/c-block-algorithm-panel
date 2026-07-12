@@ -183,7 +183,8 @@ describe("WorkbenchModuleRegistry", () => {
     expect(snapshot.pages).toEqual([
       expect.objectContaining({ id: "dashboard", groupId: "home", order: 0 }),
       expect.objectContaining({ id: "build", groupId: "core", order: 10 }),
-      expect.objectContaining({ id: "block-library", groupId: "core", order: 20 }),
+      expect.objectContaining({ id: "analysis", groupId: "core", order: 20 }),
+      expect.objectContaining({ id: "block-library", groupId: "core", order: 30 }),
       expect.objectContaining({ id: "explanation", groupId: "inspect", order: 10 }),
       expect.objectContaining({ id: "edit", groupId: "inspect", order: 20 }),
       expect.objectContaining({ id: "run", groupId: "execute", order: 10 }),
@@ -191,14 +192,13 @@ describe("WorkbenchModuleRegistry", () => {
     ]);
     expect(snapshot.dockMenus.map(({ id, label }) => ({ id, label }))).toEqual([
       { id: "settings", label: "设置" },
-      { id: "presets", label: "预设块" },
+      { id: "presets", label: "积木" },
       { id: "library", label: "Library" },
-      { id: "panels", label: "面板预览" },
+      { id: "panels", label: "布局" },
     ]);
     expect(snapshot.panels.map(({ id }) => id)).toEqual([
       "flow",
       "metrics",
-      "diagnostics",
       "ai-hints",
       "canvas",
       "library",
@@ -214,7 +214,7 @@ describe("WorkbenchModuleRegistry", () => {
       "analyze",
       "minimal",
     ]);
-    expect(snapshot.dockMenus.flatMap(({ branches }) => branches)).toHaveLength(46);
+    expect(snapshot.dockMenus.flatMap(({ branches }) => branches)).toHaveLength(20);
     expect(
       registry.findModulesByCapability("inspector.editing").map(({ manifest }) => manifest.id),
     ).toEqual(["builtin.inspector.editing"]);

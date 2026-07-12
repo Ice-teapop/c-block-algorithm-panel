@@ -101,7 +101,7 @@ export function createScenarioPanel(
   heading.textContent = "案例与分支执行";
   const boundary = ownerDocument.createElement("span");
   boundary.className = "scenario-panel__boundary";
-  boundary.textContent = "本地输入 · 真实/模拟隔离";
+  boundary.textContent = "本地执行";
   header.append(heading, boundary);
 
   const scenarioField = field(ownerDocument, "案例");
@@ -139,18 +139,20 @@ export function createScenarioPanel(
   branchHelp.setAttribute("aria-live", "polite");
   branchField.control.append(branchSelect, branchHelp);
 
-  const preview = ownerDocument.createElement("section");
+  const preview = ownerDocument.createElement("details");
   preview.className = "scenario-panel__preview";
+  const previewSummary = ownerDocument.createElement("summary");
+  previewSummary.textContent = "输入与预期输出";
   const description = ownerDocument.createElement("p");
   description.className = "scenario-panel__description";
   const stdin = previewValue(ownerDocument, "stdin", "scenario-panel__stdin");
   const argumentsPreview = previewValue(ownerDocument, "args", "scenario-panel__args");
   const expected = previewValue(ownerDocument, "expected stdout", "scenario-panel__expected");
-  preview.append(description, stdin.group, argumentsPreview.group, expected.group);
+  preview.append(previewSummary, description, stdin.group, argumentsPreview.group, expected.group);
 
   const actionRow = ownerDocument.createElement("div");
   actionRow.className = "scenario-panel__actions";
-  const realButton = actionButton(ownerDocument, "真实运行", "scenario-panel__run-real");
+  const realButton = actionButton(ownerDocument, "运行", "scenario-panel__run-real");
   const simulationButton = actionButton(
     ownerDocument,
     "教学模拟",
@@ -158,12 +160,17 @@ export function createScenarioPanel(
   );
   simulationButton.dataset.mode = "teaching-simulation";
   simulationButton.title = "模拟只用于教学，不产生真实性能或输出结论";
-  actionRow.append(realButton, simulationButton);
+  actionRow.append(realButton);
 
-  const benchmark = ownerDocument.createElement("section");
+  const advanced = ownerDocument.createElement("details");
+  advanced.className = "scenario-panel__advanced";
+  const advancedSummary = ownerDocument.createElement("summary");
+  advancedSummary.textContent = "更多运行方式";
+
+  const benchmark = ownerDocument.createElement("details");
   benchmark.className = "scenario-panel__benchmark";
-  const benchmarkHeading = ownerDocument.createElement("h3");
-  benchmarkHeading.textContent = "Benchmark";
+  const benchmarkSummary = ownerDocument.createElement("summary");
+  benchmarkSummary.textContent = "Benchmark（高级）";
   const benchmarkSizes = ownerDocument.createElement("div");
   benchmarkSizes.className = "scenario-panel__benchmark-sizes";
   const repetitionLabel = ownerDocument.createElement("label");
@@ -185,17 +192,19 @@ export function createScenarioPanel(
   benchmarkHelp.className = "scenario-panel__benchmark-help";
   benchmarkHelp.setAttribute("aria-live", "polite");
   benchmark.append(
-    benchmarkHeading,
+    benchmarkSummary,
     benchmarkSizes,
     repetitionLabel,
     benchmarkButton,
     benchmarkHelp,
   );
+  advanced.append(advancedSummary, simulationButton, benchmark);
 
   const status = ownerDocument.createElement("output");
   status.className = "scenario-panel__status";
   status.setAttribute("aria-live", "polite");
   status.textContent = "等待运行";
+  status.hidden = true;
 
   root.append(
     header,
@@ -204,7 +213,7 @@ export function createScenarioPanel(
     branchField.root,
     preview,
     actionRow,
-    benchmark,
+    advanced,
     status,
   );
   host.replaceChildren(root);
@@ -237,6 +246,7 @@ export function createScenarioPanel(
   };
 
   const renderBranchTargets = (): void => {
+    branchField.root.hidden = branchTargets.length === 0;
     branchSelect.replaceChildren();
     const automatic = ownerDocument.createElement("option");
     automatic.value = "";
@@ -300,6 +310,7 @@ export function createScenarioPanel(
     simulationButton.disabled = value;
     updateBenchmarkStatus();
     status.textContent = message;
+    status.hidden = false;
   };
 
   const targetSelection = (): ScenarioBranchSelection | null => {
@@ -467,10 +478,12 @@ export function createScenarioPanel(
     try {
       api.setSize(parsed);
       status.textContent = "输入规模已更新";
+      status.hidden = false;
       root.dataset.state = "ready";
     } catch (error) {
       sizeInput.value = String(size);
       status.textContent = `输入规模无效：${toErrorMessage(error)}`;
+      status.hidden = false;
       root.dataset.state = "error";
     }
   });
@@ -482,6 +495,7 @@ export function createScenarioPanel(
     } catch (error) {
       repetitionInput.value = String(benchmarkRepetitions);
       status.textContent = `重复次数无效：${toErrorMessage(error)}`;
+      status.hidden = false;
       root.dataset.state = "error";
     }
   });

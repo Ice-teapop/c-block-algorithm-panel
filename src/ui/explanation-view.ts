@@ -25,6 +25,7 @@ export function renderExplanationView(
   analysis?: ProgramAnalysisSnapshot | null,
 ): void {
   const ownerDocument = host.ownerDocument;
+  host.className = "explanation";
   host.replaceChildren();
 
   if (sourceDocument === null || block === null) {

@@ -5,8 +5,15 @@ import type {
 } from "../learning/index.js";
 
 export type LearningStageFilter = "all" | string;
+export interface BlockPaletteCompatibilityFilter {
+  readonly direction: "input" | "output";
+  readonly channel: "control" | "data";
+}
 export type BlockPaletteCategory =
   | "all"
+  | "search"
+  | "flow-c-basics"
+  | "data-memory"
   | "recent-favorites"
   | "flow-control"
   | "c-basics"
@@ -32,6 +39,8 @@ export interface BlockPalette {
   setCategory(category: BlockPaletteCategory): void;
   getCategory(): BlockPaletteCategory;
   setInsertEnabled(enabled: boolean): void;
+  setCompatibilityFilter(filter: BlockPaletteCompatibilityFilter | null): void;
+  focusSearch(): void;
   destroy(): void;
 }
 
@@ -40,6 +49,7 @@ export function filterLearningTemplates(
   stageId: LearningStageFilter,
   query: string,
   category: BlockPaletteCategory = "all",
+  compatibility: BlockPaletteCompatibilityFilter | null = null,
 ): readonly CatalogPresetBlock[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
   return Object.freeze(
@@ -47,6 +57,15 @@ export function filterLearningTemplates(
       if (template.lifecycle !== "active") return false;
       if (stageId !== "all" && template.stage !== stageId) return false;
       if (!matchesCategory(template, category)) return false;
+      if (
+        compatibility !== null &&
+        !template.ports.some(
+          (port) =>
+            port.direction === compatibility.direction && port.channel === compatibility.channel,
+        )
+      ) {
+        return false;
+      }
       if (normalizedQuery.length === 0) return true;
       return [template.label, template.description, template.category, template.source ?? ""].some(
         (value) => value.toLocaleLowerCase("zh-CN").includes(normalizedQuery),
@@ -93,6 +112,7 @@ export function createBlockPalette(
   let stageId: LearningStageFilter = "all";
   let category: BlockPaletteCategory = "all";
   let insertEnabled = false;
+  let compatibility: BlockPaletteCompatibilityFilter | null = null;
   let visibleTemplates = new Map<string, CatalogPresetBlock>();
   let activeDragSurface: HTMLElement | null = null;
 
@@ -108,8 +128,16 @@ export function createBlockPalette(
     finishActiveDrag();
     const snapshot = catalog.snapshot();
     renderStageOptions(stageSelect, snapshot, stageId);
-    const templates = filterLearningTemplates(snapshot, stageId, search.value, category);
+    const templates = filterLearningTemplates(
+      snapshot,
+      stageId,
+      search.value,
+      category,
+      compatibility,
+    );
     root.dataset.category = category;
+    root.dataset.compatibility =
+      compatibility === null ? "all" : `${compatibility.channel}-${compatibility.direction}`;
     visibleTemplates = new Map(templates.map((template) => [template.id, template]));
     list.replaceChildren();
     if (templates.length === 0) {
@@ -190,6 +218,7 @@ export function createBlockPalette(
       }
       category = nextCategory;
       stageId = "all";
+      compatibility = null;
       render();
     },
     getCategory: () => category,
@@ -202,6 +231,26 @@ export function createBlockPalette(
       )) {
         button.disabled = !enabled;
       }
+    },
+    setCompatibilityFilter(filter: BlockPaletteCompatibilityFilter | null): void {
+      assertActive(destroyed);
+      if (
+        filter !== null &&
+        ((filter.direction !== "input" && filter.direction !== "output") ||
+          (filter.channel !== "control" && filter.channel !== "data"))
+      ) {
+        throw new TypeError("积木兼容筛选无效");
+      }
+      compatibility = filter === null ? null : Object.freeze({ ...filter });
+      category = "search";
+      stageId = "all";
+      search.value = "";
+      render();
+    },
+    focusSearch(): void {
+      assertActive(destroyed);
+      search.focus({ preventScroll: true });
+      search.select();
     },
     destroy(): void {
       if (destroyed) return;
@@ -221,6 +270,9 @@ export function createBlockPalette(
 
 const BLOCK_PALETTE_CATEGORIES = new Set<BlockPaletteCategory>([
   "all",
+  "search",
+  "flow-c-basics",
+  "data-memory",
   "recent-favorites",
   "flow-control",
   "c-basics",
@@ -234,11 +286,39 @@ const BLOCK_PALETTE_CATEGORIES = new Set<BlockPaletteCategory>([
 ]);
 
 function matchesCategory(template: CatalogPresetBlock, category: BlockPaletteCategory): boolean {
-  if (category === "all" || category === "recent-favorites") return true;
+  if (category === "all" || category === "search" || category === "recent-favorites") return true;
   if (category === "custom-lifecycle") return template.origin === "custom";
+  if (category === "flow-c-basics") {
+    return (
+      [
+        "flow-control",
+        "control",
+        "c-basics",
+        "declaration",
+        "assignment",
+        "functions-io",
+        "function-call",
+        "function-control",
+        "io",
+      ].includes(template.category) || template.blockKind === "virtual"
+    );
+  }
+  if (category === "data-memory") {
+    return [
+      "arrays-strings",
+      "array",
+      "pointers-memory",
+      "data-structures",
+      "linear-structure",
+      "tree",
+    ].includes(template.category);
+  }
   const groups: Readonly<
     Record<
-      Exclude<BlockPaletteCategory, "all" | "recent-favorites" | "custom-lifecycle">,
+      Exclude<
+        BlockPaletteCategory,
+        "all" | "search" | "flow-c-basics" | "data-memory" | "recent-favorites" | "custom-lifecycle"
+      >,
       readonly string[]
     >
   > = {

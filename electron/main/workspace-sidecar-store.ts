@@ -25,11 +25,13 @@ const SIDECAR_FILES: Readonly<Record<WorkspaceSidecarKind, string>> = Object.fre
   "flow-view": "flow-view.json",
   scenarios: "scenarios.json",
   "run-history": "run-history.json",
+  "tutorial-progress": "tutorial-progress.json",
 });
 const SIDECAR_MAX_BYTES: Readonly<Record<WorkspaceSidecarKind, number>> = Object.freeze({
   "flow-view": 1024 * 1024,
   scenarios: 1024 * 1024,
   "run-history": 4 * 1024 * 1024,
+  "tutorial-progress": 512 * 1024,
 });
 const SIDECAR_FILE_OVERHEAD_BYTES = 2048;
 const SOURCE_FINGERPRINT_MAX_LENGTH = 128;
@@ -291,10 +293,15 @@ function validateSaveRequest(
     request.sourceFingerprint.length === 0 ||
     request.sourceFingerprint.length > SOURCE_FINGERPRINT_MAX_LENGTH ||
     request.sourceFingerprint.includes("\0") ||
-    typeof request.serialized !== "string" ||
-    Buffer.byteLength(request.serialized, "utf8") > SIDECAR_MAX_BYTES[request.kind]
+    typeof request.serialized !== "string"
   ) {
     return { ok: false, failure: invalidSidecar("sidecar 保存请求无效。") };
+  }
+  if (Buffer.byteLength(request.serialized, "utf8") > SIDECAR_MAX_BYTES[request.kind]) {
+    return {
+      ok: false,
+      failure: workspaceFailure("WORKSPACE_SIDECAR_TOO_LARGE", "sidecar 超过本地存储上限。"),
+    };
   }
   return {
     ok: true,

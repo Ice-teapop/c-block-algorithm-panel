@@ -135,6 +135,44 @@ describe("flow draft safe connection planning", () => {
       expect(plan).toEqual(expect.objectContaining({ status: "rejected", code: "invalid-draft" }));
     }
   });
+
+  it("anchors direct edge insertion to one exact editable next edge", () => {
+    const fixture = analyzeFixture(
+      parser,
+      "int f(void) {\n  int value = 1;\n  return value;\n}\n",
+    );
+    const target = nodeBySource(fixture.projection, "return value;");
+    const edge = fixture.projection.edges.find(
+      (candidate) => candidate.to.nodeId === target.id && candidate.kind === "next",
+    );
+    if (edge === undefined) throw new Error("fixture 缺少可插入 next 边");
+    const base = draftIntent(fixture.projection, target, "value++;");
+    const intent = Object.freeze({
+      ...base,
+      insertOnEdge: Object.freeze({
+        edgeId: edge.id,
+        fromNodeId: edge.from.nodeId,
+        fromPortId: edge.from.portId,
+        toNodeId: edge.to.nodeId,
+        toPortId: edge.to.portId,
+        edgeKind: edge.kind,
+      }),
+    });
+    const accepted = planFlowDraftConnection({ ...fixture, intent });
+    expect(accepted).toMatchObject({ status: "accepted" });
+    if (accepted.status === "accepted") {
+      expect(accepted.requiredPostconditions).toContain("cfg-edge-insertion");
+    }
+    expect(
+      planFlowDraftConnection({
+        ...fixture,
+        intent: Object.freeze({
+          ...intent,
+          insertOnEdge: Object.freeze({ ...intent.insertOnEdge, edgeId: "stale-edge" }),
+        }),
+      }),
+    ).toMatchObject({ status: "rejected", code: "stale-edge" });
+  });
 });
 
 interface Fixture extends Omit<FlowDraftConnectionPlanningInput, "intent"> {}

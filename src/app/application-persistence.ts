@@ -15,6 +15,7 @@ export interface ApplicationPersistenceOptions {
   readonly workspace: WorkspaceState;
   readonly flow: FlushableState;
   readonly runtime: FlushableState;
+  readonly guidedLesson?: FlushableState | undefined;
   readonly getCatalog: () => LoadedLearningCatalogStorage | null;
   readonly onCloseRequested: (handler: () => Promise<void>) => () => void;
   readonly destroy: () => void;
@@ -30,6 +31,7 @@ export function installApplicationPersistence(
           options.workspace.hasUnsavedChanges ||
           options.flow.hasPendingChanges ||
           options.runtime.hasPendingChanges ||
+          options.guidedLesson?.hasPendingChanges === true ||
           options.getCatalog()?.hasPendingChanges === true
         );
       },
@@ -38,6 +40,7 @@ export function installApplicationPersistence(
           options.workspace.flush(),
           options.flow.flush(),
           options.runtime.flush(),
+          options.guidedLesson?.flush(),
           options.getCatalog()?.flush(),
         ]);
       },

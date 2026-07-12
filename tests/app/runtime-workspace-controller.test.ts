@@ -7,6 +7,7 @@ import type {
 } from "../../src/mentor/index.js";
 import {
   createRuntimeWorkspaceController,
+  type RuntimeLearningObservation,
   type RuntimeWorkspaceControllerOptions,
 } from "../../src/app/runtime-workspace-controller.js";
 import { textRange } from "../../src/core/index.js";
@@ -49,6 +50,7 @@ describe("runtime workspace controller", () => {
     expect(harness.paths.at(-1)).toMatchObject({ mode: "simulation" });
     expect(harness.paths.at(-1)?.nodeIds.length).toBeGreaterThan(0);
     expect(harness.saved.some((request) => request.kind === "run-history")).toBe(false);
+    expect(harness.learningObservations).toEqual([]);
     await harness.controller.destroy();
   });
 
@@ -67,6 +69,30 @@ describe("runtime workspace controller", () => {
     expect(harness.api.run).toHaveBeenCalledWith(
       expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
     );
+    expect(harness.learningObservations.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        type: "trace-completed",
+        workspaceId: "project-a",
+        sourceFingerprint: FINGERPRINT,
+        scenarioId: "scenario.test.branch",
+        scenarioVersion: "1.0.0",
+        size: 1,
+        mapped: true,
+        truncated: false,
+        branchKinds: ["branch-true"],
+      }),
+      expect.objectContaining({
+        type: "run-completed",
+        workspaceId: "project-a",
+        sourceFingerprint: FINGERPRINT,
+        stdout: "positive\n",
+        expectedStdout: "positive\n",
+        expectedMatch: true,
+        exitCode: 0,
+        termination: "process-exit",
+        historyDisposition: "success",
+      }),
+    ]);
     harness.controller.scenario.selectTargetBranch("edge.true");
     expect(() => harness.controller.scenario.selectTargetBranch("edge.false")).toThrow(
       /尚未由真实 Trace/u,
@@ -108,6 +134,62 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
+  it("reports a wrong real output as teaching evidence before rejecting history", async () => {
+    const harness = setup({ runStdout: "wrong\n" });
+    await harness.controller.setWorkspaceEntry("tutorial-a", FINGERPRINT);
+
+    const run = harness.controller.scenario.runReal();
+    await driveTrace(harness.scheduler);
+    await expect(run).rejects.toThrow(/期望不一致/u);
+
+    expect(harness.learningObservations).toEqual([
+      expect.objectContaining({
+        type: "trace-completed",
+        workspaceId: "tutorial-a",
+        branchKinds: ["branch-true"],
+      }),
+      expect.objectContaining({
+        type: "run-completed",
+        workspaceId: "tutorial-a",
+        ok: true,
+        stdout: "wrong\n",
+        expectedStdout: "positive\n",
+        expectedMatch: false,
+        historyDisposition: "teaching-failure",
+      }),
+    ]);
+    await harness.controller.flush();
+    expect(harness.saved.some((request) => request.kind === "run-history")).toBe(false);
+    await harness.controller.destroy();
+  });
+
+  it("reports a fully mapped Trace started directly from the Trace panel", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("tutorial-trace", FINGERPRINT);
+
+    findElement(
+      harness.elements.traceHost,
+      (element) => element.textContent === "观察路径",
+    ).click();
+    await driveTrace(harness.scheduler);
+    await waitFor(() => harness.learningObservations.length === 1);
+
+    expect(harness.learningObservations).toEqual([
+      expect.objectContaining({
+        type: "trace-completed",
+        workspaceId: "tutorial-trace",
+        sourceFingerprint: FINGERPRINT,
+        scenarioId: "scenario.test.branch",
+        scenarioVersion: "1.0.0",
+        size: 1,
+        branchKinds: ["branch-true"],
+      }),
+    ]);
+    expect(harness.api.compile).not.toHaveBeenCalled();
+    expect(harness.api.run).not.toHaveBeenCalled();
+    await harness.controller.destroy();
+  });
+
   it("stops a real benchmark immediately after the source changes", async () => {
     const secondCompile = deferred<CompileResult>();
     const harness = setup({ deferCompileCall: 2, deferredCompile: secondCompile });
@@ -145,6 +227,7 @@ describe("runtime workspace controller", () => {
 
 interface SetupOptions {
   readonly traceBranches?: readonly boolean[];
+  readonly runStdout?: string;
   readonly deferCompileCall?: number;
   readonly deferredCompile?: Deferred<CompileResult>;
   readonly damagedScenarioSidecar?: boolean;
@@ -156,6 +239,7 @@ function setup(config: SetupOptions = {}) {
   const scheduler = new FakeScheduler();
   const source = { value: SOURCE };
   const paths: FlowCanvasActivePath[] = [];
+  const learningObservations: RuntimeLearningObservation[] = [];
   const saved: Array<{ kind: string; serialized: string }> = [];
   const traceBranches = [...(config.traceBranches ?? [true])];
   const traceSessions = new Map<string, { branch: boolean; reads: number }>();
@@ -172,7 +256,7 @@ function setup(config: SetupOptions = {}) {
       return successfulCompile(`artifact-${String(compileCalls)}`);
     }),
     run: vi.fn(async (request: { stdin?: string }) =>
-      successfulRun(expectedForInput(request.stdin)),
+      successfulRun(config.runStdout ?? expectedForInput(request.stdin)),
     ),
     startTrace: vi.fn(async (request: { sourceFingerprint: string }) => {
       const sessionId = `trace-${String(++nextSession)}`;
@@ -247,6 +331,7 @@ function setup(config: SetupOptions = {}) {
     onSetActivePath: (path) => paths.push(path),
     onFocusNode: vi.fn(),
     onRevealRange: vi.fn(),
+    onLearningObservation: (observation) => learningObservations.push(observation),
     scenarioProvider: provider(),
     traceScheduler: scheduler,
     tracePollIntervalMs: 50,
@@ -259,6 +344,7 @@ function setup(config: SetupOptions = {}) {
     scheduler,
     source,
     paths,
+    learningObservations,
     saved,
   };
 }
@@ -555,6 +641,7 @@ function workbenchElements(document: FakeDocument) {
     traceHost: document.createElement("div"),
     metricsHost: document.createElement("div"),
     mentorHost: document.createElement("div"),
+    analysisHost: document.createElement("div"),
     runHost: document.createElement("div"),
   };
   return {
@@ -567,6 +654,10 @@ class FakeDocument {
   createElement(tagName: string): FakeElement {
     return new FakeElement(this, tagName);
   }
+
+  createElementNS(_namespace: string, tagName: string): FakeElement {
+    return new FakeElement(this, tagName);
+  }
 }
 
 class FakeElement {
@@ -574,6 +665,8 @@ class FakeElement {
   readonly dataset: Record<string, string> = {};
   readonly attributes = new Map<string, string>();
   readonly listeners = new Map<string, Set<() => void>>();
+  readonly classList = { add: (..._tokens: string[]) => undefined };
+  readonly style = { setProperty: (_name: string, _value: string) => undefined };
   parent: FakeElement | null = null;
   className = "";
   textContent = "";
@@ -617,6 +710,10 @@ class FakeElement {
     this.listeners.get(type)?.delete(listener);
   }
 
+  click(): void {
+    for (const listener of this.listeners.get("click") ?? []) listener();
+  }
+
   cloneNode(deep: boolean): FakeElement {
     const clone = new FakeElement(this.ownerDocument, this.tagName);
     clone.className = this.className;
@@ -631,4 +728,25 @@ class FakeElement {
     if (index >= 0) this.parent.children.splice(index, 1);
     this.parent = null;
   }
+
+  replaceWith(replacement: FakeElement): void {
+    if (this.parent === null) return;
+    const index = this.parent.children.indexOf(this);
+    if (index < 0) return;
+    replacement.parent = this.parent;
+    this.parent.children.splice(index, 1, replacement);
+    this.parent = null;
+  }
+}
+
+function findElement(root: FakeElement, predicate: (element: FakeElement) => boolean): FakeElement {
+  if (predicate(root)) return root;
+  for (const child of root.children) {
+    try {
+      return findElement(child, predicate);
+    } catch {
+      // Continue searching the remaining descendants.
+    }
+  }
+  throw new Error("element not found");
 }

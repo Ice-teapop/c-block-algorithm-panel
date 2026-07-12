@@ -67,10 +67,43 @@ export interface FlowWorkbenchControllerOptions {
   readonly onConnectionIntent: (intent: ConnectionIntent) => boolean;
   readonly resolvePreset: (presetId: string) => ResolvedFlowPreset | null;
   readonly onDraftConnectionIntent: (intent: FlowCanvasDraftConnectionIntent) => boolean;
+  readonly onLearningObservation?: ((observation: FlowLearningObservation) => void) | undefined;
   readonly onSourceUndo: () => void;
   readonly onVirtualPlaybackNode?:
     ((node: FlowCanvasDraftNode, mode: FlowCanvasActivePath["mode"]) => void) | undefined;
   readonly onStatus: (message: string, state: "ready" | "warning" | "error") => void;
+}
+
+interface FlowLearningObservationBase {
+  readonly workspaceId: string;
+  readonly presetId: string;
+  /** Fingerprint after the source-backed preset has been committed. */
+  readonly sourceFingerprint: string;
+  readonly roundtripAccepted: true;
+  readonly cfgAccepted: true;
+}
+
+/**
+ * A narrow, post-commit adapter for guided lessons. These observations are never emitted for a
+ * detached draft or before the existing source reparse/roundtrip/CFG gate has returned success.
+ */
+export type FlowLearningObservation =
+  | (FlowLearningObservationBase & {
+      readonly type: "preset-inserted";
+      readonly committed: true;
+    })
+  | (FlowLearningObservationBase & {
+      readonly type: "connection-committed";
+    });
+
+export interface FlowLearningDraftCommitCandidate {
+  readonly workspaceId: string | null;
+  readonly beforeProjection: FlowProjection | null;
+  readonly intent: FlowCanvasDraftConnectionIntent;
+  readonly resultingSourceFingerprint: string;
+  readonly committed: boolean;
+  readonly roundtripAccepted: boolean;
+  readonly cfgAccepted: boolean;
 }
 
 interface ResolvedFlowPreset {
@@ -223,13 +256,24 @@ export function createFlowWorkbenchController(
       handleConnectionIntent(gesture);
     },
     onDraftConnectionIntent(intent) {
+      const beforeProjection = projection;
       const historyDepth = undoHistory.length;
       checkpoint(true);
       try {
-        if (!options.onDraftConnectionIntent(intent)) {
+        const committed = options.onDraftConnectionIntent(intent);
+        if (!committed) {
           undoHistory.splice(historyDepth);
           return;
         }
+        emitLearningObservations({
+          workspaceId: activeEntryId,
+          beforeProjection,
+          intent,
+          resultingSourceFingerprint: projection?.sourceFingerprint ?? "",
+          committed,
+          roundtripAccepted: true,
+          cfgAccepted: true,
+        });
         currentDraftState = Object.freeze({
           nodes: Object.freeze(
             currentDraftState.nodes.filter((node) => node.id !== intent.draftNodeId),
@@ -608,11 +652,20 @@ export function createFlowWorkbenchController(
     if (!event.dataTransfer?.types.includes("application/x-c-block-preset")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
+    const edge = canvas.findEditableControlEdgeAtClientPoint(event.clientX, event.clientY);
+    canvas.setEdgeInsertionPreview(edge?.id ?? null);
+  };
+  const onCanvasDragLeave = (event: DragEvent): void => {
+    const related = event.relatedTarget;
+    if (related !== null && options.elements.flowCanvas.contains(related as Node)) return;
+    canvas.setEdgeInsertionPreview(null);
   };
   const onCanvasDrop = (event: DragEvent): void => {
     const presetId = event.dataTransfer?.getData("application/x-c-block-preset") ?? "";
     if (presetId.length === 0) return;
     event.preventDefault();
+    const insertionEdge = canvas.findEditableControlEdgeAtClientPoint(event.clientX, event.clientY);
+    canvas.setEdgeInsertionPreview(null);
     const preset = options.resolvePreset(presetId);
     if (preset === null) {
       options.onStatus("拖入的预设已经失效；未创建草稿。", "error");
@@ -647,6 +700,53 @@ export function createFlowWorkbenchController(
       position,
       preset,
     );
+    if (insertionEdge !== null && preset.source !== null && preset.blockKind !== "virtual") {
+      const historyDepth = undoHistory.length;
+      checkpoint(true);
+      const intent: FlowCanvasDraftConnectionIntent = Object.freeze({
+        sourceFingerprint: projection?.sourceFingerprint ?? "",
+        draftNodeId: next.id,
+        draftPortId: `${next.id}:next`,
+        presetId: preset.id,
+        sourceText: preset.source,
+        toNodeId: insertionEdge.to.nodeId,
+        toPortId: insertionEdge.to.portId,
+        edgeKind: insertionEdge.kind,
+        insertOnEdge: Object.freeze({
+          edgeId: insertionEdge.id,
+          fromNodeId: insertionEdge.from.nodeId,
+          fromPortId: insertionEdge.from.portId,
+          toNodeId: insertionEdge.to.nodeId,
+          toPortId: insertionEdge.to.portId,
+          edgeKind: insertionEdge.kind,
+        }),
+      });
+      try {
+        const beforeProjection = projection;
+        const committed = options.onDraftConnectionIntent(intent);
+        if (!committed) {
+          undoHistory.splice(historyDepth);
+          options.onStatus("已取消插入；main.c 未修改。", "warning");
+          return;
+        }
+        emitLearningObservations({
+          workspaceId: activeEntryId,
+          beforeProjection,
+          intent,
+          resultingSourceFingerprint: projection?.sourceFingerprint ?? "",
+          committed,
+          roundtripAccepted: true,
+          cfgAccepted: true,
+        });
+        persist();
+        options.onStatus(`已把“${preset.label}”插入所选连线并通过 CFG 后置验证。`, "ready");
+      } catch (error: unknown) {
+        undoHistory.splice(historyDepth);
+        const detail = error instanceof Error ? error.message : String(error);
+        options.onStatus(`连线插入被拒绝：${detail}。main.c 未修改。`, "error");
+      }
+      return;
+    }
     checkpoint(false);
     currentDraftState = Object.freeze({
       nodes: Object.freeze([...currentDraftState.nodes, next]),
@@ -664,7 +764,22 @@ export function createFlowWorkbenchController(
     );
   };
   options.elements.flowCanvas.addEventListener("dragover", onCanvasDragOver);
+  options.elements.flowCanvas.addEventListener("dragleave", onCanvasDragLeave);
   options.elements.flowCanvas.addEventListener("drop", onCanvasDrop);
+
+  function emitLearningObservations(candidate: FlowLearningDraftCommitCandidate): void {
+    const observer = options.onLearningObservation;
+    if (observer === undefined) return;
+    for (const observation of flowLearningObservationsForDraftCommit(candidate)) {
+      try {
+        observer(observation);
+      } catch {
+        // Tutorial evidence is observational and must never turn a verified source commit into an
+        // apparent failure. The lesson coordinator can recover from the next source projection.
+      }
+    }
+  }
+
   return Object.freeze({
     get projection(): FlowProjection | null {
       return projection;
@@ -793,6 +908,7 @@ export function createFlowWorkbenchController(
         onRevealFlowDetail,
       );
       options.elements.flowCanvas.removeEventListener("dragover", onCanvasDragOver);
+      options.elements.flowCanvas.removeEventListener("dragleave", onCanvasDragLeave);
       options.elements.flowCanvas.removeEventListener("drop", onCanvasDrop);
       canvasToolbar.removeEventListener("click", onCanvasToolbarClick);
       persistence.destroy();
@@ -811,6 +927,68 @@ export function createFlowWorkbenchController(
       undoHistory.length = 0;
     },
   });
+}
+
+/**
+ * Converts one already-validated, source-backed preset connection into lesson evidence. The
+ * conservative checks here deliberately duplicate the important projection boundary so a stale,
+ * raw or partial canvas action cannot be counted even if a caller accidentally reports success.
+ */
+export function flowLearningObservationsForDraftCommit(
+  candidate: FlowLearningDraftCommitCandidate,
+): readonly FlowLearningObservation[] {
+  const { beforeProjection, intent } = candidate;
+  const presetId = intent.presetId;
+  if (
+    !candidate.committed ||
+    !candidate.roundtripAccepted ||
+    !candidate.cfgAccepted ||
+    candidate.workspaceId === null ||
+    candidate.workspaceId.length === 0 ||
+    beforeProjection === null ||
+    presetId === null ||
+    presetId.length === 0 ||
+    presetId.trim() !== presetId ||
+    intent.sourceText === null ||
+    intent.sourceText.trim().length === 0 ||
+    intent.sourceFingerprint !== beforeProjection.sourceFingerprint ||
+    candidate.resultingSourceFingerprint.length === 0 ||
+    candidate.resultingSourceFingerprint === beforeProjection.sourceFingerprint ||
+    beforeProjection.documentHasError ||
+    beforeProjection.functions.some((fn) => fn.partial) ||
+    beforeProjection.nodes.some((node) => node.kind === "raw")
+  ) {
+    return Object.freeze([]);
+  }
+
+  const target = beforeProjection.nodes.find((node) => node.id === intent.toNodeId);
+  const targetFunction = beforeProjection.functions.find((fn) => fn.id === target?.functionId);
+  const targetPort = target?.ports.find((port) => port.id === intent.toPortId);
+  if (
+    target === undefined ||
+    target.locked ||
+    target.kind === "raw" ||
+    targetFunction === undefined ||
+    targetFunction.partial ||
+    targetPort === undefined ||
+    !targetPort.editable ||
+    targetPort.direction !== "input" ||
+    targetPort.channel !== "control"
+  ) {
+    return Object.freeze([]);
+  }
+
+  const base = Object.freeze({
+    workspaceId: candidate.workspaceId,
+    presetId,
+    sourceFingerprint: candidate.resultingSourceFingerprint,
+    roundtripAccepted: true as const,
+    cfgAccepted: true as const,
+  });
+  return Object.freeze([
+    Object.freeze({ ...base, type: "preset-inserted" as const, committed: true as const }),
+    Object.freeze({ ...base, type: "connection-committed" as const }),
+  ]);
 }
 
 function renderWorkbenchNodeDetail(
@@ -905,7 +1083,6 @@ function createWorkbenchLayouts(
   const owner = elements.shell;
   const presetsPane = required(owner, "#presets-pane");
   const outlinePane = required(owner, "#outline-pane");
-  const canvasPane = required(owner, "#center-canvas-pane");
   const codePanel = required(owner, "#code-panel");
   const inspector = required(owner, "#inspector-stack");
   const runPanel = required(owner, "#run-panel");
@@ -914,26 +1091,29 @@ function createWorkbenchLayouts(
   const executionPanel = required(owner, "#run-host");
   return Object.freeze([
     layout("main", elements.buildLayout, "horizontal", [
-      pane("left", elements.leftPane, 210, 150, 420),
-      pane("center", elements.centerPane, 720, 420, 1400),
-      pane("right", elements.rightPane, 330, 240, 720),
+      pane("left", elements.leftPane, 240, 150, 420),
+      pane("work", elements.workArea, 980, 640, 2400),
+    ]),
+    layout("work", elements.workArea, "vertical", [
+      pane("primary", elements.primaryWorkspace, 510, 320, 1400),
+      pane("bottom", elements.bottomPane, 250, 170, 620),
+    ]),
+    layout("primary", elements.primaryWorkspace, "horizontal", [
+      pane("center", elements.centerPane, 700, 420, 1800),
+      pane("right", elements.rightPane, 340, 260, 760),
     ]),
     layout("left", elements.leftPane, "vertical", [
       pane("presets", presetsPane, 360, 120, 700),
       pane("outline", outlinePane, 220, 100, 620),
     ]),
-    layout("center", elements.centerPane, "vertical", [
-      pane("canvas", canvasPane, 560, 240, 1200),
-      pane("bottom", elements.bottomPane, 190, 120, 520),
-    ]),
     layout("right", elements.rightPane, "vertical", [
-      pane("code", codePanel, 300, 140, 800),
-      pane("inspector", inspector, 360, 140, 800),
+      pane("code", codePanel, 340, 160, 900),
+      pane("inspector", inspector, 190, 120, 620),
     ]),
     layout("runtime", runPanel, "horizontal", [
-      pane("scenario", scenarioPanel, 300, 180, 720),
-      pane("trace", tracePanel, 320, 180, 760),
-      pane("execution", executionPanel, 360, 220, 800),
+      pane("scenario", scenarioPanel, 320, 240, 620),
+      pane("trace", tracePanel, 520, 320, 1100),
+      pane("execution", executionPanel, 300, 240, 680),
     ]),
   ]);
 
@@ -1099,6 +1279,8 @@ function assertOptions(options: FlowWorkbenchControllerOptions): void {
     typeof options.onConnectionIntent !== "function" ||
     typeof options.resolvePreset !== "function" ||
     typeof options.onDraftConnectionIntent !== "function" ||
+    (options.onLearningObservation !== undefined &&
+      typeof options.onLearningObservation !== "function") ||
     typeof options.onSourceUndo !== "function" ||
     typeof options.onStatus !== "function"
   ) {

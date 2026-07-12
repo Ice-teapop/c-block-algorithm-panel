@@ -5,6 +5,7 @@ import {
   relatedLibraryEntries,
   resolveLibraryBranchId,
   searchLibrary,
+  type LibraryAudience,
   type LibraryBranchId,
   type LibraryEntry,
   type LibraryFeatureLink,
@@ -28,7 +29,7 @@ export interface SoftwareFeatureDefinition {
 
 export interface SoftwareLibraryCallbacks {
   readonly onOpenFeature: (pageId: string, targetId: string) => void;
-  readonly onStartTour: () => void;
+  readonly onStartGuidedLesson: () => void;
 }
 
 export interface SoftwareLibrary {
@@ -131,8 +132,7 @@ export const SOFTWARE_FEATURES: readonly SoftwareFeatureDefinition[] = Object.fr
   feature("storage", "扩展", "本地存储与安全", "build", "local-save", "available", {
     purpose: "明确源码何时写入磁盘，以及哪些权限没有暴露给界面。",
     useWhen: "核对保存状态、冲突或数据位置时。",
-    currentCapability:
-      "renderer 只持 opaque ID；主进程验证并原子写入，revision 冲突须确认后重载磁盘版本。",
+    currentCapability: "源码在停止输入片刻后写入 Documents 专属目录；冲突时停止覆盖并提示重载。",
     limitation: "首版不监听外部编辑器的实时反向变化。",
     extensionPoints: ["冲突解决", "备份恢复", "导出与迁移"],
   }),
@@ -169,6 +169,49 @@ const FEATURE_ENTRY_IDS: Readonly<Record<string, string>> = Object.freeze({
   extensions: "extension.registry",
 });
 
+type LibraryFilterId = "syntax" | "standard" | "data" | "algorithms" | "examples" | "help";
+
+interface LibraryFilterDefinition {
+  readonly id: LibraryFilterId;
+  readonly label: string;
+  readonly labelEn: string;
+  readonly branchId: LibraryBranchId;
+  readonly branchIds: readonly LibraryBranchId[];
+  readonly audience: "learner" | "help";
+}
+
+const LEARNER_BRANCH_IDS: readonly LibraryBranchId[] = Object.freeze([
+  "c-syntax",
+  "standard-library",
+  "data-structure-dictionary",
+  "algorithms-complexity",
+  "examples",
+]);
+
+const HELP_BRANCH_IDS: readonly LibraryBranchId[] = Object.freeze([
+  "manual",
+  "canvas-wires",
+  "execution-diagnostics",
+  "recovery",
+  "onboarding",
+]);
+
+const LIBRARY_FILTERS: readonly LibraryFilterDefinition[] = Object.freeze([
+  filter("syntax", "语法", "Syntax", "c-syntax"),
+  filter("standard", "标准库", "Standard Library", "standard-library"),
+  filter("data", "数据结构", "Data Structures", "data-structure-dictionary"),
+  filter("algorithms", "算法", "Algorithms", "algorithms-complexity"),
+  filter("examples", "案例", "Examples", "examples"),
+  Object.freeze({
+    id: "help",
+    label: "帮助",
+    labelEn: "Help",
+    branchId: "manual",
+    branchIds: HELP_BRANCH_IDS,
+    audience: "help",
+  }),
+]);
+
 export function createSoftwareLibrary(
   host: HTMLElement,
   callbacks: SoftwareLibraryCallbacks,
@@ -180,32 +223,63 @@ export function createSoftwareLibrary(
   root.dataset.tourTarget = "software-library-content";
   root.setAttribute("aria-label", "软件功能 Library");
 
+  const searchBar = ownerDocument.createElement("header");
+  searchBar.className = "software-library__searchbar";
+  const searchIdentity = ownerDocument.createElement("div");
+  searchIdentity.className = "software-library__identity";
+  const searchTitle = ownerDocument.createElement("strong");
+  searchTitle.textContent = "Library";
+  const searchHint = ownerDocument.createElement("span");
+  searchHint.textContent = "C 与算法词典";
+  searchIdentity.append(searchTitle, searchHint);
+  const filters = ownerDocument.createElement("nav");
+  filters.className = "software-library__filters";
+  filters.setAttribute("aria-label", "Library 分类");
   const index = ownerDocument.createElement("nav");
   index.className = "software-library__index";
-  index.setAttribute("aria-label", "功能目录");
+  index.setAttribute("aria-label", "词条结果");
   const search = ownerDocument.createElement("input");
   search.type = "search";
   search.className = "software-library__search";
-  search.placeholder = "搜索术语、功能或代码";
+  search.placeholder = "搜索关键词、别名或代码";
   search.setAttribute("aria-label", "全文搜索 Library");
+  const resultCount = ownerDocument.createElement("output");
+  resultCount.className = "software-library__result-count";
+  resultCount.setAttribute("aria-live", "polite");
+  searchBar.append(searchIdentity, filters, search, resultCount);
   const list = ownerDocument.createElement("div");
   list.className = "software-library__list";
   list.dataset.libraryDirectory = "true";
-  index.append(search, list);
+  index.append(list);
 
   const detail = ownerDocument.createElement("article");
   detail.className = "software-library__detail";
   detail.setAttribute("aria-live", "polite");
   detail.dataset.libraryDetail = "true";
-  root.append(index, detail);
+  const body = ownerDocument.createElement("div");
+  body.className = "software-library__body";
+  body.append(index, detail);
+  root.append(searchBar, body);
   host.append(root);
 
-  let selectedFeatureId = "dashboard";
-  let selectedBranchId: LibraryBranchId = "manual";
-  let selectedEntryId = "manual.dashboard";
+  let selectedFeatureId = "";
+  let selectedBranchId: LibraryBranchId = "c-syntax";
+  let selectedEntryId = libraryEntriesForBranch("c-syntax")[0]?.id ?? "c.statement";
+  let activeFilterId: LibraryFilterId | null = null;
+  let activeAudience: LibraryAudience = "learner";
   let destroyed = false;
   let entryButtons: HTMLButtonElement[] = [];
-  let branchButtons: HTMLButtonElement[] = [];
+  const branchButtons = LIBRARY_FILTERS.map((definition) => {
+    const button = ownerDocument.createElement("button");
+    button.className = "software-library__filter";
+    button.type = "button";
+    button.textContent = definition.label;
+    button.dataset.libraryFilterId = definition.id;
+    button.dataset.libraryBranchId = definition.branchId;
+    button.addEventListener("click", () => selectFilter(definition.id));
+    filters.append(button);
+    return button;
+  });
 
   const select = (featureId: string): void => {
     assertActive(destroyed);
@@ -215,6 +289,10 @@ export function createSoftwareLibrary(
     }
     const entryId = FEATURE_ENTRY_IDS[featureId];
     if (entryId === undefined) throw new RangeError(`Library 功能缺少词典条目：${featureId}`);
+    activeFilterId = null;
+    activeAudience = "learner";
+    search.value = "";
+    renderDirectory();
     selectedFeatureId = featureId;
     selectEntry(entryId);
     selectedFeatureId = featureId;
@@ -235,7 +313,7 @@ export function createSoftwareLibrary(
       button.setAttribute("aria-current", active ? "page" : "false");
     }
     for (const button of branchButtons) {
-      const active = button.dataset.libraryBranchId === selectedBranchId;
+      const active = button.dataset.libraryFilterId === activeFilterId;
       button.classList.toggle("is-selected", active);
       button.setAttribute("aria-current", active ? "true" : "false");
     }
@@ -245,34 +323,38 @@ export function createSoftwareLibrary(
     assertActive(destroyed);
     const entry = getLibraryEntry(entryId);
     if (entry === null) throw new RangeError(`未知 Library 条目：${entryId}`);
+    const nextAudience = entry.audience ?? "learner";
+    const audienceChanged = nextAudience === "developer" && activeAudience !== "developer";
+    if (audienceChanged) {
+      activeAudience = "developer";
+      activeFilterId = "help";
+    }
     selectedEntryId = entry.id;
     selectedBranchId = entry.branchId;
     selectedFeatureId = featureIdForEntry(entry.id);
+    if (audienceChanged) renderDirectory();
     renderDictionaryDetail(ownerDocument, detail, entry, callbacks, selectEntry);
     updateSelection();
   };
 
   const renderDirectory = (): void => {
     const query = search.value.trim();
-    branchButtons = LIBRARY_BRANCHES.map((branch) => {
-      const button = ownerDocument.createElement("button");
-      button.className = "software-library__feature";
-      button.type = "button";
-      button.dataset.libraryBranchId = branch.id;
-      const order = ownerDocument.createElement("span");
-      order.textContent = String(branch.order / 10 + 1).padStart(2, "0");
-      const label = ownerDocument.createElement("strong");
-      label.textContent = branch.label;
-      button.append(order, label);
-      button.title = branch.description;
-      button.addEventListener("click", () => selectBranch(branch.id));
-      return button;
-    });
-
+    const filterDefinition = LIBRARY_FILTERS.find(({ id }) => id === activeFilterId);
+    const branchIds =
+      activeAudience === "developer"
+        ? LIBRARY_BRANCHES.map(({ id }) => id)
+        : (filterDefinition?.branchIds ?? LEARNER_BRANCH_IDS);
+    const audience =
+      activeAudience === "developer" ? "developer" : (filterDefinition?.audience ?? activeAudience);
+    const searchedEntries = searchLibrary(query, {
+      branchIds,
+      audiences: [audience],
+      limit: 200,
+    }).map((result) => result.entry);
     const visible =
-      query.length === 0
-        ? libraryEntriesForBranch(selectedBranchId)
-        : searchLibrary(query).map((result) => result.entry);
+      activeFilterId === "examples" && query.length === 0
+        ? prioritizeTutorialEntries(searchedEntries)
+        : searchedEntries;
     entryButtons = visible.map((entry) => {
       const button = ownerDocument.createElement("button");
       button.className = "software-library__feature";
@@ -280,46 +362,139 @@ export function createSoftwareLibrary(
       button.dataset.libraryEntryId = entry.id;
       button.dataset.libraryEntryBranch = entry.branchId;
       const category = ownerDocument.createElement("span");
-      category.textContent = shortBranchLabel(entry.branchId);
+      category.textContent =
+        entry.tutorial === null || entry.tutorial === undefined
+          ? shortBranchLabel(entry.branchId)
+          : `教程 ${String(entry.tutorial.order)}`;
       const title = ownerDocument.createElement("strong");
-      title.textContent = entry.title;
-      button.append(category, title);
+      appendHighlightedText(ownerDocument, title, entry.title, query);
+      const summary = ownerDocument.createElement("small");
+      appendHighlightedText(ownerDocument, summary, entry.summary, query);
+      button.append(category, title, summary);
       button.title = entry.summary;
       button.addEventListener("click", () => selectEntry(entry.id));
       return button;
     });
-    const branchHeader = ownerDocument.createElement("div");
-    branchHeader.setAttribute("role", "group");
-    branchHeader.setAttribute("aria-label", "Library 分支");
-    branchHeader.append(...branchButtons);
     const entryHeader = ownerDocument.createElement("div");
+    entryHeader.className = "software-library__results";
     entryHeader.setAttribute("role", "group");
     entryHeader.setAttribute("aria-label", query.length === 0 ? "分支目录" : "搜索结果");
-    entryHeader.append(...entryButtons);
-    list.replaceChildren(branchHeader, entryHeader);
+    if (activeFilterId === "examples" && query.length === 0) {
+      const tutorialButtons = entryButtons.filter(
+        (_button, index) =>
+          visible[index]?.tutorial !== null && visible[index]?.tutorial !== undefined,
+      );
+      const exampleButtons = entryButtons.filter(
+        (_button, index) =>
+          visible[index]?.tutorial === null || visible[index]?.tutorial === undefined,
+      );
+      appendDirectoryGroup(ownerDocument, entryHeader, "入门路径", tutorialButtons);
+      appendDirectoryGroup(ownerDocument, entryHeader, "更多案例", exampleButtons);
+    } else {
+      entryHeader.append(...entryButtons);
+    }
+    list.replaceChildren(entryHeader);
+    resultCount.textContent =
+      query.length === 0
+        ? `${String(visible.length)} 条`
+        : `${String(visible.length)} 个匹配 · ${query}`;
     if (visible.length === 0) renderEmptyDetail(ownerDocument, detail, "没有匹配的词典条目。");
-    else if (!visible.some((entry) => entry.id === selectedEntryId))
-      selectEntry(visible[0]?.id ?? "");
+    else if (!visible.some((entry) => entry.id === selectedEntryId)) selectEntry(visible[0]!.id);
     else updateSelection();
   };
 
-  const selectBranch = (branchId: string): void => {
+  function selectFilter(filterId: LibraryFilterId): void {
     assertActive(destroyed);
-    const resolved = resolveLibraryBranchId(branchId);
-    if (resolved === null) throw new RangeError(`未知 Library 分支：${branchId}`);
-    selectedBranchId = resolved;
+    const definition = LIBRARY_FILTERS.find(({ id }) => id === filterId);
+    if (definition === undefined) throw new RangeError(`未知 Library 筛选：${filterId}`);
+    activeFilterId = definition.id;
+    activeAudience = definition.audience;
     search.value = "";
-    const first = libraryEntriesForBranch(resolved)[0];
-    if (first === undefined) throw new Error(`Library 分支没有条目：${resolved}`);
+    const preferredEntryId = definition.id === "help" ? "manual.library" : null;
+    const candidates = searchLibrary("", {
+      branchIds: definition.branchIds,
+      audiences: [definition.audience],
+      limit: 200,
+    }).map((result) => result.entry);
+    const first =
+      (preferredEntryId === null ? null : getLibraryEntry(preferredEntryId)) ??
+      (definition.id === "examples" ? prioritizeTutorialEntries(candidates)[0] : candidates[0]);
+    if (first === undefined || first === null) {
+      throw new Error(`Library 筛选没有条目：${filterId}`);
+    }
+    selectedBranchId = first.branchId;
     selectedEntryId = first.id;
     selectedFeatureId = featureIdForEntry(first.id);
     renderDirectory();
     renderDictionaryDetail(ownerDocument, detail, first, callbacks, selectEntry);
     updateSelection();
+  }
+
+  const selectBranch = (branchId: string): void => {
+    assertActive(destroyed);
+    const resolved = resolveLibraryBranchId(branchId);
+    if (resolved === null) throw new RangeError(`未知 Library 分支：${branchId}`);
+    const filterDefinition = filterForBranch(resolved);
+    if (filterDefinition !== null) {
+      selectFilter(filterDefinition.id);
+      return;
+    }
+    if (resolved !== "extension-api") throw new Error(`Library 分支没有可见筛选：${resolved}`);
+    activeFilterId = "help";
+    activeAudience = "developer";
+    search.value = "";
+    const first = libraryEntriesForBranch(resolved)[0];
+    if (first === undefined) throw new Error(`Library 分支没有条目：${resolved}`);
+    renderDirectory();
+    selectEntry(first.id);
   };
 
   const onSearch = (): void => renderDirectory();
+  const onSearchKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "ArrowDown") return;
+    const first = entryButtons[0];
+    if (first === undefined) return;
+    event.preventDefault();
+    first.focus();
+  };
+  const onListKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) return;
+    const buttons = [...entryButtons];
+    const index = buttons.indexOf(target);
+    if (index < 0) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    buttons[(index + delta + buttons.length) % buttons.length]?.focus();
+  };
+  const shell =
+    typeof host.closest === "function" ? host.closest<HTMLElement>("#workbench-shell") : null;
+  const onActivated = (): void => search.focus({ preventScroll: true });
+  const onLocaleChange = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    const english =
+      typeof detail === "object" && detail !== null && "locale" in detail && detail.locale === "en";
+    search.placeholder = english ? "Search keywords, aliases or code" : "搜索关键词、别名或代码";
+    searchHint.textContent = english ? "C and algorithm dictionary" : "C 与算法词典";
+    for (const button of branchButtons) {
+      const definition = LIBRARY_FILTERS.find(({ id }) => id === button.dataset.libraryFilterId);
+      if (definition !== undefined)
+        button.textContent = english ? definition.labelEn : definition.label;
+    }
+  };
   search.addEventListener("input", onSearch);
+  search.addEventListener("keydown", onSearchKeydown);
+  list.addEventListener("keydown", onListKeydown);
+  shell?.addEventListener("software-library-activated", onActivated);
+  shell?.addEventListener("workbench-locale-change", onLocaleChange);
+  if (shell?.dataset.locale === "en") {
+    search.placeholder = "Search keywords, aliases or code";
+    searchHint.textContent = "C and algorithm dictionary";
+    for (const [index, button] of branchButtons.entries()) {
+      button.textContent = LIBRARY_FILTERS[index]?.labelEn ?? button.textContent;
+    }
+  }
   renderDirectory();
   selectEntry(selectedEntryId);
 
@@ -341,11 +516,88 @@ export function createSoftwareLibrary(
       if (destroyed) return;
       destroyed = true;
       search.removeEventListener("input", onSearch);
+      search.removeEventListener("keydown", onSearchKeydown);
+      list.removeEventListener("keydown", onListKeydown);
+      shell?.removeEventListener("software-library-activated", onActivated);
+      shell?.removeEventListener("workbench-locale-change", onLocaleChange);
       entryButtons = [];
-      branchButtons = [];
       root.remove();
     },
   });
+}
+
+function prioritizeTutorialEntries(entries: readonly LibraryEntry[]): readonly LibraryEntry[] {
+  const indexed = entries.map((entry, index) => ({ entry, index }));
+  return indexed
+    .sort((left, right) => {
+      const leftOrder = left.entry.tutorial?.order;
+      const rightOrder = right.entry.tutorial?.order;
+      if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder;
+      if (leftOrder !== undefined) return -1;
+      if (rightOrder !== undefined) return 1;
+      return left.index - right.index;
+    })
+    .map(({ entry }) => entry);
+}
+
+function appendDirectoryGroup(
+  ownerDocument: Document,
+  host: HTMLElement,
+  label: string,
+  buttons: readonly HTMLButtonElement[],
+): void {
+  if (buttons.length === 0) return;
+  const group = ownerDocument.createElement("section");
+  group.className = "software-library__result-group";
+  group.setAttribute("aria-label", label);
+  const heading = ownerDocument.createElement("h2");
+  heading.textContent = label;
+  group.append(heading, ...buttons);
+  host.append(group);
+}
+
+function appendHighlightedText(
+  ownerDocument: Document,
+  host: HTMLElement,
+  value: string,
+  query: string,
+): void {
+  const terms = [...new Set(query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean))];
+  if (terms.length === 0) {
+    host.textContent = value;
+    return;
+  }
+  const normalized = value.toLocaleLowerCase();
+  let cursor = 0;
+  while (cursor < value.length) {
+    let nextIndex = -1;
+    let nextTerm = "";
+    for (const term of terms) {
+      const index = normalized.indexOf(term, cursor);
+      if (index >= 0 && (nextIndex < 0 || index < nextIndex)) {
+        nextIndex = index;
+        nextTerm = term;
+      }
+    }
+    if (nextIndex < 0) {
+      appendPlainText(ownerDocument, host, value.slice(cursor));
+      break;
+    }
+    if (nextIndex > cursor) {
+      appendPlainText(ownerDocument, host, value.slice(cursor, nextIndex));
+    }
+    const mark = ownerDocument.createElement("mark");
+    mark.textContent = value.slice(nextIndex, nextIndex + nextTerm.length);
+    host.append(mark);
+    cursor = nextIndex + nextTerm.length;
+  }
+}
+
+function appendPlainText(ownerDocument: Document, host: HTMLElement, value: string): void {
+  const span = ownerDocument.createElement("span");
+  span.className = "software-library__match-text";
+  span.textContent = value;
+  host.append(span);
 }
 
 function renderDictionaryDetail(
@@ -356,6 +608,14 @@ function renderDictionaryDetail(
   selectEntry: (entryId: string) => void,
   featureLinkOverride: LibraryFeatureLink | null = null,
 ): void {
+  if (entry.tutorial !== null && entry.tutorial !== undefined) {
+    if (entry.tutorial.guidedLessonId !== undefined) {
+      renderGuidedLessonDetail(ownerDocument, host, entry, callbacks, selectEntry);
+      return;
+    }
+    renderTutorialDetail(ownerDocument, host, entry, callbacks, selectEntry, featureLinkOverride);
+    return;
+  }
   const header = ownerDocument.createElement("header");
   const heading = ownerDocument.createElement("h2");
   heading.textContent = entry.title;
@@ -367,6 +627,114 @@ function renderDictionaryDetail(
 
   const body = ownerDocument.createElement("div");
   body.className = "software-library__article-body";
+  const definitionTitle = ownerDocument.createElement("h3");
+  definitionTitle.textContent = "通俗定义";
+  const summary = ownerDocument.createElement("p");
+  summary.textContent = entry.summary;
+  body.append(definitionTitle, summary);
+  for (const paragraphText of entry.details) {
+    const paragraph = ownerDocument.createElement("p");
+    paragraph.textContent = paragraphText;
+    body.append(paragraph);
+  }
+  appendCodeSection(ownerDocument, body, "语法 / 积木示意", entry.syntax);
+  appendCodeSection(
+    ownerDocument,
+    body,
+    "最小 C 示例",
+    entry.example?.language === "c" ? entry.example : null,
+  );
+
+  const complexitySection = ownerDocument.createElement("section");
+  const complexityTitle = ownerDocument.createElement("h3");
+  complexityTitle.textContent = "复杂度";
+  const complexity = ownerDocument.createElement("p");
+  complexity.textContent =
+    entry.complexity ??
+    (entry.branchId === "c-syntax" || entry.branchId === "standard-library"
+      ? "语法或函数本身没有统一复杂度；以输入规模、实现和具体操作为准。"
+      : "该词条尚未给出可独立验证的复杂度结论。");
+  complexitySection.append(complexityTitle, complexity);
+  body.append(complexitySection);
+
+  const pitfallsSection = ownerDocument.createElement("section");
+  const pitfallsTitle = ownerDocument.createElement("h3");
+  pitfallsTitle.textContent = "常见错误";
+  const pitfalls = ownerDocument.createElement("ul");
+  const pitfallValues =
+    entry.pitfalls !== undefined && entry.pitfalls.length > 0
+      ? entry.pitfalls
+      : ["只记住名称而忽略前置条件、边界输入和失败路径。"];
+  for (const value of pitfallValues) {
+    const item = ownerDocument.createElement("li");
+    item.textContent = value;
+    pitfalls.append(item);
+  }
+  pitfallsSection.append(pitfallsTitle, pitfalls);
+  body.append(pitfallsSection);
+  const related = relatedLibraryEntries(entry).filter(
+    (relatedEntry) => entry.audience === "developer" || relatedEntry.audience !== "developer",
+  );
+  if (related.length > 0) {
+    const relatedSection = ownerDocument.createElement("section");
+    const relatedTitle = ownerDocument.createElement("h3");
+    relatedTitle.textContent = "相关概念";
+    const relatedLinks = ownerDocument.createElement("nav");
+    relatedLinks.setAttribute("aria-label", "相关词条");
+    for (const relatedEntry of related) {
+      const button = textButton(ownerDocument, relatedEntry.title, "button button--quiet");
+      button.dataset.relatedEntryId = relatedEntry.id;
+      button.addEventListener("click", () => selectEntry(relatedEntry.id));
+      relatedLinks.append(button);
+    }
+    relatedSection.append(relatedTitle, relatedLinks);
+    body.append(relatedSection);
+  }
+  if (entry.aliases.length > 0 || entry.keywords.length > 0) {
+    const terms = ownerDocument.createElement("p");
+    terms.className = "software-library__terms";
+    terms.textContent = `也可搜索：${[...entry.aliases, ...entry.keywords].join(" · ")}`;
+    body.append(terms);
+  }
+
+  const actions = ownerDocument.createElement("footer");
+  const featureLink = featureLinkOverride ?? entry.featureLink;
+  if (featureLink !== null) {
+    const link = featureLink;
+    const open = textButton(ownerDocument, link.label, "button button--primary");
+    open.addEventListener("click", () => callbacks.onOpenFeature(link.pageId, link.targetId));
+    actions.append(open);
+  }
+  if (entry.id === "manual.library") {
+    const developer = textButton(ownerDocument, "开发者文档", "button button--quiet");
+    developer.addEventListener("click", () => selectEntry("extension.registry"));
+    actions.append(developer);
+    const lesson = textButton(ownerDocument, "开始第一课", "button button--primary");
+    lesson.addEventListener("click", callbacks.onStartGuidedLesson);
+    actions.append(lesson);
+  }
+  host.replaceChildren(header, body, actions);
+}
+
+function renderGuidedLessonDetail(
+  ownerDocument: Document,
+  host: HTMLElement,
+  entry: LibraryEntry,
+  callbacks: SoftwareLibraryCallbacks,
+  selectEntry: (entryId: string) => void,
+): void {
+  const tutorial = entry.tutorial;
+  if (tutorial === null || tutorial === undefined || tutorial.guidedLessonId === undefined) return;
+  const header = ownerDocument.createElement("header");
+  const heading = ownerDocument.createElement("h2");
+  heading.textContent = entry.title;
+  const status = ownerDocument.createElement("span");
+  status.className = "software-library__feature-status";
+  status.textContent = `交互课程 · 约 ${String(tutorial.estimatedMinutes)} 分钟`;
+  header.append(heading, status);
+
+  const body = ownerDocument.createElement("div");
+  body.className = "software-library__article-body software-library__tutorial";
   const summary = ownerDocument.createElement("p");
   summary.textContent = entry.summary;
   body.append(summary);
@@ -375,28 +743,149 @@ function renderDictionaryDetail(
     paragraph.textContent = paragraphText;
     body.append(paragraph);
   }
-  if (entry.aliases.length > 0 || entry.keywords.length > 0) {
-    const terms = ownerDocument.createElement("p");
-    terms.textContent = `检索词：${[...entry.aliases, ...entry.keywords].join(" · ")}`;
-    body.append(terms);
+
+  const goals = ownerDocument.createElement("section");
+  const goalsTitle = ownerDocument.createElement("h3");
+  goalsTitle.textContent = "你会完成";
+  goals.append(goalsTitle, textList(ownerDocument, tutorial.learningGoals));
+  body.append(goals);
+
+  const evidence = ownerDocument.createElement("section");
+  const evidenceTitle = ownerDocument.createElement("h3");
+  evidenceTitle.textContent = "通过方式";
+  const evidenceText = ownerDocument.createElement("p");
+  evidenceText.textContent =
+    "课程在独立沙箱中检查真实运行、Trace、合法积木连接和回归结果；只阅读说明不会推进任务。";
+  evidence.append(evidenceTitle, evidenceText);
+  body.append(evidence);
+
+  if (tutorial.prerequisiteEntryIds.length > 0) {
+    const prerequisites = ownerDocument.createElement("section");
+    const prerequisitesTitle = ownerDocument.createElement("h3");
+    prerequisitesTitle.textContent = "可选先修";
+    const links = ownerDocument.createElement("nav");
+    links.setAttribute("aria-label", "课程先修概念");
+    for (const prerequisiteId of tutorial.prerequisiteEntryIds) {
+      const prerequisite = getLibraryEntry(prerequisiteId);
+      if (prerequisite === null) continue;
+      const button = textButton(ownerDocument, prerequisite.title, "button button--quiet");
+      button.dataset.relatedEntryId = prerequisite.id;
+      button.addEventListener("click", () => selectEntry(prerequisite.id));
+      links.append(button);
+    }
+    prerequisites.append(prerequisitesTitle, links);
+    body.append(prerequisites);
   }
-  if (entry.example !== null) {
-    const example = ownerDocument.createElement("section");
-    const title = ownerDocument.createElement("h3");
-    title.textContent = entry.example.caption;
-    const pre = ownerDocument.createElement("pre");
-    const code = ownerDocument.createElement("code");
-    code.dataset.language = entry.example.language;
-    code.textContent = entry.example.code;
-    pre.append(code);
-    example.append(title, pre);
-    body.append(example);
+
+  const actions = ownerDocument.createElement("footer");
+  const start = textButton(ownerDocument, "开始交互课程", "button button--primary");
+  start.dataset.guidedLessonId = tutorial.guidedLessonId;
+  start.addEventListener("click", callbacks.onStartGuidedLesson);
+  actions.append(start);
+  host.replaceChildren(header, body, actions);
+}
+
+function renderTutorialDetail(
+  ownerDocument: Document,
+  host: HTMLElement,
+  entry: LibraryEntry,
+  callbacks: SoftwareLibraryCallbacks,
+  selectEntry: (entryId: string) => void,
+  featureLinkOverride: LibraryFeatureLink | null,
+): void {
+  const tutorial = entry.tutorial;
+  if (tutorial === null || tutorial === undefined) return;
+  const pathEntries = libraryEntriesForBranch("examples").filter(
+    (candidate) => candidate.tutorial?.pathId === tutorial.pathId,
+  );
+  const header = ownerDocument.createElement("header");
+  const heading = ownerDocument.createElement("h2");
+  heading.textContent = entry.title;
+  const status = ownerDocument.createElement("span");
+  status.className = "software-library__feature-status";
+  status.textContent = `教程 ${String(tutorial.order)}/${String(pathEntries.length)} · 约 ${String(tutorial.estimatedMinutes)} 分钟`;
+  header.append(heading, status);
+
+  const body = ownerDocument.createElement("div");
+  body.className = "software-library__article-body software-library__tutorial";
+  const summary = ownerDocument.createElement("p");
+  summary.textContent = entry.summary;
+  body.append(summary);
+  for (const paragraphText of entry.details) {
+    const paragraph = ownerDocument.createElement("p");
+    paragraph.textContent = paragraphText;
+    body.append(paragraph);
   }
-  const related = relatedLibraryEntries(entry);
+
+  const goals = ownerDocument.createElement("section");
+  const goalsTitle = ownerDocument.createElement("h3");
+  goalsTitle.textContent = "本节目标";
+  goals.append(goalsTitle, textList(ownerDocument, tutorial.learningGoals));
+  body.append(goals);
+
+  if (tutorial.prerequisiteEntryIds.length > 0) {
+    const prerequisites = ownerDocument.createElement("section");
+    const prerequisitesTitle = ownerDocument.createElement("h3");
+    prerequisitesTitle.textContent = "需要先会";
+    const prerequisiteLinks = ownerDocument.createElement("nav");
+    prerequisiteLinks.setAttribute("aria-label", "教程前置概念");
+    for (const prerequisiteId of tutorial.prerequisiteEntryIds) {
+      const prerequisite = getLibraryEntry(prerequisiteId);
+      if (prerequisite === null) continue;
+      const button = textButton(ownerDocument, prerequisite.title, "button button--quiet");
+      button.dataset.relatedEntryId = prerequisite.id;
+      button.addEventListener("click", () => selectEntry(prerequisite.id));
+      prerequisiteLinks.append(button);
+    }
+    prerequisites.append(prerequisitesTitle, prerequisiteLinks);
+    body.append(prerequisites);
+  }
+
+  const stepsSection = ownerDocument.createElement("section");
+  const stepsTitle = ownerDocument.createElement("h3");
+  stepsTitle.textContent = "操作步骤";
+  const steps = ownerDocument.createElement("ol");
+  for (const [index, step] of tutorial.steps.entries()) {
+    const item = ownerDocument.createElement("li");
+    item.className = "software-library__tutorial-step";
+    const title = ownerDocument.createElement("h4");
+    title.textContent = `步骤 ${String(index + 1)} · ${step.title}`;
+    const instruction = ownerDocument.createElement("p");
+    instruction.textContent = step.instruction;
+    item.append(title, instruction);
+    for (const artifact of step.artifacts) {
+      appendTutorialArtifact(ownerDocument, item, artifact.kind, artifact.example);
+    }
+    const check = ownerDocument.createElement("p");
+    check.className = "software-library__tutorial-check";
+    check.textContent = `检查：${step.check}`;
+    item.append(check);
+    if (step.featureLink !== null) {
+      const action = textButton(ownerDocument, step.featureLink.label, "button button--quiet");
+      action.dataset.tutorialAction = step.id;
+      action.addEventListener("click", () =>
+        callbacks.onOpenFeature(step.featureLink!.pageId, step.featureLink!.targetId),
+      );
+      item.append(action);
+    }
+    steps.append(item);
+  }
+  stepsSection.append(stepsTitle, steps);
+  body.append(stepsSection);
+
+  const completion = ownerDocument.createElement("section");
+  const completionTitle = ownerDocument.createElement("h3");
+  completionTitle.textContent = "完成检查";
+  completion.append(completionTitle, textList(ownerDocument, tutorial.completionChecks));
+  body.append(completion);
+
+  const related = relatedLibraryEntries(entry).filter(
+    (relatedEntry) => relatedEntry.audience !== "developer",
+  );
   if (related.length > 0) {
     const relatedSection = ownerDocument.createElement("section");
     const relatedTitle = ownerDocument.createElement("h3");
-    relatedTitle.textContent = "交叉链接";
+    relatedTitle.textContent = "相关概念";
     const relatedLinks = ownerDocument.createElement("nav");
     relatedLinks.setAttribute("aria-label", "相关词条");
     for (const relatedEntry of related) {
@@ -412,15 +901,78 @@ function renderDictionaryDetail(
   const actions = ownerDocument.createElement("footer");
   const featureLink = featureLinkOverride ?? entry.featureLink;
   if (featureLink !== null) {
-    const link = featureLink;
-    const open = textButton(ownerDocument, link.label, "button button--primary");
-    open.addEventListener("click", () => callbacks.onOpenFeature(link.pageId, link.targetId));
+    const open = textButton(ownerDocument, featureLink.label, "button button--primary");
+    open.addEventListener("click", () =>
+      callbacks.onOpenFeature(featureLink.pageId, featureLink.targetId),
+    );
     actions.append(open);
   }
-  const tour = textButton(ownerDocument, "重新开始视觉引导", "button button--quiet");
-  tour.addEventListener("click", callbacks.onStartTour);
-  actions.append(tour);
   host.replaceChildren(header, body, actions);
+}
+
+function appendTutorialArtifact(
+  ownerDocument: Document,
+  host: HTMLElement,
+  kind: NonNullable<LibraryEntry["tutorial"]>["steps"][number]["artifacts"][number]["kind"],
+  example: NonNullable<LibraryEntry["tutorial"]>["steps"][number]["artifacts"][number]["example"],
+): void {
+  const wrapper = ownerDocument.createElement("div");
+  wrapper.className = "software-library__tutorial-artifact";
+  const caption = ownerDocument.createElement("p");
+  caption.textContent = `${tutorialArtifactLabel(kind)} · ${example.caption}`;
+  const pre = ownerDocument.createElement("pre");
+  const code = ownerDocument.createElement("code");
+  code.dataset.language = example.language;
+  code.textContent = example.code;
+  pre.append(code);
+  wrapper.append(caption, pre);
+  host.append(wrapper);
+}
+
+function tutorialArtifactLabel(
+  kind: NonNullable<LibraryEntry["tutorial"]>["steps"][number]["artifacts"][number]["kind"],
+): string {
+  if (kind === "source") return "完整源码";
+  if (kind === "snippet") return "代码片段";
+  if (kind === "stdin") return "输入";
+  return "预期输出";
+}
+
+function textList(ownerDocument: Document, values: readonly string[]): HTMLElement {
+  const list = ownerDocument.createElement("ul");
+  for (const value of values) {
+    const item = ownerDocument.createElement("li");
+    item.textContent = value;
+    list.append(item);
+  }
+  return list;
+}
+
+function appendCodeSection(
+  ownerDocument: Document,
+  host: HTMLElement,
+  heading: string,
+  example: LibraryEntry["syntax"],
+): void {
+  const section = ownerDocument.createElement("section");
+  const title = ownerDocument.createElement("h3");
+  title.textContent = heading;
+  section.append(title);
+  if (example === null || example === undefined) {
+    const unavailable = ownerDocument.createElement("p");
+    unavailable.textContent = "该概念没有一段可脱离上下文单独使用的 C 写法。";
+    section.append(unavailable);
+  } else {
+    const caption = ownerDocument.createElement("p");
+    caption.textContent = example.caption;
+    const pre = ownerDocument.createElement("pre");
+    const code = ownerDocument.createElement("code");
+    code.dataset.language = example.language;
+    code.textContent = example.code;
+    pre.append(code);
+    section.append(caption, pre);
+  }
+  host.append(section);
 }
 
 function renderEmptyDetail(ownerDocument: Document, host: HTMLElement, message: string): void {
@@ -452,6 +1004,29 @@ function feature(
     ...content,
     extensionPoints: Object.freeze([...content.extensionPoints]),
   });
+}
+
+function filter(
+  id: Exclude<LibraryFilterId, "help">,
+  label: string,
+  labelEn: string,
+  branchId: LibraryBranchId,
+): LibraryFilterDefinition {
+  return Object.freeze({
+    id,
+    label,
+    labelEn,
+    branchId,
+    branchIds: Object.freeze([branchId]),
+    audience: "learner",
+  });
+}
+
+function filterForBranch(branchId: LibraryBranchId): LibraryFilterDefinition | null {
+  if (HELP_BRANCH_IDS.includes(branchId)) {
+    return LIBRARY_FILTERS.find(({ id }) => id === "help") ?? null;
+  }
+  return LIBRARY_FILTERS.find((definition) => definition.branchIds.includes(branchId)) ?? null;
 }
 
 function featureIdForEntry(entryId: string): string {
@@ -495,7 +1070,7 @@ function textButton(ownerDocument: Document, label: string, className: string): 
 function assertCallbacks(callbacks: SoftwareLibraryCallbacks): void {
   if (
     typeof callbacks.onOpenFeature !== "function" ||
-    typeof callbacks.onStartTour !== "function"
+    typeof callbacks.onStartGuidedLesson !== "function"
   ) {
     throw new TypeError("Software Library callbacks 无效");
   }

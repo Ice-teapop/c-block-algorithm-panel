@@ -16,9 +16,9 @@ import {
   type BlockPaletteCategory,
 } from "../ui/block-palette.js";
 import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
-import { createOnboardingTour } from "../ui/onboarding-tour.js";
 import { createSoftwareLibrary, type SoftwareLibrary } from "../ui/software-library.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
+import type { FlowCanvasCompatibleBlockSearchRequest } from "../ui/flow-canvas.js";
 import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
 import {
   validateLearningTemplateSource,
@@ -33,6 +33,7 @@ export interface LearningSurfaceOptions {
   readonly getAnalysis: () => CAnalysisSnapshot | null;
   readonly getAnalyzer: () => LearningTemplateAnalyzer | null;
   readonly storage?: LearningCatalogStorage | undefined;
+  readonly onStartGuidedLesson: () => void;
   readonly onError: (error: Error) => void;
 }
 
@@ -40,7 +41,6 @@ export interface LearningSurface {
   insert(intent: AssemblyInsertIntent): Promise<void>;
   resolvePreset(presetId: string): ResolvedLearningPreset | null;
   setSelectedInsertEnabled(enabled: boolean): void;
-  startOnboardingIfNeeded(): void;
   destroy(): void;
 }
 
@@ -93,23 +93,18 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     },
   );
 
-  let softwareLibrary: SoftwareLibrary | null = null;
-  const onboarding = createOnboardingTour(options.elements.shell, {
-    navigate: (pageId) => options.elements.showPage(pageId),
-    getCurrentPage: () => options.elements.currentPage,
-    prepareScene(scene) {
-      if (scene.stepId === "library") softwareLibrary?.selectBranch("manual");
-      options.elements.revealOnboardingStep(scene.stepId);
+  const softwareLibrary: SoftwareLibrary = createSoftwareLibrary(
+    options.elements.getPageHost("software-library"),
+    {
+      onOpenFeature(pageId, targetId) {
+        options.elements.showPage(pageId);
+        globalThis.requestAnimationFrame(() =>
+          revealFeatureTarget(options.elements.shell, targetId),
+        );
+      },
+      onStartGuidedLesson: options.onStartGuidedLesson,
     },
-    onClose: () => options.elements.finishOnboarding(),
-  });
-  softwareLibrary = createSoftwareLibrary(options.elements.getPageHost("software-library"), {
-    onOpenFeature(pageId, targetId) {
-      options.elements.showPage(pageId);
-      globalThis.requestAnimationFrame(() => revealTourTarget(options.elements.shell, targetId));
-    },
-    onStartTour: () => onboarding.openFromLibrary(),
-  });
+  );
   const onWorkbenchAction = (event: Event): void => {
     const detail = (event as CustomEvent<unknown>).detail;
     if (!isRecord(detail) || typeof detail.branchId !== "string") {
@@ -120,9 +115,27 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
       palette.setCategory(detail.branchId as BlockPaletteCategory);
     }
   };
+  const onCompatibleBlockSearch = (event: Event): void => {
+    const request = (event as CustomEvent<unknown>).detail;
+    if (!isCompatibleBlockSearchRequest(request)) return;
+    palette.setCompatibilityFilter({
+      direction: request.compatibleDirection,
+      channel: request.endpoint.channel,
+    });
+    options.elements.focusPanel("presets");
+    palette.focusSearch();
+  };
+  const onGlobalBlockSearch = (): void => {
+    palette.setCompatibilityFilter(null);
+    options.elements.focusPanel("presets");
+    palette.focusSearch();
+  };
   options.elements.shell.addEventListener("workbench-action", onWorkbenchAction);
-  const autoStartEnabled = globalThis.navigator?.webdriver !== true;
-
+  options.elements.shell.addEventListener(
+    "flow-canvas-compatible-block-search",
+    onCompatibleBlockSearch,
+  );
+  options.elements.shell.addEventListener("flow-canvas-global-search", onGlobalBlockSearch);
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
       if (destroyed) return Promise.resolve();
@@ -147,16 +160,16 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
             ports: Object.freeze(preset.ports.map((port) => Object.freeze({ ...port }))),
           });
     },
-    startOnboardingIfNeeded(): void {
-      if (!destroyed && autoStartEnabled) onboarding.startIfNeeded();
-    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
       options.elements.shell.removeEventListener("workbench-action", onWorkbenchAction);
-      softwareLibrary?.destroy();
-      softwareLibrary = null;
-      onboarding.destroy();
+      options.elements.shell.removeEventListener(
+        "flow-canvas-compatible-block-search",
+        onCompatibleBlockSearch,
+      );
+      options.elements.shell.removeEventListener("flow-canvas-global-search", onGlobalBlockSearch);
+      softwareLibrary.destroy();
       blockLibrary.destroy();
       palette.destroy();
       assembly.destroy();
@@ -164,11 +177,24 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
   });
 }
 
+function isCompatibleBlockSearchRequest(
+  value: unknown,
+): value is FlowCanvasCompatibleBlockSearchRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const input = value as Partial<FlowCanvasCompatibleBlockSearchRequest>;
+  return (
+    typeof input.sourceFingerprint === "string" &&
+    (input.compatibleDirection === "input" || input.compatibleDirection === "output") &&
+    input.endpoint !== undefined &&
+    (input.endpoint.channel === "control" || input.endpoint.channel === "data")
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function revealTourTarget(root: HTMLElement, targetId: string): void {
+function revealFeatureTarget(root: HTMLElement, targetId: string): void {
   for (const target of root.querySelectorAll<HTMLElement>("[data-tour-target]")) {
     if (target.dataset.tourTarget !== targetId || target.hidden) continue;
     target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });

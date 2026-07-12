@@ -3,6 +3,7 @@ import { projectTraceEventsToFlow } from "../../src/app/trace-flow-projection.js
 import type { CParser } from "../../src/core/index.js";
 import { fingerprintSource } from "../../src/shared/source-snapshot.js";
 import type { TraceEvent } from "../../src/shared/trace.js";
+import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
 import { createTestParser } from "../core/parser-fixture.js";
 import { analyzeFlowFixture } from "../flow/fixture.js";
 
@@ -171,6 +172,57 @@ describe("trace to flow projection", () => {
     expect(result.discontinuityCount).toBe(0);
     expect(result.path.edgeIds).toContain(defaultEdge?.id);
     expect(result.path.edgeIds).not.toContain(caseEdge?.id);
+  });
+
+  it("maps the complete first-lesson maximum scan without dropping real loop events", () => {
+    const { projection } = analyzeFlowFixture(parser, FIRST_ALGORITHM_SOURCE);
+    const observations = [
+      ["line", 3, null],
+      ["line", 4, null],
+      ["branch", 5, false],
+      ["line", 9, null],
+      ["branch", 10, false],
+      ["branch", 14, true],
+      ["line", 15, null],
+      ["branch", 16, false],
+      ["branch", 19, true],
+      ["line", 20, null],
+      ["branch", 14, true],
+      ["line", 15, null],
+      ["branch", 16, false],
+      ["branch", 19, false],
+      ["branch", 14, true],
+      ["line", 15, null],
+      ["branch", 16, false],
+      ["branch", 19, false],
+      ["branch", 14, true],
+      ["line", 15, null],
+      ["branch", 16, false],
+      ["branch", 19, false],
+      ["branch", 14, false],
+      ["line", 24, null],
+      ["line", 25, null],
+    ] as const;
+    const events = observations.map(([kind, line, branchTaken], index) =>
+      event(index + 1, kind, line, branchTaken),
+    );
+
+    const result = projectTraceEventsToFlow(FIRST_ALGORITHM_SOURCE, projection, events);
+
+    expect(result.matchedEventCount).toBe(events.length);
+    expect(result.unmatchedEventCount).toBe(0);
+    expect(result.discontinuityCount).toBe(0);
+    const traversedEdges = projection.edges.filter((edge) => result.path.edgeIds.includes(edge.id));
+    expect(traversedEdges.map((edge) => edge.kind)).toEqual(
+      expect.arrayContaining(["branch-true", "branch-false"]),
+    );
+    expect(
+      traversedEdges.some(
+        (edge) =>
+          projection.nodes.find((node) => node.id === edge.from.nodeId)?.label === "i++" &&
+          projection.nodes.find((node) => node.id === edge.to.nodeId)?.kind === "loop",
+      ),
+    ).toBe(true);
   });
 
   it("fails closed when two mapped trace events have no direct CFG edge", () => {

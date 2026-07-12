@@ -50,6 +50,33 @@ describe("block palette filtering", () => {
       ]),
     );
   });
+
+  it("groups Dock categories without hiding their C basics or memory presets", () => {
+    const snapshot = createLearningCatalog().snapshot();
+    const flowAndBasics = filterLearningTemplates(snapshot, "all", "", "flow-c-basics");
+    const dataAndMemory = filterLearningTemplates(snapshot, "all", "", "data-memory");
+    expect(flowAndBasics.some(({ category }) => category === "c-basics")).toBe(true);
+    expect(flowAndBasics.some(({ blockKind }) => blockKind === "virtual")).toBe(true);
+    expect(
+      dataAndMemory.some(({ category }) =>
+        ["arrays-strings", "pointers-memory", "data-structures"].includes(category),
+      ),
+    ).toBe(true);
+  });
+
+  it("limits quick-add results to presets with a compatible port direction and channel", () => {
+    const snapshot = createLearningCatalog().snapshot();
+    const compatible = filterLearningTemplates(snapshot, "all", "", "search", {
+      direction: "input",
+      channel: "control",
+    });
+    expect(compatible.length).toBeGreaterThan(0);
+    expect(
+      compatible.every((template) =>
+        template.ports.some((port) => port.direction === "input" && port.channel === "control"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("block palette trust and accessibility contract", () => {

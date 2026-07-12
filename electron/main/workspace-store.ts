@@ -117,6 +117,7 @@ export function createWorkspaceStore(rootPath: string): WorkspaceStore {
 
       const id = `${validated.request.kind}-${randomUUID()}`;
       const directory = entryPath(rootPath, id);
+      const initialSource = validated.request.initialSource ?? INITIAL_SOURCE;
       const now = new Date().toISOString();
       const manifest = freezeManifest({
         schemaVersion: ENTRY_SCHEMA_VERSION,
@@ -131,9 +132,9 @@ export function createWorkspaceStore(rootPath: string): WorkspaceStore {
 
       try {
         await mkdir(directory, { mode: 0o700 });
-        await writeExclusive(join(directory, SOURCE_NAME), INITIAL_SOURCE);
+        await writeExclusive(join(directory, SOURCE_NAME), initialSource);
         await writeExclusive(join(directory, MANIFEST_NAME), serializeManifest(manifest));
-        return openedResult(manifest, INITIAL_SOURCE);
+        return openedResult(manifest, initialSource);
       } catch {
         await rm(directory, { recursive: true, force: true }).catch(() => undefined);
         return workspaceFailure("WORKSPACE_WRITE_FAILED", "无法在 Documents 中创建工作区条目。");
@@ -223,8 +224,17 @@ type CreateValidation =
   | { readonly ok: false; readonly failure: ReturnType<typeof workspaceFailure> };
 
 function validateCreateRequest(value: unknown): CreateValidation {
-  if (!isExactObject(value, ["kind", "title"])) return invalidRequest();
-  const candidate = value as { readonly kind: unknown; readonly title: unknown };
+  if (
+    !isExactObject(value, ["kind", "title"]) &&
+    !isExactObject(value, ["initialSource", "kind", "title"])
+  ) {
+    return invalidRequest();
+  }
+  const candidate = value as {
+    readonly initialSource?: unknown;
+    readonly kind: unknown;
+    readonly title: unknown;
+  };
   if (!isWorkspaceKind(candidate.kind) || typeof candidate.title !== "string") {
     return invalidRequest();
   }
@@ -238,9 +248,24 @@ function validateCreateRequest(value: unknown): CreateValidation {
       ),
     };
   }
+  const hasInitialSource = Object.prototype.hasOwnProperty.call(candidate, "initialSource");
+  if (hasInitialSource && typeof candidate.initialSource !== "string") return invalidRequest();
+  const initialSource = hasInitialSource ? (candidate.initialSource as string) : INITIAL_SOURCE;
+  const sourceValidation = validateSourceText(initialSource);
+  if (!sourceValidation.ok) {
+    return {
+      ok: false,
+      failure: workspaceFailure(
+        sourceValidation.code === "SOURCE_TOO_LARGE"
+          ? "WORKSPACE_TOO_LARGE"
+          : "WORKSPACE_INVALID_SOURCE",
+        sourceValidation.message,
+      ),
+    };
+  }
   return {
     ok: true,
-    request: Object.freeze({ kind: candidate.kind, title }),
+    request: Object.freeze({ kind: candidate.kind, title, initialSource }),
   };
 }
 
@@ -309,6 +334,8 @@ function invalidRequest(): {
 
 function isExactObject(value: unknown, expectedKeys: readonly string[]): value is object {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
   const keys = Object.keys(value).sort();
   const expected = [...expectedKeys].sort();
   return keys.length === expected.length && keys.every((key, index) => key === expected[index]);

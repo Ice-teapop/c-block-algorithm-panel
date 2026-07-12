@@ -7,6 +7,7 @@ import {
 } from "../mentor/index.js";
 import {
   RunHistoryError,
+  analyzeRunHistoryEvidence,
   appendRunHistoryEntry,
   createEmptyRunHistory,
   parseRunHistoryDocument,
@@ -14,11 +15,12 @@ import {
   type RunComparisonKey,
   type RunHistoryDocument,
   type RunHistoryEntryInput,
+  type RunHistoryEvidenceAnalytics,
   type RunHistorySummary,
   type RunScenarioIdentity,
   type RunToolchainIdentity,
 } from "../runtime/index.js";
-import type { Capabilities, RunResult } from "../shared/api.js";
+import type { Capabilities, PanelApi, RunResult } from "../shared/api.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import type {
   SaveWorkspaceSidecarRequest,
@@ -26,7 +28,18 @@ import type {
   WorkspaceSidecarReadResult,
   WorkspaceSidecarSaveResult,
 } from "../shared/workspace-sidecar.js";
-import { createMentorPanel, type MentorPanel } from "../ui/mentor-panel.js";
+import {
+  createAnalysisDashboard,
+  type AnalysisDashboard,
+  type AnalysisDashboardState,
+  type AnalysisEvidenceCriterion,
+  type AnalysisTrendPoint,
+} from "../ui/analysis-dashboard.js";
+import {
+  createMentorPanel,
+  type MentorPanel,
+  type MentorRemoteContext,
+} from "../ui/mentor-panel.js";
 import type { ManualRunScenario, RunPanelCompletion } from "../ui/run-panel.js";
 import { createWorkspaceSidecarPersistence } from "./workspace-sidecar-persistence.js";
 
@@ -40,6 +53,12 @@ let fallbackRunId = 0;
 export interface EvidenceWorkspaceControllerOptions {
   readonly metricsHost: HTMLElement;
   readonly mentorHost: HTMLElement;
+  readonly analysisHost?: HTMLElement | undefined;
+  readonly api?: Pick<
+    PanelApi,
+    "getAiProviderConfig" | "startAiMentor" | "readAiMentor" | "cancelAiMentor"
+  > | undefined;
+  readonly getSource?: (() => string) | undefined;
   readonly readSidecar: (
     entryId: string,
     kind: WorkspaceSidecarKind,
@@ -57,6 +76,7 @@ export interface EvidenceWorkspaceController {
   setWorkspaceEntry(entryId: string | null, sourceFingerprint: string | null): Promise<void>;
   setAnalysis(analysis: ProgramAnalysisSnapshot | null): void;
   setRealPath(path: RealExecutionPathSummary | null): void;
+  setBranchCoverage(coverage: BranchCoverageEvidence | null): void;
   recordRun(completion: RunPanelCompletion): void;
   flush(): Promise<void>;
   destroy(): Promise<void>;
@@ -64,8 +84,15 @@ export interface EvidenceWorkspaceController {
 
 interface AttemptEvidence {
   readonly compileDurationMs: number | null;
+  readonly compileOk: boolean;
   readonly runResult: RunResult | null;
   readonly scenario: RunScenarioIdentity | null;
+}
+
+export interface BranchCoverageEvidence {
+  readonly sourceFingerprint: string;
+  readonly coveredBranchIds: readonly string[];
+  readonly totalBranchIds: readonly string[];
 }
 
 interface MetricsView {
@@ -84,10 +111,19 @@ export function createEvidenceWorkspaceController(
 ): EvidenceWorkspaceController {
   assertOptions(options);
   const metrics = createMetricsView(options.metricsHost);
-  const mentor = createMentorPanel(
-    options.mentorHost,
-    options.onLocate === undefined ? {} : { onLocate: options.onLocate },
-  );
+  const analysisDashboard: AnalysisDashboard | null =
+    options.analysisHost === undefined
+      ? null
+      : createAnalysisDashboard(options.analysisHost, {
+          ...(options.api === undefined ? {} : { remoteApi: options.api }),
+          ...(options.onLocate === undefined
+            ? {}
+            : { onLocate: (target) => options.onLocate!(target, analysisLocateHint(target)) }),
+        });
+  const mentor = createMentorPanel(options.mentorHost, {
+    ...(options.onLocate === undefined ? {} : { onLocate: options.onLocate }),
+    ...(options.api === undefined ? {} : { remoteApi: options.api }),
+  });
   const provider = new LocalEvidenceMentor();
   let destroyed = false;
   let destroyPromise: Promise<void> | null = null;
@@ -96,6 +132,7 @@ export function createEvidenceWorkspaceController(
   let currentSourceFingerprint: string | null = null;
   let analysis: ProgramAnalysisSnapshot | null = null;
   let realPath: RealExecutionPathSummary | null = null;
+  let branchCoverage: BranchCoverageEvidence | null = null;
   let history: RunHistoryDocument = createEmptyRunHistory();
   let comparisonKey: RunComparisonKey | null = null;
   let lastAttempt: AttemptEvidence | null = null;
@@ -122,6 +159,23 @@ export function createEvidenceWorkspaceController(
       }
     }
     metrics.render(currentMessage, currentState, lastAttempt, summary);
+    const source = options.getSource?.() ?? "";
+    const remoteContext =
+      analysis === null ? null : buildRemoteMentorContext(analysis, history, realPath, source);
+    analysisDashboard?.setRemoteContext(remoteContext);
+    analysisDashboard?.setState(
+      buildAnalysisDashboardState({
+        source,
+        currentMessage,
+        sourceFingerprint: currentSourceFingerprint,
+        analysis,
+        realPath,
+        branchCoverage,
+        history,
+        comparisonKey,
+        lastAttempt,
+      }),
+    );
     renderMentor(
       mentor,
       provider,
@@ -130,6 +184,7 @@ export function createEvidenceWorkspaceController(
       history,
       comparisonKey,
       currentSourceFingerprint,
+      source,
     );
   };
 
@@ -148,6 +203,7 @@ export function createEvidenceWorkspaceController(
       lastAttempt = null;
       analysis = null;
       realPath = null;
+      branchCoverage = null;
       if (entryId !== currentEntryId) currentEntryId = null;
       currentMessage = entryId === null ? "正在解除项目关联…" : "正在载入运行历史…";
       currentState = "working";
@@ -218,6 +274,9 @@ export function createEvidenceWorkspaceController(
       if (snapshot === null || realPath?.sourceFingerprint !== snapshot.sourceFingerprint) {
         realPath = null;
       }
+      if (snapshot === null || branchCoverage?.sourceFingerprint !== snapshot.sourceFingerprint) {
+        branchCoverage = null;
+      }
       render();
     },
 
@@ -236,6 +295,12 @@ export function createEvidenceWorkspaceController(
       render();
     },
 
+    setBranchCoverage(next: BranchCoverageEvidence | null): void {
+      assertAlive(destroyed);
+      branchCoverage = normalizeBranchCoverage(next, currentSourceFingerprint);
+      render();
+    },
+
     recordRun(completion: RunPanelCompletion): void {
       assertAlive(destroyed);
       const actualFingerprint = fingerprintSource(completion.source);
@@ -243,6 +308,7 @@ export function createEvidenceWorkspaceController(
       const scenario = completion.scenario ?? MANUAL_SCENARIO;
       lastAttempt = Object.freeze({
         compileDurationMs,
+        compileOk: completion.compileResult.ok,
         runResult: completion.runResult,
         scenario: Object.freeze({ id: scenario.id, version: scenario.version }),
       });
@@ -351,6 +417,7 @@ export function createEvidenceWorkspaceController(
         } finally {
           persistence.destroy();
           mentor.destroy();
+          analysisDashboard?.destroy();
           metrics.destroy();
         }
       })();
@@ -471,17 +538,21 @@ function renderMentor(
   history: RunHistoryDocument,
   comparisonKey: RunComparisonKey | null,
   sourceFingerprint: string | null,
+  source: string,
 ): void {
   if (analysis === null) {
     panel.setHints(Object.freeze([]));
     panel.setStatus("等待当前源码的静态分析证据");
+    panel.setRemoteContext(null);
     return;
   }
   if (sourceFingerprint !== null && analysis.sourceFingerprint !== sourceFingerprint) {
     panel.setHints(Object.freeze([]));
     panel.setStatus("静态分析与当前源码指纹不一致，提示已隐藏。", "error");
+    panel.setRemoteContext(null);
     return;
   }
+  panel.setRemoteContext(buildRemoteMentorContext(analysis, history, realPath, source));
   try {
     panel.setHints(
       provider.getHints({
@@ -495,6 +566,347 @@ function renderMentor(
     panel.setHints(Object.freeze([]));
     panel.setStatus("本地证据不足或无效，未生成提示。", "error");
   }
+}
+
+function buildRemoteMentorContext(
+  analysis: ProgramAnalysisSnapshot,
+  history: RunHistoryDocument,
+  realPath: RealExecutionPathSummary | null,
+  source: string,
+): MentorRemoteContext | null {
+  if (fingerprintSource(source) !== analysis.sourceFingerprint) return null;
+  const currentFunction =
+    analysis.functions.find((candidate) => candidate.name === "main") ??
+    analysis.functions[0] ??
+    null;
+  const functionSource =
+    currentFunction === null ||
+    currentFunction.range.from < 0 ||
+    currentFunction.range.to > source.length ||
+    currentFunction.range.from > currentFunction.range.to
+      ? ""
+      : source.slice(currentFunction.range.from, currentFunction.range.to);
+  const findings = analysis.findings.slice(0, 64).map(
+    (finding) =>
+      `${finding.ruleId} · ${finding.reason} · ${finding.confidence} · offset ${String(finding.primaryRange.from)}`,
+  );
+  const flow = currentFunction;
+  const controlFlowSummary =
+    flow === null
+      ? `函数 0；静态分析尚未形成完整 CFG。`
+      : `${flow.name}: ${String(flow.nodes.length)} 个 CFG 节点，${String(flow.edges.length)} 条边，${flow.partial ? "partial" : "complete"}；全文件 ${String(analysis.functions.length)} 个函数。`;
+  const runEvidence = history.entries
+    .filter((entry) => entry.sourceFingerprint === analysis.sourceFingerprint)
+    .slice(-8)
+    .map((entry) => {
+    const measurement = entry.measurement;
+    return [
+      `scenario=${entry.scenario.id}@${entry.scenario.version}`,
+      `inputSize=${entry.inputSize === null ? "n/a" : String(entry.inputSize)}`,
+      `duration=${String(measurement.durationMs)}ms`,
+      `rss=${measurement.peakRssBytes === null ? "n/a" : String(measurement.peakRssBytes)}`,
+      `ops=${measurement.operationCount === null ? "n/a" : String(measurement.operationCount)}`,
+      `termination=${measurement.termination}`,
+      `ok=${String(measurement.ok)}`,
+    ].join("; ");
+    });
+  if (realPath !== null && realPath.sourceFingerprint === analysis.sourceFingerprint) {
+    const visits = realPath.nodeVisits.reduce((sum, visit) => sum + visit.count, 0);
+    runEvidence.push(`validated real trace: ${String(visits)} node visits`);
+  }
+  return Object.freeze({
+    sourceFingerprint: analysis.sourceFingerprint,
+    sourceRevision: analysis.revision,
+    currentFunction: functionSource,
+    diagnosticSummary: Object.freeze(findings),
+    controlFlowSummary,
+    runEvidence: Object.freeze(runEvidence),
+    fullSource: source,
+  });
+}
+
+function buildAnalysisDashboardState(input: {
+  readonly source: string;
+  readonly currentMessage: string;
+  readonly sourceFingerprint: string | null;
+  readonly analysis: ProgramAnalysisSnapshot | null;
+  readonly realPath: RealExecutionPathSummary | null;
+  readonly branchCoverage: BranchCoverageEvidence | null;
+  readonly history: RunHistoryDocument;
+  readonly comparisonKey: RunComparisonKey | null;
+  readonly lastAttempt: AttemptEvidence | null;
+}): AnalysisDashboardState {
+  const analytics = analysisEvidenceOrNull(
+    input.history,
+    input.sourceFingerprint,
+    input.comparisonKey,
+  );
+  const trendPoints = trendPointsForAnalytics(analytics);
+  const coverage =
+    input.branchCoverage !== null &&
+    input.branchCoverage.sourceFingerprint === input.sourceFingerprint
+      ? input.branchCoverage
+      : null;
+  const criteria = completionCriteria(input, analytics, coverage);
+  const hotspots = realPathHotspots(input.realPath, input.source, input.sourceFingerprint);
+  const scenarioId = analytics?.cohort?.scenario.id ?? input.lastAttempt?.scenario?.id ?? null;
+  return Object.freeze({
+    sourceFingerprint: input.sourceFingerprint,
+    statusMessage: input.currentMessage,
+    scenarioLabel: scenarioLabel(scenarioId),
+    referenceLabel:
+      analytics?.reference === null || analytics?.reference === undefined
+        ? null
+        : `${analytics.reference.label} · ${growthStatusLabel(analytics.growth.status)}`,
+    trendEvidence:
+      analytics === null
+        ? "当前源码没有可用的跨规模真实运行。"
+        : `${analytics.evidence} ${analytics.growth.evidence}`,
+    trendPoints,
+    criteria,
+    branchCovered: coverage?.coveredBranchIds.length ?? 0,
+    branchTotal: coverage?.totalBranchIds.length ?? branchOutcomeCount(input.analysis),
+    hotspots,
+  });
+}
+
+function analysisEvidenceOrNull(
+  history: RunHistoryDocument,
+  sourceFingerprint: string | null,
+  comparisonKey: RunComparisonKey | null,
+): RunHistoryEvidenceAnalytics | null {
+  if (sourceFingerprint === null) return null;
+  try {
+    return analyzeRunHistoryEvidence(history, sourceFingerprint, comparisonKey);
+  } catch {
+    return null;
+  }
+}
+
+function trendPointsForAnalytics(
+  analytics: RunHistoryEvidenceAnalytics | null,
+): readonly AnalysisTrendPoint[] {
+  if (analytics === null) return Object.freeze([]);
+  const growth = new Map(analytics.growth.points.map((point) => [point.inputSize, point]));
+  const anchor =
+    analytics.growth.anchorInputSize === null
+      ? null
+      : (analytics.points.find(
+          (point) => point.inputSize === analytics.growth.anchorInputSize,
+        ) ?? null);
+  const anchorOperations = anchor?.operationCount.median ?? null;
+  return Object.freeze(
+    analytics.points.map((point) => {
+      const growthPoint = growth.get(point.inputSize);
+      return Object.freeze({
+        inputSize: point.inputSize,
+        sampleCount: point.sampleCount,
+        medianDurationMs: point.durationMs.median,
+        minDurationMs: point.durationMs.min,
+        maxDurationMs: point.durationMs.max,
+        medianOperationCount: point.operationCount.median,
+        minOperationCount: point.operationCount.min,
+        maxOperationCount: point.operationCount.max,
+        medianPeakRssBytes: point.peakRssBytes.median,
+        referenceOperationCount:
+          anchorOperations === null || growthPoint === undefined
+            ? null
+            : anchorOperations * growthPoint.referenceGrowth,
+      });
+    }),
+  );
+}
+
+function completionCriteria(
+  input: {
+    readonly analysis: ProgramAnalysisSnapshot | null;
+    readonly lastAttempt: AttemptEvidence | null;
+  },
+  analytics: RunHistoryEvidenceAnalytics | null,
+  coverage: BranchCoverageEvidence | null,
+): readonly AnalysisEvidenceCriterion[] {
+  const snapshot = input.analysis;
+  const attempt = input.lastAttempt;
+  const functionsComplete =
+    snapshot !== null && snapshot.functions.length > 0 && snapshot.functions.every((fn) => !fn.partial);
+  const certainFindings =
+    snapshot?.findings.filter((finding) => finding.confidence === "certain").length ?? 0;
+  const benchmarkReady =
+    analytics !== null &&
+    analytics.points.length >= 3 &&
+    analytics.points.every((point) => point.sampleCount >= 3);
+  const branchTotal = coverage?.totalBranchIds.length ?? branchOutcomeCount(snapshot);
+  const branchCovered = coverage?.coveredBranchIds.length ?? 0;
+  return Object.freeze([
+    criterion(
+      "analysis",
+      "结构分析",
+      functionsComplete ? "passed" : "pending",
+      snapshot === null
+        ? "等待当前源码分析"
+        : functionsComplete
+          ? `${String(snapshot.functions.length)} 个函数 CFG 完整`
+          : "存在 partial CFG，危险改线仍保持锁定",
+    ),
+    criterion(
+      "compile-run",
+      "编译与运行",
+      attempt === null ? "pending" : attempt.compileOk && attempt.runResult?.ok === true ? "passed" : "failed",
+      attempt === null
+        ? "尚无本次运行"
+        : attempt.compileOk
+          ? attempt.runResult?.ok === true
+            ? "进程正常完成"
+            : `运行终止：${attempt.runResult?.termination ?? "未启动"}`
+          : "编译未通过",
+    ),
+    criterion(
+      "expected-output",
+      "给定案例输出",
+      attempt?.scenario !== null &&
+        attempt?.scenario !== undefined &&
+        attempt.scenario.id !== MANUAL_SCENARIO.id &&
+        attempt.runResult?.ok === true
+        ? "passed"
+        : "pending",
+      attempt?.scenario?.id === MANUAL_SCENARIO.id
+        ? "手动运行没有绑定预期输出"
+        : attempt?.runResult?.ok === true
+          ? "情景输出已在写入历史前逐字节验证"
+          : "等待真实案例运行",
+    ),
+    criterion(
+      "boundary-cases",
+      "多规模与边界案例",
+      benchmarkReady ? "passed" : "pending",
+      analytics === null
+        ? "等待 Benchmark"
+        : `${String(analytics.points.length)} 个规模；需要至少 3 个规模且每组 3 次`,
+    ),
+    criterion(
+      "branches",
+      "可达分支",
+      branchTotal === 0 ? "passed" : branchCovered === branchTotal ? "passed" : "pending",
+      branchTotal === 0
+        ? "当前 CFG 没有结构分支"
+        : `真实覆盖 ${String(branchCovered)} / ${String(branchTotal)} 条分支出口`,
+    ),
+    criterion(
+      "diagnostics",
+      "阻断诊断",
+      snapshot === null ? "pending" : certainFindings === 0 ? "passed" : "failed",
+      snapshot === null
+        ? "等待静态诊断"
+        : certainFindings === 0
+          ? "没有确定性 finding"
+          : `${String(certainFindings)} 项确定性 finding 待处理`,
+    ),
+    criterion(
+      "growth",
+      "复杂度增长证据",
+      analytics?.growth.status === "ready" ? "passed" : "pending",
+      analytics === null ? "等待跨规模操作计数" : analytics.growth.evidence,
+    ),
+  ]);
+}
+
+function criterion(
+  id: string,
+  label: string,
+  state: AnalysisEvidenceCriterion["state"],
+  detail: string,
+): AnalysisEvidenceCriterion {
+  return Object.freeze({ id, label, state, detail });
+}
+
+function realPathHotspots(
+  path: RealExecutionPathSummary | null,
+  source: string,
+  sourceFingerprint: string | null,
+) {
+  if (path === null || path.sourceFingerprint !== sourceFingerprint) return Object.freeze([]);
+  const total = path.nodeVisits.reduce((sum, visit) => sum + visit.count, 0);
+  return Object.freeze(
+    [...path.nodeVisits]
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 6)
+      .map((visit) => {
+        const snippet = source
+          .slice(visit.range.from, visit.range.to)
+          .replace(/\s+/gu, " ")
+          .trim();
+        return Object.freeze({
+          nodeId: visit.nodeId,
+          label: snippet.length === 0 ? visit.nodeId : snippet.slice(0, 72),
+          count: visit.count,
+          share: total === 0 ? 0 : visit.count / total,
+          target: Object.freeze({ range: visit.range, nodeId: visit.nodeId }),
+        });
+      }),
+  );
+}
+
+function normalizeBranchCoverage(
+  coverage: BranchCoverageEvidence | null,
+  sourceFingerprint: string | null,
+): BranchCoverageEvidence | null {
+  if (coverage === null) return null;
+  if (sourceFingerprint !== null && coverage.sourceFingerprint !== sourceFingerprint) {
+    throw new Error("分支覆盖证据与当前源码不一致");
+  }
+  const covered = [...new Set(coverage.coveredBranchIds)];
+  const total = [...new Set(coverage.totalBranchIds)];
+  if (covered.some((id) => !total.includes(id))) {
+    throw new Error("分支覆盖包含当前 CFG 不存在的边");
+  }
+  return Object.freeze({
+    sourceFingerprint: coverage.sourceFingerprint,
+    coveredBranchIds: Object.freeze(covered),
+    totalBranchIds: Object.freeze(total),
+  });
+}
+
+function branchOutcomeCount(snapshot: ProgramAnalysisSnapshot | null): number {
+  if (snapshot === null) return 0;
+  const kinds = new Set(["branch-true", "branch-false", "switch-case", "switch-default", "switch-miss"]);
+  return snapshot.functions.reduce(
+    (total, fn) => total + fn.edges.filter((edge) => kinds.has(edge.kind)).length,
+    0,
+  );
+}
+
+function scenarioLabel(id: string | null): string {
+  const labels: Readonly<Record<string, string>> = Object.freeze({
+    "scenario.sorting.integers": "整数排序",
+    "scenario.searching.linear": "线性搜索",
+    "scenario.recursion.factorial": "递归阶乘",
+    "scenario.linked-list.reverse": "链表逆序遍历",
+    "scenario.tree.inorder": "二叉树中序遍历",
+    "scenario.graph.bfs-chain": "链式图 BFS",
+    "scenario.dynamic-programming.fibonacci": "动态规划 Fibonacci",
+    [MANUAL_SCENARIO.id]: "手动运行",
+  });
+  return id === null ? "尚未选择情景" : (labels[id] ?? id);
+}
+
+function growthStatusLabel(status: RunHistoryEvidenceAnalytics["growth"]["status"]): string {
+  if (status === "ready") return "已有 3+ 规模证据";
+  if (status === "insufficient") return "数据不足";
+  return "参考未确认";
+}
+
+function analysisLocateHint(target: MentorHintTarget): MentorHint {
+  return Object.freeze({
+    id: `analysis.hotspot.${target.nodeId}`,
+    level: "verification" as const,
+    confidence: "certain" as const,
+    title: "运行热点",
+    summary: "从分析页定位真实 Trace 热点。",
+    nextStep: "检查该节点的循环、数据结构和重复工作。",
+    target,
+    evidence: Object.freeze([]),
+    sourceMutation: "none" as const,
+  });
 }
 
 function createMetricsView(host: HTMLElement): MetricsView {

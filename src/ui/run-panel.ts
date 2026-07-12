@@ -153,7 +153,8 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     "run-panel__safety-notice",
     "仅运行你编写或逐行审阅过的代码。可信模式没有 Seatbelt 文件或网络隔离。",
   );
-  const runButton = createElement("button", "run-panel__run-button", "编译并运行");
+  safetyNotice.hidden = true;
+  const runButton = createElement("button", "run-panel__run-button", "直接执行当前代码");
   runButton.type = "button";
   runButton.disabled = true;
   const diagnoseButton = createElement("button", "run-panel__diagnose-button", "静态诊断");
@@ -169,9 +170,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   );
   operationStatus.setAttribute("aria-live", "polite");
   const action = createElement("div", "run-panel__action");
+  const toolDisclosure = createElement("details", "run-panel__tools");
+  const toolSummary = createElement("summary", "run-panel__tools-summary", "手动运行与诊断");
   const actionButtons = createElement("div", "run-panel__action-buttons");
   actionButtons.append(runButton, diagnoseButton, memoryButton);
-  action.append(actionButtons, operationStatus);
+  toolDisclosure.append(toolSummary, actionButtons);
+  action.append(toolDisclosure, operationStatus);
 
   const capabilityDetails = createElement("details", "run-panel__capability-details");
   const capabilitySummary = createElement("summary", "run-panel__capability-summary", "运行环境");
@@ -280,6 +284,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   }
 
   function renderCapabilities(snapshot: Capabilities): void {
+    safetyNotice.hidden = !snapshot.requiresNativeTrustConfirmation;
     modeValue.textContent = runnerModeLabel(snapshot);
     seatbeltValue.textContent = seatbeltStatusLabel(snapshot);
     trustValue.textContent = snapshot.requiresNativeTrustConfirmation

@@ -29,14 +29,18 @@ import {
   createRuntimeWorkspaceController,
   type RuntimeWorkspaceController,
 } from "./app/runtime-workspace-controller.js";
+import type { GuidedLessonWorkspaceController } from "./app/guided-lesson-workspace-controller.js";
+import {
+  forwardFlowLearningObservation,
+  forwardRuntimeLearningObservation,
+} from "./app/guided-lesson-observation-adapter.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
-import { createWorkspaceController, type WorkspaceController } from "./app/workspace-controller.js";
+import { createWorkspaceLessonIntegration } from "./app/workspace-lesson-integration.js";
 import { installApplicationPersistence } from "./app/application-persistence.js";
 import { initializeWorkbenchApplication } from "./renderer/application-bootstrap.js";
 import { createFlowProjection } from "./flow/index.js";
 import { validateSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
-import { fingerprintSource } from "./shared/source-snapshot.js";
 import { createBlockTree } from "./ui/block-tree.js";
 import { createCodePane, type CodeSourceChangeReason } from "./ui/code-pane.js";
 import { createEditPanel, type EditPanel } from "./ui/edit-panel.js";
@@ -45,7 +49,7 @@ import { createProjectionStatus } from "./ui/projection-status.js";
 import { createStructureEditPanel, type StructureEditPanel } from "./ui/structure-edit-panel.js";
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
-const runtime = createWorkbenchRuntime(app);
+const runtime = createWorkbenchRuntime(app, window.panelApi);
 const { elements, startupLoader } = runtime;
 const explanationHost = elements.getInspectorHost("explanation");
 let parser: core.CParser | null = null;
@@ -60,7 +64,7 @@ let learningCatalogStorage: LoadedLearningCatalogStorage | null = null;
 let flowWorkbench: FlowWorkbenchController | null = null;
 let runtimeWorkspace: RuntimeWorkspaceController | null = null;
 let sourceSelection: SourceSelectionController | null = null;
-
+let guidedLesson: GuidedLessonWorkspaceController | null = null;
 const projectionStatus = createProjectionStatus(elements.codePane);
 const codePane = createCodePane(elements.codePane, {
   editable: true,
@@ -127,6 +131,7 @@ flowWorkbench = createFlowWorkbenchController({
   onConnectionIntent: (intent) => flowSourceEditor.connectNodes(intent),
   resolvePreset: (presetId) => learningSurface?.resolvePreset(presetId) ?? null,
   onDraftConnectionIntent: (intent) => flowSourceEditor.connectDraft(intent),
+  onLearningObservation: (observation) => forwardFlowLearningObservation(guidedLesson, observation),
   onSourceUndo: () => codePane.undo(),
   onVirtualPlaybackNode(node) {
     if (node.presetId === "builtin.flow.pause") runtimeWorkspace?.trace.pausePlayback();
@@ -162,7 +167,10 @@ const programAnalysisCoordinator = createProgramAnalysisCoordinator({
   onProgress(functionCount, complete) {
     elements.parserStatus.dataset.analysisState = complete ? "complete" : "progressive";
     elements.parserStatus.dataset.analyzedFunctions = String(functionCount);
-    if (complete) requireFlowWorkbench().finalizePendingSidecarRestore();
+    if (complete) {
+      requireFlowWorkbench().finalizePendingSidecarRestore();
+      guidedLesson?.verifyCurrentProjection(sessionRoundTripIsLossless());
+    }
   },
   onError(error) {
     elements.parserStatus.dataset.analysisState = "worker-error";
@@ -233,29 +241,23 @@ runtimeWorkspace = createRuntimeWorkspaceController({
   onSetActivePath: (path, evidence) => requireFlowWorkbench().setActivePath(path, evidence),
   onFocusNode: (nodeId) => requireFlowWorkbench().focusNode(nodeId),
   onRevealRange: (range) => codePane.reveal(range),
+  onLearningObservation: (observation) =>
+    forwardRuntimeLearningObservation(guidedLesson, observation),
 });
-const workspaceController: WorkspaceController = createWorkspaceController({
-  host: elements.getPageHost("dashboard"),
+const workspaceLesson = createWorkspaceLessonIntegration({
+  elements,
   api: window.panelApi,
-  saveStatus: elements.workspaceSaveStatus,
-  recoveryButton: elements.workspaceRecoveryButton,
-  load: loadSource,
-  enterWorkbench: () => elements.showPage("build"),
-  onActiveEntryChange: (entry) => {
-    if (destroyed) return;
-    const entryId = entry?.id ?? null;
-    const fingerprint = entryId === null ? null : fingerprintSource(codePane.getSource());
-    void Promise.all([
-      requireFlowWorkbench().setWorkspaceEntry(entryId),
-      requireRuntimeWorkspace().setWorkspaceEntry(entryId, fingerprint),
-    ]).catch((error: unknown) => {
-      sourceImport.setStatus(
-        error instanceof Error ? error.message : "工作区 sidecar 载入失败",
-        "error",
-      );
-    });
+  codePane,
+  flow: requireFlowWorkbench(),
+  runtime: requireRuntimeWorkspace(),
+  loadSource,
+  onError(message) {
+    elements.importStatus.textContent = message;
+    elements.importStatus.dataset.state = "error";
   },
 });
+const workspaceController = workspaceLesson.workspace;
+guidedLesson = workspaceLesson.guidedLesson;
 const sourceImport = createSourceImportController(elements, {
   load: async (document, isCurrent) => {
     if (await workspaceController.prepareExternalImport(isCurrent)) loadSource(document);
@@ -315,6 +317,10 @@ void initializeWorkbenchApplication({
   workspace: workspaceController,
   getAnalysis: () => session?.analysis ?? null,
   isDestroyed: () => destroyed,
+  onStartGuidedLesson: () =>
+    void guidedLesson
+      ?.startLesson()
+      .catch((error: Error) => sourceImport.setStatus(error.message, "error")),
   onReady(loadedParser, surface, storage) {
     parser = loadedParser;
     learningSurface = surface;
@@ -324,8 +330,7 @@ void initializeWorkbenchApplication({
     editPanel?.setStatus(error);
     sourceImport.setStatus(error.message, "error");
   },
-});
-
+}).then(() => guidedLesson?.showFirstRunIfNeeded());
 function loadSource(imported: ImportedSource): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
   const analysis = parser.analyze(imported.source, nextSessionRevision());
@@ -336,7 +341,6 @@ function loadSource(imported: ImportedSource): void {
   projectionStatus.setState(projectionMode);
   elements.showPage("build");
 }
-
 function adoptAnalysis(
   imported: ImportedSource,
   analysis: core.CAnalysisSnapshot,
@@ -362,13 +366,11 @@ function adoptAnalysis(
   requireFlowWorkbench().adoptProjection(createFlowProjection(programAnalysis, document));
   requireFlowWorkbench().setAnalysis(programAnalysis);
   programAnalysisCoordinator.schedule(imported, analysis, blockIndex.entries.length);
-
   if (resetEditor) codePane.setSource(imported.source);
   blockTree.setDocument(document, blockIndex);
   elements.fileName.textContent = imported.displayName;
   elements.sourceMeta.textContent = sourceMetadata(imported.source);
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
-
   const functionCount = blockIndex.entries.filter(
     (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
   ).length;
@@ -379,7 +381,6 @@ function adoptAnalysis(
   elements.parserStatus.dataset.rootType = "translation_unit";
   elements.parserStatus.dataset.functionCount = String(functionCount);
   elements.parserStatus.dataset.roundtrip = "true";
-
   if (preferredTarget !== null) {
     const preferredEntry = editTargetSelection.blockEntryForTarget(blockIndex, preferredTarget);
     requireSourceSelection().selectBlock({
@@ -407,7 +408,6 @@ function adoptAnalysis(
     });
   }
 }
-
 function nextSessionRevision(): number {
   const current = session?.analysis.editTargets.revision ?? -1;
   if (current >= Number.MAX_SAFE_INTEGER) {
@@ -415,9 +415,9 @@ function nextSessionRevision(): number {
   }
   return current + 1;
 }
-
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
   if (destroyed) return;
+  workspaceLesson.handleSourceChanged(source);
   elements.parserStatus.dataset.analysisState = "pending";
   elements.parserStatus.dataset.analyzedFunctions = "0";
   flowWorkbench?.setAnalysis(null);
@@ -427,32 +427,30 @@ function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): voi
   sourceSync.handleSourceChange(source, reason);
   workspaceController.handleSourceChange(source);
 }
-
+function sessionRoundTripIsLossless(): boolean {
+  return (
+    session !== null && core.renderSourceDoc(session.analysis.document) === codePane.getSource()
+  );
+}
 function analyzeCurrentSource(source: string): core.CAnalysisSnapshot {
   if (parser === null) throw new Error("C 解析器尚未加载");
   return parser.analyze(source, nextSessionRevision());
 }
-
 function requireEditPanel(): EditPanel<core.StructuredEditPlan> {
   return requireService(editPanel, "编辑检查器不可用");
 }
-
 function requireStructureEditPanel(): StructureEditPanel {
   return requireService(structureEditPanel, "结构编辑面板不可用");
 }
-
 function requireStructureEdits(): StructureEditController {
   return requireService(structureEdits, "结构编辑控制器不可用");
 }
-
 function requireProjectionPresenter(): ProjectionPresenter {
   return requireService(projectionPresenter, "投影状态 presenter 不可用");
 }
-
 function requireFlowWorkbench(): FlowWorkbenchController {
   return requireService(flowWorkbench, "自由流程工作台不可用");
 }
-
 function requireRuntimeWorkspace(): RuntimeWorkspaceController {
   return requireService(runtimeWorkspace, "运行工作台不可用");
 }
@@ -477,6 +475,7 @@ function destroyApplication(): void {
   sourceImport.destroy();
   learningSurface?.destroy();
   learningCatalogStorage?.destroy();
+  guidedLesson?.destroy();
   void runtimeWorkspace?.destroy().catch(() => undefined);
   flowWorkbench?.destroy();
   workspaceController.destroy();
@@ -494,6 +493,7 @@ installApplicationPersistence({
   workspace: workspaceController,
   flow: requireFlowWorkbench(),
   runtime: requireRuntimeWorkspace(),
+  guidedLesson: guidedLesson ?? undefined,
   getCatalog: () => learningCatalogStorage,
   onCloseRequested: window.panelApi.onWorkspaceCloseRequested,
   destroy: destroyApplication,

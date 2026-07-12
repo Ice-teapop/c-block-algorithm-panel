@@ -35,68 +35,42 @@ export interface WorkbenchMenuController {
 }
 
 const SETTINGS_BRANCHES: readonly WorkbenchMenuBranch[] = Object.freeze([
-  branch("appearance", "外观", "界面", "command"),
-  branch("workspace-files", "文件与自动保存", "工作区", "command"),
-  branch("canvas-connections", "画布与连线", "工作区", "command"),
-  branch("execution", "编译与运行", "执行", "command"),
-  branch("ai-privacy", "AI 与隐私", "执行", "command"),
-  branch("keyboard", "快捷键", "辅助", "command"),
-  branch("accessibility", "无障碍", "辅助", "command"),
-  branch("about-logs", "版本与日志", "系统", "command"),
+  branch("general", "通用", "", "command"),
+  branch("ai-privacy", "AI 助手", "", "command"),
+  branch("keyboard", "快捷键", "", "command"),
+  branch("about-logs", "关于", "", "command"),
 ]);
 
 const PRESET_BRANCHES: readonly WorkbenchMenuBranch[] = Object.freeze([
-  branch("recent-favorites", "最近与收藏", "个人", "command"),
-  branch("flow-control", "流程控制", "基础", "command"),
-  branch("c-basics", "C 基础", "基础", "command"),
-  branch("functions-io", "函数与 I/O", "语言", "command"),
-  branch("arrays-strings", "数组与字符串", "语言", "command"),
-  branch("pointers-memory", "指针与内存", "语言", "command"),
-  branch("data-structures", "数据结构", "算法", "command"),
-  branch("algorithm-patterns", "算法模式", "算法", "command"),
-  branch("testing-analysis", "测试与分析", "工具", "command"),
-  branch("custom-lifecycle", "自定义块生命周期", "工具", "command"),
+  branch("search", "搜索", "", "command"),
+  branch("flow-c-basics", "流程与 C 基础", "", "command"),
+  branch("data-memory", "数据与内存", "", "command"),
+  branch("algorithm-patterns", "算法模式", "", "command"),
+  branch("custom-lifecycle", "自定义", "", "command"),
 ]);
 
 const LIBRARY_BRANCHES: readonly WorkbenchMenuBranch[] = Object.freeze([
-  branch("manual", "完整软件手册", "使用", "command"),
-  branch("canvas-wires", "画布与连线规则", "使用", "command"),
-  branch("execution-diagnostics", "运行与诊断", "使用", "command"),
-  branch("c-syntax", "C 语法词典", "词典", "command"),
-  branch("standard-library", "标准库词典", "词典", "command"),
-  branch("data-structure-dictionary", "数据结构词典", "词典", "command"),
-  branch("algorithms-complexity", "算法与复杂度", "课程", "command"),
-  branch("examples", "案例与情景", "课程", "command"),
-  branch("recovery", "故障与恢复", "支持", "command"),
-  branch("extension-api", "扩展开发文档", "扩展", "command"),
-  branch("onboarding", "新手引导", "支持", "command"),
+  branch("c-syntax", "语法", "", "command"),
+  branch("standard-library", "标准库", "", "command"),
+  branch("data-structure-dictionary", "数据结构", "", "command"),
+  branch("algorithms-complexity", "算法", "", "command"),
+  branch("examples", "案例", "", "command"),
+  branch("manual", "帮助", "", "command"),
 ]);
 
 const PANEL_BRANCHES: readonly WorkbenchMenuBranch[] = Object.freeze([
-  branch("project", "项目", "显示面板", "panel"),
-  branch("presets", "预设", "显示面板", "panel"),
-  branch("canvas", "画布", "显示面板", "panel"),
-  branch("code", "代码", "显示面板", "panel"),
-  branch("inspector", "属性", "显示面板", "panel"),
-  branch("runtime", "运行流程", "显示面板", "panel"),
-  branch("metrics", "指标", "显示面板", "panel"),
-  branch("diagnostics", "诊断", "显示面板", "panel"),
-  branch("mentor", "AI 提示", "显示面板", "panel"),
-  branch("software-library", "Library", "显示面板", "panel"),
-  branch("learn", "学习布局", "布局", "layout"),
-  branch("build", "搭建布局", "布局", "layout"),
-  branch("debug", "调试布局", "布局", "layout"),
-  branch("analyze", "分析布局", "布局", "layout"),
-  branch("minimal", "极简布局", "布局", "layout"),
-  branch("save-layout", "保存当前布局", "布局", "command"),
-  branch("reset-layout", "恢复默认布局", "布局", "command"),
+  branch("build", "搭建", "", "layout"),
+  branch("debug", "调试", "", "layout"),
+  branch("analyze", "分析", "", "layout"),
+  branch("minimal", "专注画布", "", "layout"),
+  branch("reset-layout", "恢复尺寸", "", "command"),
 ]);
 
 export const WORKBENCH_MENU_DEFINITIONS: readonly WorkbenchMenuDefinition[] = Object.freeze([
   definition("settings", "设置", SETTINGS_BRANCHES),
-  definition("presets", "预设块", PRESET_BRANCHES),
+  definition("presets", "积木", PRESET_BRANCHES),
   definition("library", "Library", LIBRARY_BRANCHES),
-  definition("panels", "面板预览", PANEL_BRANCHES),
+  definition("panels", "布局", PANEL_BRANCHES),
 ]);
 
 interface MountedMenu {
@@ -125,6 +99,7 @@ export function createWorkbenchMenu(
 
   const definitions = normalizeDefinitions(options.definitions ?? WORKBENCH_MENU_DEFINITIONS);
   const mounted: MountedMenu[] = definitions.map((menu, rootIndex) => {
+    const direct = menu.id === "library";
     const root = ownerDocument.createElement("div");
     root.className = "workbench-menu__root";
     root.dataset.menuRoot = menu.id;
@@ -133,8 +108,9 @@ export function createWorkbenchMenu(
     trigger.className = "workbench-menu__trigger";
     trigger.type = "button";
     trigger.textContent = menu.label;
+    trigger.dataset.labelZh = menu.label;
     trigger.dataset.menuRootTrigger = menu.id;
-    trigger.setAttribute("aria-haspopup", "menu");
+    if (!direct) trigger.setAttribute("aria-haspopup", "menu");
     trigger.setAttribute("aria-expanded", "false");
     trigger.tabIndex = rootIndex === 0 ? 0 : -1;
 
@@ -146,12 +122,12 @@ export function createWorkbenchMenu(
     popup.setAttribute("role", "menu");
     popup.setAttribute("aria-label", menu.label);
     popup.hidden = true;
-    trigger.setAttribute("aria-controls", popup.id);
+    if (!direct) trigger.setAttribute("aria-controls", popup.id);
 
     const items: HTMLButtonElement[] = [];
     let previousGroup: string | null = null;
     for (const item of menu.branches) {
-      if (item.group !== previousGroup) {
+      if (item.group.length > 0 && item.group !== previousGroup) {
         const groupLabel = ownerDocument.createElement("div");
         groupLabel.className = "workbench-menu__group-label";
         groupLabel.textContent = item.group;
@@ -163,6 +139,7 @@ export function createWorkbenchMenu(
       button.className = "workbench-menu__item";
       button.type = "button";
       button.textContent = item.label;
+      button.dataset.labelZh = item.label;
       button.dataset.menuRoot = menu.id;
       button.dataset.menuBranch = item.id;
       button.dataset.menuBranchKind = item.kind;
@@ -172,7 +149,8 @@ export function createWorkbenchMenu(
       items.push(button);
     }
 
-    root.append(trigger, popup);
+    if (direct) root.append(trigger);
+    else root.append(trigger, popup);
     navigation.append(root);
     return { definition: menu, root, trigger, popup, items: Object.freeze(items) };
   });
@@ -238,6 +216,11 @@ export function createWorkbenchMenu(
     if (!(target instanceof HTMLButtonElement)) return;
     const rootId = asRootId(target.dataset.menuRootTrigger);
     if (rootId !== null) {
+      if (rootId === "library") {
+        options.onSelect?.(Object.freeze({ rootId, branchId: "c-syntax" }));
+        close();
+        return;
+      }
       if (openRootId === rootId) close();
       else open(rootId);
       return;
@@ -267,6 +250,10 @@ export function createWorkbenchMenu(
                 ? "next"
                 : "previous";
         focusRoot(moveRovingIndex(rootIndex, direction, mounted.length));
+      } else if ((event.key === "Enter" || event.key === " ") && rootId === "library") {
+        event.preventDefault();
+        options.onSelect?.(Object.freeze({ rootId, branchId: "c-syntax" }));
+        close();
       } else if (["ArrowDown", "Enter", " "].includes(event.key)) {
         event.preventDefault();
         open(rootId, true);
@@ -387,7 +374,7 @@ function normalizeDefinitions(
     definitions.length !== required.length ||
     definitions.some((definition, index) => definition.id !== required[index])
   ) {
-    throw new TypeError("Dock 必须严格包含设置、预设块、Library、面板预览四个根菜单");
+    throw new TypeError("Dock 必须严格包含设置、积木、Library、布局四个根菜单");
   }
   return Object.freeze(
     definitions.map((definition) =>

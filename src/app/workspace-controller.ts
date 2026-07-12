@@ -29,6 +29,7 @@ export interface WorkspaceController {
   readonly hasUnsavedChanges: boolean;
   initialize(): Promise<void>;
   refresh(): Promise<void>;
+  createDocument(kind: WorkspaceKind, title: string, initialSource?: string): Promise<boolean>;
   handleSourceChange(source: string): void;
   flush(): Promise<void>;
   prepareExternalImport(isCurrent: () => boolean): Promise<boolean>;
@@ -94,28 +95,38 @@ export function createWorkspaceController(
     }
   };
 
-  const dashboard = createWorkspaceDashboard(options.host, {
-    async onCreate(kind: WorkspaceKind, title: string): Promise<boolean> {
-      const requestGeneration = ++generation;
-      dashboard.setStatus("正在创建本地条目…", "loading");
-      try {
-        await persistence.flush();
-        const result = await options.api.createWorkspaceDocument({ kind, title });
-        if (destroyed || requestGeneration !== generation) return false;
-        if (result.status === "failed") {
-          setFailure(result.error.code, result.error.message);
-          return false;
-        }
-        adopt(result.document);
-        void refresh();
-        return true;
-      } catch {
-        if (!destroyed && requestGeneration === generation) {
-          dashboard.setStatus("创建条目的 IPC 调用失败。", "error");
-        }
+  async function createDocument(
+    kind: WorkspaceKind,
+    title: string,
+    initialSource?: string,
+  ): Promise<boolean> {
+    const requestGeneration = ++generation;
+    dashboard.setStatus("正在创建本地条目…", "loading");
+    try {
+      await persistence.flush();
+      const result = await options.api.createWorkspaceDocument({
+        kind,
+        title,
+        ...(initialSource === undefined ? {} : { initialSource }),
+      });
+      if (destroyed || requestGeneration !== generation) return false;
+      if (result.status === "failed") {
+        setFailure(result.error.code, result.error.message);
         return false;
       }
-    },
+      adopt(result.document);
+      void refresh();
+      return true;
+    } catch {
+      if (!destroyed && requestGeneration === generation) {
+        dashboard.setStatus("创建条目的 IPC 调用失败。", "error");
+      }
+      return false;
+    }
+  }
+
+  const dashboard = createWorkspaceDashboard(options.host, {
+    onCreate: createDocument,
     async onOpen(entryId: string): Promise<void> {
       const requestGeneration = ++generation;
       dashboard.setStatus("正在打开本地条目…", "loading");
@@ -203,6 +214,7 @@ export function createWorkspaceController(
       }
     },
     refresh,
+    createDocument,
     handleSourceChange(source: string): void {
       if (!destroyed) persistence.handleSourceChange(source);
     },

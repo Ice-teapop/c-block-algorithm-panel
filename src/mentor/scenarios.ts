@@ -60,6 +60,42 @@ const SEEDS: readonly ScenarioSeed[] = Object.freeze([
     },
   ),
   seed(
+    "scenario.searching.maximum",
+    "searching",
+    "线性扫描最大值",
+    "线性扫描一组含负数的整数并输出最大值。",
+    1,
+    1024,
+    [8, 32, 128],
+    "第一项是 count，随后是 count 个整数。",
+    (size) => {
+      const values = maximumScanValues(size);
+      return runCase(
+        size,
+        `${String(size)}\n${values.join(" ")}\n`,
+        `${String(maximumOf(values))}\n`,
+      );
+    },
+  ),
+  seed(
+    "scenario.searching.minimum",
+    "searching",
+    "线性扫描最小值",
+    "线性扫描一组含正负数的整数并输出最小值。",
+    1,
+    1024,
+    [8, 32, 128],
+    "第一项是 count，随后是 count 个整数。",
+    (size) => {
+      const values = maximumScanValues(size);
+      return runCase(
+        size,
+        `${String(size)}\n${values.join(" ")}\n`,
+        `${String(minimumOf(values))}\n`,
+      );
+    },
+  ),
+  seed(
     "scenario.recursion.factorial",
     "recursion",
     "递归阶乘",
@@ -151,6 +187,9 @@ const DEFINITIONS: readonly AlgorithmScenarioDefinition[] = Object.freeze(
         minimum: entry.minimum,
         maximum: entry.maximum,
         defaultSizes: Object.freeze([...entry.defaultSizes]),
+        ...(isScanExtremaScenario(entry.id)
+          ? { caseSizes: Object.freeze([5, 4, 1, ...entry.defaultSizes]) }
+          : {}),
         inputModel: entry.inputModel,
       }),
     }),
@@ -207,6 +246,10 @@ function seed(
   });
 }
 
+function isScanExtremaScenario(id: string): boolean {
+  return id === "scenario.searching.maximum" || id === "scenario.searching.minimum";
+}
+
 function generate(entry: ScenarioSeed, size: number): ScenarioRunCase {
   const generated = entry.generate(size);
   return Object.freeze({
@@ -241,6 +284,28 @@ function ascending(size: number): number[] {
 
 function descending(size: number): number[] {
   return ascending(size).reverse();
+}
+
+/** Alternates record-setting values with lower negatives to exercise both comparison outcomes. */
+function maximumScanValues(size: number): number[] {
+  if (size === 1) return [42];
+  if (size === 4) return [-9, -4, -12, -7];
+  if (size === 5) return [3, 8, 2, 7, 4];
+  return Array.from({ length: size }, (_, index) =>
+    index === 0 || index % 2 === 0 ? -size - index : index,
+  );
+}
+
+function maximumOf(values: readonly number[]): number {
+  const first = values[0];
+  if (first === undefined) throw new RangeError("最大值案例至少需要一个整数");
+  return values.slice(1).reduce((maximum, value) => Math.max(maximum, value), first);
+}
+
+function minimumOf(values: readonly number[]): number {
+  const first = values[0];
+  if (first === undefined) throw new RangeError("最小值案例至少需要一个整数");
+  return values.slice(1).reduce((minimum, value) => Math.min(minimum, value), first);
 }
 
 function interleaved(size: number): number[] {

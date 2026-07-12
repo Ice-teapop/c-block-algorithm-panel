@@ -44,10 +44,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "manual.autosave",
     "manual",
     "本地自动保存",
-    "托管条目的源码在编辑后防抖保存到 Documents，主进程使用 opaque ID 和原子替换保护路径边界。",
+    "打开工作区条目后，源码会在停止输入片刻后自动保存到 Documents 的专属目录。",
     [
-      "renderer 不接收任意文件系统路径。主进程根据工作区 ID 查找条目，校验 revision 后写入临时文件并原子替换。",
-      "若磁盘 revision 与界面不同，应用停止覆盖并要求重新加载。自动保存不是版本控制，重要项目仍应使用 Git。",
+      "底部状态栏会显示正在保存、已保存或存在冲突。发生冲突时应用会停止覆盖，并要求你先重新载入磁盘版本。",
+      "自动保存用于防止意外丢稿，不等于版本历史。重要项目仍建议使用 Git 或另行备份。",
     ],
     {
       featureLink: link("查看保存状态", "build", "local-save"),
@@ -74,7 +74,7 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "C 代码编辑器",
     "代码面板始终显示精确源码，可直接输入、粘贴和撤销；结构化能力会随解析状态自动启停。",
     [
-      "直接编辑先更新内存源码，再建立新 SourceDoc、符号索引和 CFG。任何投影都必须绑定同一源码 fingerprint。",
+      "直接编辑会立即刷新积木、符号和控制流程；正在显示的旧分析结果不会套用到新源码。",
       "出现语法错误时仍保留文本编辑和保存，但暂停可能破坏结构的重命名、改线和语句重排。",
     ],
     {
@@ -89,7 +89,7 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "右侧检查器把通俗解释、受约束修改和本机运行分开，避免把推测、补丁和执行结果混为一谈。",
     [
       "解释页读取语法、符号和确定性分析事实；编辑页先生成 diff；运行页展示编译、stdout、stderr 和终止原因。",
-      "检查器视图由 InspectorViewContribution 注册。新增视图只贡献静态元数据，执行能力仍需显式受控接口。",
+      "切换视图不会修改源码。任何真正的代码变化都必须经过预览、语法检查和明确确认。",
     ],
     {
       featureLink: link("打开解释", "explanation", "explanation"),
@@ -103,7 +103,7 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "项目、预设、画布、代码、流程、指标和诊断面板各自滚动，并通过分隔条独立调整尺寸。",
     [
       "学习、搭建、调试、分析和极简布局只改变面板可见性与比例，不改变源码、草稿或运行数据。",
-      "布局保存在 flow-view sidecar。源码 fingerprint 变化时保留面板配置，但失效的节点坐标和选择会安全重置。",
+      "布局随项目保存在独立视图文件中。源码变化后仍保留面板比例，无法可靠对应的节点位置会恢复默认。",
     ],
     { related: ["canvas.view-state", "extension.panel", "extension.layout"] },
   ),
@@ -125,10 +125,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "manual.library",
     "manual",
     "Library 电子词典",
-    "Library 同时承担完整软件手册、C/DSA 词典、案例、恢复指南和扩展接口参考，不替代新手引导。",
+    "Library 同时承担完整软件手册、C/DSA 词典、案例、恢复指南和扩展接口参考；第一课则负责真实操作训练。",
     [
       "左侧目录与右侧详情独立滚动；搜索覆盖标题、别名、正文、关键词和示例源码，并可通过交叉链接追踪概念。",
-      "新手引导负责第一次操作路径，Library 负责随时检索和深入理解。条目描述必须区分已实现能力与规划能力。",
+      "第一课使用独立教学沙箱和真实运行证据；Library 负责随时检索和深入理解。课程不会修改已有项目。",
     ],
     {
       featureLink: link("打开 Library", "software-library", "software-library"),
@@ -211,7 +211,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       "accepted 只代表图层结构可以继续验证，不代表 C 已改变。计划明确携带 cSourcePatch: null 或 provisional patch。",
       "真正提交必须满足 exact diff、source reparse、roundtrip、CFG edge match 和 no-new-partial 等后置条件。",
     ],
-    { related: ["recovery.stale-snapshot", "extension.registry"] },
+    {
+      audience: "developer",
+      related: ["recovery.stale-snapshot", "extension.registry"],
+    },
   ),
   e(
     "canvas.view-state",
@@ -223,6 +226,7 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       "sidecar 失败只重置视图，不触碰 main.c。旧 v1 同源码可读并在下次保存迁移；v2 序列化不保存 node、port 或 edge 临时 ID。",
     ],
     {
+      audience: "developer",
       example: code(
         "json",
         "最小视图状态",
@@ -285,8 +289,8 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "受限执行轨迹",
     "Trace 使用临时影子源码插桩记录节点事件，不修改项目 main.c，并按 session 增量读取。",
     [
-      "轨迹绑定源码 fingerprint、窗口和一次授权；达到事件数或字节上限后截断，并支持取消。",
-      "界面约每 100 ms 拉取新批次并高亮真实路径。源码一旦改变，旧 session 结果立即失效。",
+      "轨迹只对应当前源码和这一次运行；达到事件数或数据上限后会明确截断，并且可以随时取消。",
+      "界面持续刷新并高亮真实路径。源码一旦改变，旧轨迹立即失效，避免拿旧结果解释新代码。",
     ],
     { related: ["execution.real-vs-simulation", "execution.metrics"] },
   ),
@@ -344,7 +348,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       "重新选择当前节点并重新生成计划。系统拒绝把旧坐标补丁套到长度相同但内容不同的源码。",
       "过期拒绝不会修改源码；它是并发编辑和异步结果的保护边界。",
     ],
-    { related: ["canvas.connection-gate", "manual.autosave"] },
+    {
+      audience: "developer",
+      related: ["canvas.connection-gate", "manual.autosave"],
+    },
   ),
   e(
     "recovery.partial-cfg",
@@ -382,11 +389,11 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
   e(
     "recovery.disk-conflict",
     "recovery",
-    "磁盘 revision 冲突",
-    "外部修改导致磁盘版本与界面 revision 不一致时，自动保存停止覆盖并要求明确重载。",
+    "磁盘版本冲突",
+    "同一文件在应用外被修改后，自动保存会停止覆盖并要求你明确重新载入。",
     [
       "先复制未保存代码，再比较磁盘版本。选择重载会采用磁盘事实源，不能静默合并不确定文本。",
-      "需要协作历史时使用 Git；revision 只保护单机原子写入，不替代版本控制。",
+      "需要协作历史时使用 Git；冲突保护只避免单机误覆盖，不替代版本控制。",
     ],
     { related: ["manual.autosave", "manual.source-authority"] },
   ),
@@ -399,7 +406,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       "删除或忽略损坏 sidecar 后可重新生成默认布局。未知版本、异常坐标和未知节点都会 fail-closed。",
       "源码仍由 main.c 和 entry 元数据管理；sidecar 不是源码备份。",
     ],
-    { related: ["canvas.view-state", "manual.layouts"] },
+    {
+      audience: "developer",
+      related: ["canvas.view-state", "manual.layouts"],
+    },
   ),
 
   e(
@@ -566,7 +576,7 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "第三步：组织画布",
     "移动紧凑节点建立清晰阅读顺序，并用端口识别真实 CFG，而不是按视觉位置猜执行顺序。",
     [
-      "单击节点打开详情；锁定节点先回到代码面板修复。草稿保持 detached，直到安全插槽规划完成。",
+      "单击节点只选择，拖动用于布局；双击节点或按 Enter 才打开详情。锁定节点应先回到代码面板修复。",
       "使用框选和布局分隔条调整工作区，不要通过拖动位置试图改变程序语义。",
     ],
     { related: ["canvas.free-layout", "canvas.control-ports"] },
@@ -608,10 +618,10 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "onboarding.library",
     "onboarding",
     "随时返回 Library",
-    "新手引导提供一次完整路线，Library 提供可重复检索的功能、语法、数据结构和算法参考。",
+    "第一课提供可恢复的真实操作路线，Library 提供可重复检索的功能、语法、数据结构和算法参考。",
     [
       "Dock 的 Library 分支可直接跳到对应词典。搜索支持中文、英文别名、关键词和示例代码。",
-      "选择“重新开始视觉引导”会再次定位主流界面，不会删除项目、源码或布局。",
+      "选择“开始第一课”会新建专用教学沙箱，不会覆盖已有项目、源码或布局。",
     ],
     {
       featureLink: link("重新打开 Library", "software-library", "software-library"),
@@ -626,6 +636,10 @@ interface EntryOptions {
   readonly example?: LibraryEntryInput["example"];
   readonly related?: readonly string[];
   readonly featureLink?: LibraryEntryInput["featureLink"];
+  readonly audience?: LibraryEntryInput["audience"];
+  readonly syntax?: LibraryEntryInput["syntax"];
+  readonly complexity?: LibraryEntryInput["complexity"];
+  readonly pitfalls?: LibraryEntryInput["pitfalls"];
 }
 
 function e(
@@ -647,6 +661,10 @@ function e(
     example: options.example,
     relatedEntryIds: options.related,
     featureLink: options.featureLink,
+    audience: options.audience,
+    syntax: options.syntax,
+    complexity: options.complexity,
+    pitfalls: options.pitfalls,
   };
 }
 

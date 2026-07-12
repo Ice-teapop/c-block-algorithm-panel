@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TraceEvent } from "../../src/shared/trace.js";
+import type { TraceEvent, TraceRunEvidence } from "../../src/shared/trace.js";
 import {
   createTracePanel,
   formatTraceEvent,
+  selectTraceChartEvents,
   selectTracePanelEvents,
+  TRACE_CHART_POINT_LIMIT,
   TRACE_PANEL_EVENT_LIMIT,
+  traceChartXAxisMode,
   tracePlaybackControlEnabled,
   traceStatusPresentation,
   type TracePanelState,
@@ -52,9 +55,10 @@ describe("trace panel status contract", () => {
 
 describe("trace panel event list", () => {
   it("renders at most the newest 500 events without mutating backend evidence", () => {
-    const sourceEvents = Array.from({ length: 620 }, (_, index) =>
-      event(index + 1, index % 5 === 0 ? "branch" : "line", index + 2),
-    );
+    const sourceEvents = Array.from({ length: 620 }, (_, index) => {
+      const kind = index % 5 === 0 ? "branch" : "line";
+      return event(index + 1, kind, index + 2, kind === "branch" ? index % 2 === 0 : null);
+    });
     const selected = selectTracePanelEvents(sourceEvents);
 
     expect(TRACE_PANEL_EVENT_LIMIT).toBe(500);
@@ -74,9 +78,86 @@ describe("trace panel event list", () => {
     );
     expect(formatTraceEvent(event(9, "branch", 18, false))).not.toMatch(/模拟|simulation/iu);
   });
+
+  it("samples a finite 80-point chart while preserving branch evidence", () => {
+    const sourceEvents = Array.from({ length: 620 }, (_, index) =>
+      event(index + 1, index === 310 ? "branch" : "line", index + 2, index === 310),
+    );
+    sourceEvents.splice(200, 0, {
+      sequence: 900,
+      kind: "line",
+      line: 1,
+      branchTaken: null,
+      elapsedMs: Number.POSITIVE_INFINITY,
+    });
+
+    const selected = selectTraceChartEvents(sourceEvents);
+
+    expect(TRACE_CHART_POINT_LIMIT).toBe(80);
+    expect(selected).toHaveLength(80);
+    expect(selected.some((candidate) => candidate.kind === "branch")).toBe(true);
+    expect(selected.every((candidate) => Number.isFinite(candidate.elapsedMs))).toBe(true);
+    expect(selected[0]?.sequence).toBe(1);
+    expect(selected.at(-1)?.sequence).toBe(620);
+  });
 });
 
 describe("trace panel interaction", () => {
+  it("spreads same-millisecond events by real execution order instead of drawing a vertical line", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    const events = [
+      event(1, "line", 2, null, 0),
+      event(2, "branch", 3, true, 0),
+      event(3, "line", 4, null, 0),
+    ];
+
+    panel.setEvents(events);
+
+    const chart = fixture.findByClass("trace-panel__chart");
+    const points = fixture.findByData("series", "trace")?.getAttribute("points") ?? "";
+    const uniqueX = new Set(
+      points
+        .split(" ")
+        .filter(Boolean)
+        .map((point) => point.split(",")[0]),
+    );
+    expect(traceChartXAxisMode(events)).toBe("sequence");
+    expect(chart?.dataset.xMode).toBe("sequence");
+    expect(uniqueX.size).toBe(3);
+    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toContain(
+      "计时分辨率不足",
+    );
+  });
+
+  it("draws a point for a single event and keeps distinct timestamps on the time axis", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+
+    panel.setEvents([event(1, "line", 2, null, 0)]);
+    expect(fixture.findByData("kind", "line")?.tagName).toBe("circle");
+    expect(fixture.findByClass("trace-panel__chart")?.dataset.pointCount).toBe("1");
+
+    const timed = [
+      event(1, "line", 2, null, 0),
+      event(2, "line", 3, null, 1),
+      event(3, "line", 4, null, 2),
+    ];
+    panel.setEvents(timed);
+    expect(traceChartXAxisMode(timed)).toBe("time");
+    expect(fixture.findByClass("trace-panel__chart")?.dataset.xMode).toBe("time");
+  });
+
   it("keeps real events local, caps DOM rows and distinguishes playback from process control", () => {
     const fixture = fakeHost();
     const pause = vi.fn();
@@ -87,10 +168,18 @@ describe("trace panel interaction", () => {
       onPausePlayback: pause,
       onResumePlayback: resume,
     });
-    panel.setEvents(Array.from({ length: 620 }, (_, index) => event(index + 1, "line", index + 2)));
+    panel.setEvents(
+      Array.from({ length: 620 }, (_, index) =>
+        event(index + 1, index === 310 ? "branch" : "line", index + 2, index === 310),
+      ),
+    );
     panel.setState(panelState({ status: "running", eventCount: 620 }));
 
     expect(panel.element.dataset.traceMode).toBe("real");
+    expect(fixture.findByClass("trace-panel__visual-stage")).toBeUndefined();
+    expect(fixture.findByClass("trace-panel__chart")?.tagName).toBe("svg");
+    expect(fixture.findByClass("trace-panel__chart")?.dataset.pointCount).toBe("80");
+    expect(fixture.findByData("kind", "branch")?.tagName).toBe("circle");
     expect(fixture.findByClass("trace-panel__events")?.children).toHaveLength(500);
     expect(fixture.findByClass("trace-panel__event-count")?.textContent).toBe(
       "620 条 · 仅显示最近 500 条",
@@ -109,6 +198,56 @@ describe("trace panel interaction", () => {
       "C 进程仍在后台继续运行",
     );
   });
+
+  it("reports live reference-budget use and the terminal measured/reference ratio", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    panel.setReference({ inputSize: 32, referenceOperationCount: 100, label: "O(n log n) 参考" });
+    panel.setEvents(Array.from({ length: 40 }, (_, index) => event(index + 1, "line", index + 2)));
+    panel.setState(panelState({ status: "running", eventCount: 40 }));
+
+    expect(fixture.findByClass("trace-panel__reference")?.textContent).toBe(
+      "已消耗参考预算：0.40×（40 / 100）· n=32 · O(n log n) 参考",
+    );
+    expect(fixture.findByData("series", "reference")?.tagName).toBe("line");
+
+    panel.setState(
+      panelState({ status: "completed", eventCount: 40, evidence: traceEvidence(125) }),
+    );
+    expect(fixture.findByClass("trace-panel__reference")?.textContent).toBe(
+      "实测/参考工作量比：1.25×（125 / 100）· n=32 · O(n log n) 参考",
+    );
+
+    panel.setReference(null);
+    expect(fixture.findByClass("trace-panel__reference")?.textContent).toBe(
+      "实测/参考工作量比：不可用（尚未建立同规模参考）",
+    );
+    expect(fixture.findByClass("trace-panel__reference")?.dataset.available).toBe("false");
+  });
+
+  it("rejects non-finite reference values instead of rendering misleading ratios", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    panel.setReference({
+      inputSize: 32,
+      referenceOperationCount: Number.POSITIVE_INFINITY,
+      label: "invalid",
+    });
+    panel.setState(panelState({ status: "running", eventCount: 40 }));
+
+    expect(fixture.findByClass("trace-panel__reference")?.dataset.available).toBe("false");
+    expect(fixture.findByData("series", "reference")).toBeUndefined();
+  });
 });
 
 function event(
@@ -116,8 +255,9 @@ function event(
   kind: TraceEvent["kind"],
   line: number,
   branchTaken: boolean | null = null,
+  elapsedMs = sequence * 2.5,
 ): TraceEvent {
-  return Object.freeze({ sequence, kind, line, branchTaken, elapsedMs: sequence * 2.5 });
+  return Object.freeze({ sequence, kind, line, branchTaken, elapsedMs });
 }
 
 function panelState(overrides: Partial<TracePanelState>): TracePanelState {
@@ -135,10 +275,26 @@ function panelState(overrides: Partial<TracePanelState>): TracePanelState {
   };
 }
 
+function traceEvidence(operationCount: number): TraceRunEvidence {
+  return {
+    ok: true,
+    exitCode: 0,
+    signal: null,
+    termination: "process-exit",
+    durationMs: 250,
+    peakRssBytes: 1_024,
+    peakProcessCount: 1,
+    outputBytes: 8,
+    executedNodeCount: 4,
+    operationCount,
+  };
+}
+
 function fakeHost(): {
   readonly host: HTMLElement;
   findByClass(className: string): FakeElement | undefined;
   findByAction(action: string): FakeElement | undefined;
+  findByData(name: string, value: string): FakeElement | undefined;
 } {
   const ownerDocument = new FakeDocument();
   const host = ownerDocument.createElement("div");
@@ -146,11 +302,17 @@ function fakeHost(): {
     host: host as unknown as HTMLElement,
     findByClass: (className) => walk(host).find((element) => element.className === className),
     findByAction: (action) => walk(host).find((element) => element.dataset.traceAction === action),
+    findByData: (name, value) =>
+      walk(host).find((element) => element.getAttribute(`data-${name}`) === value),
   };
 }
 
 class FakeDocument {
   createElement(tagName: string): FakeElement {
+    return new FakeElement(tagName, this);
+  }
+
+  createElementNS(_namespace: string, tagName: string): FakeElement {
     return new FakeElement(tagName, this);
   }
 }
@@ -185,6 +347,17 @@ class FakeElement {
 
   setAttribute(name: string, value: string): void {
     this.#attributes.set(name, value);
+    if (name === "class") this.className = value;
+    if (name.startsWith("data-")) {
+      const dataName = name
+        .slice(5)
+        .replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
+      this.dataset[dataName] = value;
+    }
+  }
+
+  getAttribute(name: string): string | null {
+    return this.#attributes.get(name) ?? null;
   }
 
   addEventListener(type: string, listener: () => void): void {

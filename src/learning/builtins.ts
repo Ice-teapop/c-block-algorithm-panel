@@ -774,6 +774,17 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     { branches: ["match", "continue"], requiresSymbols: ["values", "i", "target", "found"] },
   ),
   sourcePreset(
+    "builtin.search.update-maximum",
+    "更新最大值",
+    "algorithm-patterns",
+    "algorithms.search",
+    "if (value > maximum) {\n  maximum = value;\n}",
+    "只在新值更大时更新当前最大值，适合一次线性扫描。",
+    "control",
+    "module",
+    { branches: ["update", "keep"], requiresSymbols: ["value", "maximum"] },
+  ),
+  sourcePreset(
     "builtin.search.linear-loop",
     "线性搜索",
     "algorithm-patterns",

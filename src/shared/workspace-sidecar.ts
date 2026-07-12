@@ -4,6 +4,7 @@ export const WORKSPACE_SIDECAR_KINDS = Object.freeze([
   "flow-view",
   "scenarios",
   "run-history",
+  "tutorial-progress",
 ] as const);
 
 export type WorkspaceSidecarKind = (typeof WORKSPACE_SIDECAR_KINDS)[number];

@@ -54,14 +54,16 @@ export function projectTraceEventsToFlow(
     appendUnique(nodeIds, nodeSeen, node.id);
 
     if (previousNode !== null && previousNode.id !== node.id) {
-      const connectingEdge = selectConnectingEdge(
+      const connectingPath = selectConnectingPath(
         projection.edges,
+        projection.nodes,
         previousNode.id,
         node.id,
         pendingBranchKind,
       );
-      if (connectingEdge !== null) appendUnique(edgeIds, edgeSeen, connectingEdge.id);
-      else discontinuityCount += 1;
+      if (connectingPath !== null) {
+        for (const edge of connectingPath) appendUnique(edgeIds, edgeSeen, edge.id);
+      } else discontinuityCount += 1;
       pendingBranchKind = null;
     }
 
@@ -185,19 +187,47 @@ function offsetLineNumber(offset: number, current: SourceLineRange): number {
   return offset >= current.from && offset <= current.to ? current.number : -1;
 }
 
-function selectConnectingEdge(
+function selectConnectingPath(
   edges: readonly FlowEdge[],
+  nodes: readonly FlowNode[],
   fromNodeId: string,
   toNodeId: string,
   expectedKind: "branch-true" | "branch-false" | null,
-): FlowEdge | null {
+): readonly FlowEdge[] | null {
   const exact = edges.filter(
     (edge) =>
       edge.from.nodeId === fromNodeId &&
       edge.to.nodeId === toNodeId &&
       (expectedKind === null || edge.kind === expectedKind),
   );
-  return exact.length === 1 ? exact[0]! : null;
+  if (exact.length === 1) return Object.freeze([exact[0]!]);
+  if (exact.length > 1) return null;
+
+  // `for` update expressions are real CFG nodes but the conservative line instrumenter cannot
+  // emit a separate event for a header sub-expression. Accept only one short, provable CFG path;
+  // competing branch paths remain ambiguous and fail closed.
+  const paths: FlowEdge[][] = [];
+  const visit = (nodeId: string, path: FlowEdge[], visited: ReadonlySet<string>): void => {
+    if (paths.length > 1 || path.length >= 4) return;
+    const outgoing = edges.filter(
+      (edge) =>
+        edge.from.nodeId === nodeId &&
+        (path.length > 0 || expectedKind === null || edge.kind === expectedKind),
+    );
+    for (const edge of outgoing) {
+      if (edge.to.nodeId === toNodeId) {
+        paths.push([...path, edge]);
+        if (paths.length > 1) return;
+        continue;
+      }
+      if (visited.has(edge.to.nodeId)) continue;
+      const bridge = nodes.find((node) => node.id === edge.to.nodeId);
+      if (bridge?.nodeType !== "for_initializer" && bridge?.nodeType !== "for_update") continue;
+      visit(edge.to.nodeId, [...path, edge], new Set([...visited, edge.to.nodeId]));
+    }
+  };
+  visit(fromNodeId, [], new Set([fromNodeId]));
+  return paths.length === 1 ? Object.freeze(paths[0]!) : null;
 }
 
 function selectObservedBranchEdge(

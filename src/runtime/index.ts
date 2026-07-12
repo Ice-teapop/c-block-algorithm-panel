@@ -25,3 +25,15 @@ export {
   selectComparableRuns,
   summarizeComparableRuns,
 } from "./run-history.js";
+export {
+  analyzeRunHistoryEvidence,
+  compareGrowthToReference,
+  defaultComplexityReference,
+  scenarioReferenceWorkload,
+  type ComplexityCurve,
+  type ComplexityReference,
+  type EvidenceAnalyticsPoint,
+  type ReferenceGrowthComparison,
+  type RunHistoryEvidenceAnalytics,
+  type ScenarioReferenceWorkload,
+} from "./evidence-analytics.js";

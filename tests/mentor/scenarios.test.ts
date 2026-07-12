@@ -55,6 +55,43 @@ describe("offline algorithm scenario provider", () => {
     expect(provider.generate("scenario.searching.linear", 4)).toMatchObject({
       expected: { stdout: "3\n" },
     });
+    expect(provider.get("scenario.searching.maximum")).toMatchObject({
+      family: "searching",
+      label: "线性扫描最大值",
+      sizeGenerator: {
+        minimum: 1,
+        maximum: 1024,
+        defaultSizes: [8, 32, 128],
+      },
+    });
+    expect(provider.generate("scenario.searching.maximum", 1)).toMatchObject({
+      stdin: "1\n42\n",
+      expected: { stdout: "42\n" },
+    });
+    expect(provider.generate("scenario.searching.maximum", 4)).toMatchObject({
+      stdin: "4\n-9 -4 -12 -7\n",
+      expected: { stdout: "-4\n" },
+    });
+    expect(provider.generate("scenario.searching.maximum", 5)).toMatchObject({
+      stdin: "5\n3 8 2 7 4\n",
+      expected: { stdout: "8\n" },
+    });
+    expect(provider.generate("scenario.searching.maximum", 6)).toMatchObject({
+      stdin: "6\n-6 1 -8 3 -10 5\n",
+      expected: { stdout: "5\n" },
+    });
+    expect(provider.generate("scenario.searching.minimum", 1)).toMatchObject({
+      stdin: "1\n42\n",
+      expected: { stdout: "42\n" },
+    });
+    expect(provider.generate("scenario.searching.minimum", 4)).toMatchObject({
+      stdin: "4\n-9 -4 -12 -7\n",
+      expected: { stdout: "-12\n" },
+    });
+    expect(provider.generate("scenario.searching.minimum", 5)).toMatchObject({
+      stdin: "5\n3 8 2 7 4\n",
+      expected: { stdout: "2\n" },
+    });
     expect(provider.generate("scenario.recursion.factorial", 5)).toMatchObject({
       expected: { stdout: "120\n" },
     });
@@ -67,12 +104,72 @@ describe("offline algorithm scenario provider", () => {
     });
   });
 
+  it("gives maximum defaults negative values and both comparison outcomes", () => {
+    const provider = createBuiltinScenarioProvider();
+    const scenario = provider.get("scenario.searching.maximum");
+    if (scenario === null) throw new Error("missing maximum scenario");
+
+    for (const size of scenario.sizeGenerator.defaultSizes) {
+      const generated = provider.generate(scenario.id, size);
+      const tokens = generated.stdin.trim().split(/\s+/u).map(Number);
+      const count = tokens[0];
+      const values = tokens.slice(1);
+      expect(count).toBe(size);
+      expect(values).toHaveLength(size);
+      expect(values.some((value) => value < 0)).toBe(true);
+
+      let maximum = values[0]!;
+      let updates = 0;
+      let keeps = 0;
+      for (const value of values.slice(1)) {
+        if (value > maximum) {
+          maximum = value;
+          updates += 1;
+        } else {
+          keeps += 1;
+        }
+      }
+      expect(updates).toBeGreaterThan(0);
+      expect(keeps).toBeGreaterThan(0);
+      expect(generated.expected.stdout).toBe(`${String(maximum)}\n`);
+    }
+  });
+
+  it("gives minimum defaults both comparison outcomes", () => {
+    const provider = createBuiltinScenarioProvider();
+    const scenario = provider.get("scenario.searching.minimum");
+    if (scenario === null) throw new Error("missing minimum scenario");
+
+    for (const size of scenario.sizeGenerator.defaultSizes) {
+      const generated = provider.generate(scenario.id, size);
+      const tokens = generated.stdin.trim().split(/\s+/u).map(Number);
+      const values = tokens.slice(1);
+      let minimum = values[0]!;
+      let updates = 0;
+      let keeps = 0;
+      for (const value of values.slice(1)) {
+        if (value < minimum) {
+          minimum = value;
+          updates += 1;
+        } else {
+          keeps += 1;
+        }
+      }
+      expect(updates).toBeGreaterThan(0);
+      expect(keeps).toBeGreaterThan(0);
+      expect(generated.expected.stdout).toBe(`${String(minimum)}\n`);
+    }
+  });
+
   it("rejects unknown scenarios and out-of-range sizes", () => {
     const provider = createBuiltinScenarioProvider();
     expect(provider.get("scenario.missing")).toBeNull();
     expect(() => provider.generate("scenario.missing", 1)).toThrow(RangeError);
     expect(() => provider.generate("scenario.recursion.factorial", 13)).toThrow(RangeError);
     expect(() => provider.generate("scenario.sorting.integers", 1.5)).toThrow(RangeError);
+    expect(() => provider.generate("scenario.searching.maximum", 0)).toThrow(RangeError);
+    expect(() => provider.generate("scenario.searching.maximum", 1025)).toThrow(RangeError);
+    expect(() => provider.generate("scenario.searching.minimum", 0)).toThrow(RangeError);
   });
 });
 

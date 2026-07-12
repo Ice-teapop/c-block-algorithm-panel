@@ -70,7 +70,12 @@ export function createScenarioCatalogPanel(
   const createButton = actionButton(document, "新建", "new");
   const copyButton = actionButton(document, "复制", "copy");
   const deleteButton = actionButton(document, "删除", "delete");
-  toolbar.append(heading, createButton, copyButton, deleteButton);
+  const moreActions = document.createElement("details");
+  moreActions.className = "scenario-catalog__more-actions";
+  const moreSummary = document.createElement("summary");
+  moreSummary.textContent = "更多";
+  moreActions.append(moreSummary, deleteButton);
+  toolbar.append(heading, createButton, copyButton, moreActions);
 
   const body = document.createElement("div");
   body.className = "scenario-catalog__body";
@@ -362,7 +367,12 @@ function createEditorFields(
   const addCase = actionButton(document, "新增输入", "add-case");
   const copyCase = actionButton(document, "复制输入", "copy-case");
   const deleteCase = actionButton(document, "删除输入", "delete-case");
-  caseActions.append(caseSelect, addCase, copyCase, deleteCase);
+  const caseMore = document.createElement("details");
+  caseMore.className = "scenario-catalog__more-actions";
+  const caseMoreSummary = document.createElement("summary");
+  caseMoreSummary.textContent = "更多";
+  caseMore.append(caseMoreSummary, deleteCase);
+  caseActions.append(caseSelect, addCase, copyCase, caseMore);
   form.append(caseHeading, caseActions);
 
   const caseLabel = inputField(document, form, "输入名称", item?.label ?? "");

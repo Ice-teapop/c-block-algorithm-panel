@@ -504,12 +504,17 @@ function renderStatementGroup(
   movePrevious.dataset.operation = "move-previous";
   moveNext.dataset.operation = "move-next";
   deleteButton.dataset.operation = "delete";
-  moveActions.append(movePrevious, moveNext, deleteButton);
+  moveActions.append(movePrevious, moveNext);
+  const moreActions = ownerDocument.createElement("details");
+  moreActions.className = "structure-edit-panel__more-actions";
+  const moreSummary = ownerDocument.createElement("summary");
+  moreSummary.textContent = "更多操作";
+  moreActions.append(moreSummary, deleteButton);
 
   const hint = ownerDocument.createElement("p");
   hint.className = "structure-edit-panel__hint";
   hint.textContent = statementUnavailableReason(statement) ?? "仅接受一条无外层缩进的物理源码行。";
-  group.append(legend, target, insertLabel, insertActions, moveActions, hint);
+  group.append(legend, target, insertLabel, insertActions, moveActions, moreActions, hint);
 
   insertInput.addEventListener("input", () => {
     onDraftChange();

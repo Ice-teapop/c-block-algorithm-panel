@@ -9,7 +9,7 @@ import {
 } from "../../src/ui/scenario-panel.js";
 
 describe("scenario panel", () => {
-  it("lists all seven local families and previews deterministic case inputs", () => {
+  it("lists all eight local scenarios across seven families and previews deterministic inputs", () => {
     const provider = createBuiltinScenarioProvider();
     const fixture = fakeHost();
     const panel = createScenarioPanel(fixture.host, callbacks());
@@ -25,7 +25,7 @@ describe("scenario panel", () => {
         "dynamic-programming",
       ]),
     );
-    expect(fixture.findByClass("scenario-panel__scenario")?.children).toHaveLength(7);
+    expect(fixture.findByClass("scenario-panel__scenario")?.children).toHaveLength(9);
 
     panel.selectScenario("scenario.searching.linear");
     panel.setSize(4);

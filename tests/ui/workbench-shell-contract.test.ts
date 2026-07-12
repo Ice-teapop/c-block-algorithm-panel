@@ -60,9 +60,11 @@ describe("M6 workbench shell contract", () => {
     expect(flowWorkbenchSource).toContain("canvas.focusNode(node.id)");
   });
 
-  it("publishes direct Dashboard/build navigation and inspector compatibility", () => {
+  it("publishes direct Dashboard/build/analysis navigation and inspector compatibility", () => {
     expect(source).toContain('id="dashboard-tab"');
     expect(source).toContain('id="build-tab"');
+    expect(source).toContain('id="analysis-tab"');
+    expect(source).toContain('id="analysis-host"');
     expect(source).toContain("readonly showPage: (pageId: string) => void");
     expect(source).toContain("readonly getPageHost: (pageId: string) => HTMLElement");
     expect(source).toContain("readonly showInspector: (viewId: string) => void");

@@ -8,6 +8,7 @@ import {
   type CAnalysisSnapshot,
   type CParser,
   type EditTarget,
+  type EditDiff,
   type StatementEditTarget,
   type TextPatch,
 } from "../core/index.js";
@@ -22,6 +23,7 @@ import {
 import { validateSourceText } from "../shared/source-import.js";
 import type { FlowCanvasDraftConnectionIntent } from "../ui/flow-canvas.js";
 import { planFlowDraftConnection } from "./flow-draft-connection.js";
+import { planFlowPresetSlotReplacement } from "./flow-preset-slot.js";
 import { analyzeProgramSnapshot, type ReadySession } from "./program-analysis-session.js";
 
 export interface FlowSourceEditorOptions {
@@ -350,6 +352,60 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       ) {
         throw new Error("源码、CFG 或解析器尚未同步");
       }
+      const slot = planFlowPresetSlotReplacement(current.imported.source, projection, intent);
+      if (slot !== null) {
+        if (
+          projection.documentHasError ||
+          projection.functions.some((item) => item.partial) ||
+          projection.nodes.some((node) => node.kind === "raw")
+        ) {
+          throw new Error("raw 或 partial CFG 区域禁止替换补全插槽");
+        }
+        const validation = validateSourceText(slot.candidateSource);
+        if (!validation.ok) throw new Error(`${validation.code}：${validation.message}`);
+        const candidateAnalysis = parser.analyze(slot.candidateSource, options.nextRevision());
+        if (
+          candidateAnalysis.document.parse.hasError ||
+          renderSourceDoc(candidateAnalysis.document) !== slot.candidateSource
+        ) {
+          throw new Error("补全插槽候选未通过重解析与逐字符无损往返");
+        }
+        const candidateIndex = createBlockIndex(candidateAnalysis.document);
+        const candidateProgram = analyzeProgramSnapshot(
+          parser,
+          slot.candidateSource,
+          candidateAnalysis.editTargets.revision,
+          candidateIndex.entries.length,
+        );
+        assertNoCompleteCfgRegression(current.programAnalysis, candidateProgram);
+        if (candidateProgram.functions.some((item) => item.partial)) {
+          throw new Error("补全插槽候选没有生成完整 CFG");
+        }
+        const candidateProjection = createFlowProjection(
+          candidateProgram,
+          candidateAnalysis.document,
+        );
+        const insertedFrom = slot.patch.range.from;
+        const insertedTo = insertedFrom + slot.patch.newText.length;
+        const insertedBranches = candidateProjection.nodes.filter(
+          (node) =>
+            node.kind === "branch" &&
+            node.range.from >= insertedFrom &&
+            node.range.to <= insertedTo,
+        );
+        if (insertedBranches.length !== 1) {
+          throw new Error("补全插槽候选无法唯一映射到新分支节点");
+        }
+        if (
+          !options.confirm(
+            `把“${intent.presetId ?? "积木"}”写入补全插槽。候选源码已通过重解析、无损往返和完整 CFG 验证。\n\n继续？`,
+          )
+        ) {
+          return false;
+        }
+        commitValidatedPatches(slot.candidateSource, [slot.patch]);
+        return true;
+      }
       const plan = planFlowDraftConnection({
         source: current.imported.source,
         analysis: current.analysis,
@@ -390,20 +446,102 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         candidateAnalysis.document,
       );
       const insertedRanges = application.diffs.map((diff) => diff.afterRange);
-      const insertedNode = candidateProjection.nodes.find(
+      const insertedNodes = candidateProjection.nodes.filter(
         (node) =>
           node.sourceText.trim() === plan.insertedStatementText.trim() &&
           insertedRanges.some(
             (range) => node.range.from >= range.from && node.range.to <= range.to,
           ),
       );
-      if (insertedNode === undefined) {
+      if (insertedNodes.length !== 1) {
         throw new Error("重解析后的 CFG 无法唯一确认新草稿节点");
+      }
+      const insertedNode = insertedNodes[0]!;
+      if (intent.insertOnEdge !== undefined) {
+        assertEdgeInsertionPostcondition(
+          projection,
+          candidateProjection,
+          intent,
+          insertedNode,
+          application.diffs,
+        );
       }
       commitValidatedPatches(application.source, plan.patches);
       return true;
     },
   });
+}
+
+function assertEdgeInsertionPostcondition(
+  before: FlowProjection,
+  after: FlowProjection,
+  intent: FlowCanvasDraftConnectionIntent,
+  insertedNode: FlowNode,
+  diffs: readonly EditDiff[],
+): void {
+  const anchor = intent.insertOnEdge;
+  if (anchor === undefined) return;
+  const originalEdge = before.edges.find((edge) => edge.id === anchor.edgeId);
+  const originalFrom = before.nodes.find((node) => node.id === anchor.fromNodeId);
+  const originalTo = before.nodes.find((node) => node.id === anchor.toNodeId);
+  if (
+    originalEdge === undefined ||
+    originalFrom === undefined ||
+    originalTo === undefined ||
+    originalEdge.kind !== "next"
+  ) {
+    throw new Error("插入前的 CFG 连线锚点已失效");
+  }
+  const candidateFrom = remapFlowNode(originalFrom, after, diffs);
+  const candidateTo = remapFlowNode(originalTo, after, diffs);
+  if (candidateFrom === null || candidateTo === null) {
+    throw new Error("重解析后无法唯一恢复插入连线的两个端点");
+  }
+  const incoming = after.edges.filter(
+    (edge) =>
+      edge.from.nodeId === candidateFrom.id &&
+      edge.to.nodeId === insertedNode.id &&
+      edge.kind === "next",
+  );
+  const outgoing = after.edges.filter(
+    (edge) =>
+      edge.from.nodeId === insertedNode.id &&
+      edge.to.nodeId === candidateTo.id &&
+      edge.kind === "next",
+  );
+  if (incoming.length !== 1 || outgoing.length !== 1) {
+    throw new Error("候选 CFG 未把原连线原子替换为“前驱 → 新积木 → 后继”");
+  }
+}
+
+function remapFlowNode(
+  original: FlowNode,
+  projection: FlowProjection,
+  diffs: readonly EditDiff[],
+): FlowNode | null {
+  const mapped = {
+    from: mapBoundary(original.range.from, diffs),
+    to: mapBoundary(original.range.to, diffs),
+  };
+  const matches = projection.nodes.filter(
+    (candidate) =>
+      candidate.kind === original.kind &&
+      candidate.nodeType === original.nodeType &&
+      candidate.range.from === mapped.from &&
+      candidate.range.to === mapped.to,
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function mapBoundary(offset: number, diffs: readonly EditDiff[]): number {
+  let delta = 0;
+  for (const diff of diffs) {
+    if (diff.beforeRange.to <= offset) {
+      delta +=
+        diff.afterRange.to - diff.afterRange.from - (diff.beforeRange.to - diff.beforeRange.from);
+    }
+  }
+  return offset + delta;
 }
 
 /** Existing partial functions may remain locked, but no previously complete function may degrade. */

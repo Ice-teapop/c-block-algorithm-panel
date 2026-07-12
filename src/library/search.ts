@@ -1,5 +1,5 @@
 import { LIBRARY_BRANCHES } from "./branches.js";
-import { LIBRARY_ENTRIES } from "./catalog.js";
+import { LIBRARY_ENTRIES, LIBRARY_ENTRY_BY_ID } from "./catalog.js";
 import type { LibraryEntry, LibrarySearchOptions, LibrarySearchResult } from "./contracts.js";
 
 const DEFAULT_LIMIT = 200;
@@ -10,9 +10,17 @@ export function searchLibrary(
   options: LibrarySearchOptions = {},
 ): readonly LibrarySearchResult[] {
   const limit = normalizeLimit(options.limit);
-  const entries = options.branchId
-    ? LIBRARY_ENTRIES.filter((entry) => entry.branchId === options.branchId)
-    : LIBRARY_ENTRIES;
+  const branchIds = options.branchId
+    ? new Set([options.branchId])
+    : options.branchIds === undefined
+      ? null
+      : new Set(options.branchIds);
+  const audiences = options.audiences === undefined ? null : new Set(options.audiences);
+  const entries = LIBRARY_ENTRIES.filter(
+    (entry) =>
+      (branchIds === null || branchIds.has(entry.branchId)) &&
+      (audiences === null || audiences.has(entry.audience ?? "learner")),
+  );
   const tokens = tokenize(query);
   if (tokens.length === 0) {
     return Object.freeze(
@@ -47,6 +55,18 @@ function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySear
     detail: normalize(entry.details.join(" ")),
     keyword: normalize(entry.keywords.join(" ")),
     code: normalize(entry.example?.code ?? ""),
+    syntax: normalize(entry.syntax?.code ?? ""),
+    complexity: normalize(entry.complexity ?? ""),
+    pitfall: normalize(entry.pitfalls?.join(" ") ?? ""),
+    tutorial: normalize(tutorialSearchText(entry)),
+    related: normalize(
+      entry.relatedEntryIds
+        .map((id) => {
+          const related = LIBRARY_ENTRY_BY_ID.get(id);
+          return related === undefined ? id : `${id} ${related.title} ${related.aliases.join(" ")}`;
+        })
+        .join(" "),
+    ),
   } as const;
   const matched = new Set<LibrarySearchResult["matchedFields"][number]>();
   let score = 0;
@@ -59,6 +79,11 @@ function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySear
     if (fields.summary.includes(token)) tokenScore = Math.max(tokenScore, 20);
     if (fields.detail.includes(token)) tokenScore = Math.max(tokenScore, 12);
     if (fields.code.includes(token)) tokenScore = Math.max(tokenScore, 8);
+    if (fields.syntax.includes(token)) tokenScore = Math.max(tokenScore, 18);
+    if (fields.complexity.includes(token)) tokenScore = Math.max(tokenScore, 22);
+    if (fields.pitfall.includes(token)) tokenScore = Math.max(tokenScore, 24);
+    if (fields.tutorial.includes(token)) tokenScore = Math.max(tokenScore, 18);
+    if (fields.related.includes(token)) tokenScore = Math.max(tokenScore, 10);
     if (tokenScore === 0) return null;
     score += tokenScore;
     for (const [field, value] of Object.entries(fields)) {
@@ -70,6 +95,26 @@ function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySear
     score,
     matchedFields: Object.freeze([...matched]),
   });
+}
+
+function tutorialSearchText(entry: LibraryEntry): string {
+  const tutorial = entry.tutorial;
+  if (tutorial === null || tutorial === undefined) return "";
+  return [
+    tutorial.pathId,
+    tutorial.learningGoals.join(" "),
+    tutorial.completionChecks.join(" "),
+    ...tutorial.steps.flatMap((step) => [
+      step.title,
+      step.instruction,
+      step.check,
+      ...step.artifacts.flatMap((artifact) => [
+        artifact.kind,
+        artifact.example.caption,
+        artifact.example.code,
+      ]),
+    ]),
+  ].join(" ");
 }
 
 function tokenize(query: string): readonly string[] {

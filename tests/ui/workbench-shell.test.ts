@@ -15,6 +15,7 @@ describe("M6 workbench shell behavior", () => {
     vi.stubGlobal("HTMLOutputElement", FakeOutput);
     vi.stubGlobal("HTMLDialogElement", FakeDialog);
     vi.stubGlobal("HTMLTextAreaElement", FakeTextArea);
+    vi.stubGlobal("HTMLSelectElement", FakeSelect);
   });
 
   afterEach(() => {
@@ -27,13 +28,20 @@ describe("M6 workbench shell behavior", () => {
 
     expect(app.innerHTML).not.toContain("C 积木算法面板");
     expect(app.innerHTML).not.toContain("app-title");
+    expect(app.innerHTML).not.toMatch(/[⌂◇]/u);
+    expect(app.innerHTML).toContain(">项目</button>");
+    expect(app.innerHTML).toContain(">工作区</button>");
+    expect(app.innerHTML).toContain(">打开</button>");
+    expect(app.innerHTML).toContain(">粘贴</button>");
     expect(shell.startupProgress.id).toBe("startup-progress");
     expect(roots.map(({ textContent }) => textContent)).toEqual([
       "设置",
-      "预设块",
+      "积木",
       "Library",
-      "面板预览",
+      "布局",
     ]);
+    expect(roots[0]?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(roots[2]?.getAttribute("aria-haspopup")).toBeUndefined();
     expect(shell.currentPage).toBe("dashboard");
     expect(pagePanel("dashboard").hidden).toBe(false);
     expect(pagePanel("build").hidden).toBe(true);
@@ -67,36 +75,6 @@ describe("M6 workbench shell behavior", () => {
     expect(shell.currentPage).toBe("build");
     expect(app.require("edit-panel").hidden).toBe(false);
     expect(app.require("explanation-panel").hidden).toBe(true);
-  });
-
-  it("reveals the real Dock, runtime, metrics, diagnostics and Library onboarding surfaces", () => {
-    const shell = mount();
-    shell.setPanelVisibility({ metrics: false, diagnostics: false, "ai-hints": false });
-    const visibilityBeforeTour = shell.getPanelVisibility();
-
-    shell.revealOnboardingStep("dock");
-    expect(shell.currentPage).toBe("dashboard");
-    const panelMenu = app
-      .findAllByClass("workbench-menu__popup")
-      .find((candidate) => candidate.dataset.menuPopup === "panels");
-    expect(panelMenu?.hidden).toBe(false);
-
-    shell.revealOnboardingStep("runtime-flow");
-    expect(shell.currentPage).toBe("build");
-    expect(app.require("run-panel").hidden).toBe(false);
-    shell.revealOnboardingStep("runtime-metrics");
-    expect(app.require("metrics-panel").hidden).toBe(false);
-    expect(app.require("run-panel").hidden).toBe(true);
-    shell.revealOnboardingStep("runtime-diagnostics");
-    expect(app.require("diagnostics-panel").hidden).toBe(false);
-    shell.revealOnboardingStep("evidence-mentor");
-    expect(app.require("mentor-panel").hidden).toBe(false);
-
-    shell.revealOnboardingStep("library");
-    expect(shell.currentPage).toBe("software-library");
-    shell.finishOnboarding();
-    expect(shell.getPanelVisibility()).toEqual(visibilityBeforeTour);
-    expect(panelMenu?.hidden).toBe(true);
   });
 
   it("removes menu and view listeners during idempotent teardown", () => {
@@ -147,6 +125,7 @@ class FakeDocument {
     if (tagName === "output") return new FakeOutput(tagName, this);
     if (tagName === "dialog") return new FakeDialog(tagName, this);
     if (tagName === "textarea") return new FakeTextArea(tagName, this);
+    if (tagName === "select") return new FakeSelect(tagName, this);
     return new FakeElement(tagName, this);
   }
 
@@ -306,6 +285,9 @@ class FakeProgress extends FakeElement {
 class FakeOutput extends FakeElement {}
 class FakeDialog extends FakeElement {}
 class FakeTextArea extends FakeElement {}
+class FakeSelect extends FakeElement {
+  readonly options: FakeElement[] = [];
+}
 
 class FakeApp extends FakeElement {
   #innerHTML = "";
@@ -335,6 +317,8 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   build.dataset.workbenchPageId = "build";
   const buildHost = element(document, "div", "build-host");
   const buildLayout = element(document, "div", "build-layout");
+  const workArea = element(document, "div", "work-area");
+  const primaryWorkspace = element(document, "div", "primary-workspace");
   const leftPane = element(document, "aside", "left-pane");
   const centerPane = element(document, "section", "center-pane");
   const rightPane = element(document, "aside", "right-pane");
@@ -373,13 +357,17 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   leftPane.append(presetsPane, outlinePane);
   centerCanvasPane.append(flowCanvas);
   bottomPane.append(runPanel, metricsPanel, diagnosticsPanel, mentorPanel);
-  centerPane.append(centerCanvasPane, bottomPane);
+  centerPane.append(centerCanvasPane);
   codePanel.append(code);
   inspectorStack.append(explanationPanel, editPanel);
   rightPane.append(codePanel, inspectorStack);
-  buildLayout.append(leftPane, centerPane, rightPane);
+  primaryWorkspace.append(centerPane, rightPane);
+  workArea.append(primaryWorkspace, bottomPane);
+  buildLayout.append(leftPane, workArea);
   buildHost.append(buildLayout);
   build.append(buildHost);
+  const analysis = element(document, "section", "analysis-panel", "workbench-page");
+  analysis.append(element(document, "div", "analysis-host"));
   const blockLibrary = element(document, "section", "block-library-panel");
   blockLibrary.append(element(document, "div", "block-library-host"));
   const softwareLibrary = element(document, "section", "software-library-panel");
@@ -392,23 +380,33 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   startupRoot.append(startupStatus, startupProgress);
   const dropOverlay = element(document, "div", "drop-overlay");
   const pasteError = element(document, "p", "paste-error");
-  pageStack.append(dashboard, build, blockLibrary, softwareLibrary);
+  pageStack.append(dashboard, build, analysis, blockLibrary, softwareLibrary);
   const drawer = element(document, "aside", "workbench-drawer");
+  const generalSettings = element(document, "section", "general-settings");
+  const language = identified(document.createElement("select"), "interface-language");
+  const background = identified(document.createElement("select"), "interface-background");
+  const aiSettings = element(document, "div", "ai-provider-settings-host");
+  generalSettings.append(
+    language,
+    background,
+    identified(document.createElement("button"), "theme-toggle"),
+  );
   drawer.append(
     element(document, "h2", "workbench-drawer-title"),
     element(document, "p", "workbench-drawer-copy"),
     identified(document.createElement("button"), "workbench-drawer-close"),
-    identified(document.createElement("button"), "theme-toggle"),
+    generalSettings,
+    aiSettings,
   );
   shell.append(
     startupRoot,
     identified(document.createElement("button"), "dashboard-tab"),
     identified(document.createElement("button"), "build-tab"),
+    identified(document.createElement("button"), "analysis-tab"),
     identified(document.createElement("button"), "explanation-tab"),
     identified(document.createElement("button"), "edit-tab"),
     identified(document.createElement("button"), "run-tab"),
     identified(document.createElement("button"), "metrics-tab"),
-    identified(document.createElement("button"), "diagnostics-tab"),
     identified(document.createElement("button"), "mentor-tab"),
     dock,
     pageStack,

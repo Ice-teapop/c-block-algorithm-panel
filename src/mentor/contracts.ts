@@ -87,6 +87,8 @@ export interface ScenarioSizeGeneratorDefinition {
   readonly minimum: number;
   readonly maximum: number;
   readonly defaultSizes: readonly number[];
+  /** Concrete non-default cases materialized by catalog-backed providers. */
+  readonly caseSizes?: readonly number[] | undefined;
   readonly inputModel: string;
 }
 

@@ -20,6 +20,7 @@ import {
 import type { Capabilities, CompileResult, PanelApi, RunResult } from "../shared/api.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import type { TraceEvent, TraceRunEvidence } from "../shared/trace.js";
+import { scenarioReferenceWorkload } from "../runtime/index.js";
 import type { BlockTree } from "../ui/block-tree.js";
 import type { CodePane } from "../ui/code-pane.js";
 import type { FlowCanvasActivePath } from "../ui/flow-canvas.js";
@@ -67,6 +68,37 @@ const BRANCH_KINDS = new Set([
   "switch-default",
   "switch-miss",
 ]);
+
+export type RuntimeObservedBranchKind = Extract<
+  FlowEdge["kind"],
+  "branch-true" | "branch-false" | "switch-case" | "switch-default" | "switch-miss"
+>;
+
+interface RuntimeLearningObservationBase {
+  readonly workspaceId: string;
+  readonly sourceFingerprint: string;
+  readonly scenarioId: string;
+  readonly scenarioVersion: string;
+  readonly size: number;
+}
+
+export type RuntimeLearningObservation =
+  | (RuntimeLearningObservationBase & {
+      readonly type: "trace-completed";
+      readonly mapped: true;
+      readonly truncated: false;
+      readonly branchKinds: readonly RuntimeObservedBranchKind[];
+    })
+  | (RuntimeLearningObservationBase & {
+      readonly type: "run-completed";
+      readonly ok: boolean;
+      readonly stdout: string;
+      readonly expectedStdout: string;
+      readonly expectedMatch: boolean;
+      readonly exitCode: number | null;
+      readonly termination: RunResult["termination"];
+      readonly historyDisposition: "success" | "teaching-failure";
+    });
 
 interface ScenarioSelectionState {
   readonly scenarioId: string;
@@ -123,6 +155,7 @@ export interface RuntimeWorkspaceControllerOptions {
   ) => void;
   readonly onFocusNode: (nodeId: string) => void;
   readonly onRevealRange: (range: TextRange) => void;
+  readonly onLearningObservation?: ((observation: RuntimeLearningObservation) => void) | undefined;
   readonly scenarioProvider?: ScenarioProvider | undefined;
   readonly traceScheduler?: TraceScheduler | undefined;
   readonly tracePollIntervalMs?: number | undefined;
@@ -165,6 +198,9 @@ export function createRuntimeWorkspaceController(
   const evidence = createEvidenceWorkspaceController({
     metricsHost: options.elements.metricsHost,
     mentorHost: options.elements.mentorHost,
+    analysisHost: options.elements.analysisHost,
+    api: options.api,
+    getSource: options.getSource,
     readSidecar: (entryId, kind) => options.api.readWorkspaceSidecar({ entryId, kind }),
     saveSidecar: (request) => options.api.saveWorkspaceSidecar(request),
     ...(options.sidecarDelayMs === undefined ? {} : { delayMs: options.sidecarDelayMs }),
@@ -373,6 +409,16 @@ export function createRuntimeWorkspaceController(
     assertAlive(destroyed);
     const taskGeneration = generation;
     assertRunCase(runCase);
+    const reference = scenarioReferenceWorkload(runCase.scenarioId, runCase.size);
+    tracePanel.setReference(
+      reference === null
+        ? null
+        : Object.freeze({
+            inputSize: reference.inputSize,
+            referenceOperationCount: reference.referenceOperationCount,
+            label: reference.label,
+          }),
+    );
     if (traceWaiter !== null) {
       traceWaiter.reject(new Error("真实 Trace 已被新任务替换"));
       traceWaiter = null;
@@ -386,6 +432,7 @@ export function createRuntimeWorkspaceController(
     settleTraceWaiter(state);
     const result = await terminal;
     assertGeneration(taskGeneration);
+    publishTraceLearningObservation(runCase, result);
     return result;
   }
 
@@ -425,6 +472,7 @@ export function createRuntimeWorkspaceController(
 
   async function runTeachingSimulation(request: TeachingSimulationRequest): Promise<void> {
     evidence.setRealPath(null);
+    tracePanel.setReference(null);
     const source = options.getSource();
     const projection = requireCurrentProjection(options, source);
     const path = structuralSimulationPath(projection, request.targetBranch?.id ?? null);
@@ -497,12 +545,62 @@ export function createRuntimeWorkspaceController(
       capabilities,
       scenarioIdentity,
     );
+    publishRunLearningObservation(runCase, snapshot, measuredRunResult);
     if (!measuredRunResult.ok) {
       throw new Error(
         `案例真实运行失败：${measuredRunResult.error?.message ?? measuredRunResult.termination}`,
       );
     }
     return completed;
+  }
+
+  function publishTraceLearningObservation(
+    runCase: ScenarioRunCase,
+    projected: TraceFlowProjectionResult,
+  ): void {
+    if (activeEntryId === null || options.onLearningObservation === undefined) return;
+    const projection = requireCurrentProjection(options, options.getSource());
+    const branchKinds = observedBranchKinds(projection, projected.path.edgeIds);
+    options.onLearningObservation(
+      Object.freeze({
+        type: "trace-completed",
+        workspaceId: activeEntryId,
+        sourceFingerprint: projection.sourceFingerprint,
+        scenarioId: runCase.scenarioId,
+        scenarioVersion: runCase.scenarioVersion,
+        size: runCase.size,
+        mapped: true,
+        truncated: false,
+        branchKinds,
+      }),
+    );
+  }
+
+  function publishRunLearningObservation(
+    runCase: ScenarioRunCase,
+    snapshot: SourceSnapshot,
+    runResult: RunResult,
+  ): void {
+    if (activeEntryId === null || options.onLearningObservation === undefined) return;
+    const stdout = decodeRunStdout(runResult);
+    const expectedMatch = runResult.ok && stdout === runCase.expected.stdout;
+    options.onLearningObservation(
+      Object.freeze({
+        type: "run-completed",
+        workspaceId: activeEntryId,
+        sourceFingerprint: snapshot.fingerprint,
+        scenarioId: runCase.scenarioId,
+        scenarioVersion: runCase.scenarioVersion,
+        size: runCase.size,
+        ok: runResult.ok,
+        stdout,
+        expectedStdout: runCase.expected.stdout,
+        expectedMatch,
+        exitCode: runResult.exitCode,
+        termination: runResult.termination,
+        historyDisposition: expectedMatch ? "success" : "teaching-failure",
+      }),
+    );
   }
 
   function recordEvidence(
@@ -551,14 +649,41 @@ export function createRuntimeWorkspaceController(
   }
 
   function refreshBranchTargets(): void {
+    const projection = currentProjectionOrNull(options);
+    publishBranchCoverage(projection);
     if (scenario === undefined) return;
     const snapshot = scenario.getSnapshot();
-    const projection = currentProjectionOrNull(options);
     if (projection === null) {
       scenario.setBranchTargets(Object.freeze([]));
       return;
     }
     scenario.setBranchTargets(branchTargets(projection, snapshot.runCase, observations));
+  }
+
+  function publishBranchCoverage(projection: FlowProjection | null): void {
+    if (projection === null) {
+      evidence.setBranchCoverage(null);
+      return;
+    }
+    const totalBranchIds = projection.edges
+      .filter((edge) => BRANCH_KINDS.has(edge.kind))
+      .map((edge) => edge.id);
+    const allowed = new Set(totalBranchIds);
+    const coveredBranchIds = [
+      ...new Set(
+        observations
+          .filter((item) => item.sourceFingerprint === projection.sourceFingerprint)
+          .flatMap((item) => item.edgeIds)
+          .filter((id) => allowed.has(id)),
+      ),
+    ];
+    evidence.setBranchCoverage(
+      Object.freeze({
+        sourceFingerprint: projection.sourceFingerprint,
+        coveredBranchIds: Object.freeze(coveredBranchIds),
+        totalBranchIds: Object.freeze(totalBranchIds),
+      }),
+    );
   }
 
   function persistScenarioState(): void {
@@ -797,10 +922,33 @@ function toManualScenario(runCase: ScenarioRunCase, mode: "real"): ManualRunScen
 
 function assertExpectedOutput(runCase: ScenarioRunCase, result: RunResult | null): void {
   if (result === null || !result.ok) throw new Error("案例没有成功的真实运行结果");
-  const actual = new TextDecoder("utf-8", { fatal: false }).decode(result.stdout);
+  const actual = decodeRunStdout(result);
   if (actual !== runCase.expected.stdout) {
     throw new Error("真实输出与案例期望不一致；未写入该情景的性能历史");
   }
+}
+
+function decodeRunStdout(result: RunResult): string {
+  return new TextDecoder("utf-8", { fatal: false }).decode(result.stdout);
+}
+
+function observedBranchKinds(
+  projection: FlowProjection,
+  edgeIds: readonly string[],
+): readonly RuntimeObservedBranchKind[] {
+  const edgeById = new Map(projection.edges.map((edge) => [edge.id, edge]));
+  return Object.freeze([
+    ...new Set(
+      edgeIds.flatMap((id) => {
+        const kind = edgeById.get(id)?.kind;
+        return kind !== undefined && isObservedBranchKind(kind) ? [kind] : [];
+      }),
+    ),
+  ]);
+}
+
+function isObservedBranchKind(kind: FlowEdge["kind"]): kind is RuntimeObservedBranchKind {
+  return BRANCH_KINDS.has(kind);
 }
 
 function assertRunCase(runCase: ScenarioRunCase): void {
@@ -1173,9 +1321,14 @@ function createScenarioHosts(host: HTMLElement): {
   workspace.className = "scenario-workspace";
   const runner = document.createElement("div");
   runner.className = "scenario-workspace__runner";
+  const catalogDisclosure = document.createElement("details");
+  catalogDisclosure.className = "scenario-workspace__catalog-disclosure";
+  const catalogSummary = document.createElement("summary");
+  catalogSummary.textContent = "管理案例";
   const catalog = document.createElement("div");
   catalog.className = "scenario-workspace__catalog";
-  workspace.append(runner, catalog);
+  catalogDisclosure.append(catalogSummary, catalog);
+  workspace.append(runner, catalogDisclosure);
   host.replaceChildren(workspace);
   return Object.freeze({ runner, catalog });
 }

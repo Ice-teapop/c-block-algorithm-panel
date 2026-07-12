@@ -6,6 +6,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  safeStorage,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
   type WebPreferences,
@@ -62,6 +63,10 @@ import {
 } from "./learning-catalog-store.js";
 import { createWorkspaceStore, WORKSPACE_ROOT_NAME } from "./workspace-store.js";
 import { resolveWorkspaceRoot } from "./workspace-root.js";
+import { createAiProviderConfigStore } from "./ai-provider-store.js";
+import { registerAiProviderIpcHandlers } from "./ai-provider-ipc.js";
+import { createAiProviderClient } from "./ai-provider-client.js";
+import { createAiMentorController } from "./ai-mentor-controller.js";
 
 const IPC_CHANNELS = Object.freeze({
   openSource: "panel:open-source",
@@ -751,6 +756,18 @@ void app.whenReady().then(() => {
     temporaryDirectory: tmpdir(),
   });
   registerIpcHandlers(createLearningCatalogFileStore(workspaceRoot));
+  const aiProviderClient = createAiProviderClient();
+  registerAiProviderIpcHandlers({
+    ipcMain,
+    store: createAiProviderConfigStore({
+      rootPath: app.getPath("userData"),
+      safeStorage,
+    }),
+    client: aiProviderClient,
+    mentor: createAiMentorController(aiProviderClient),
+    authorize: (event) => requireTrustedSenderWindow(event),
+    isShuttingDown: () => isShuttingDown,
+  });
   registerWorkspaceIpcHandlers({
     ipcMain,
     store: createWorkspaceStore(workspaceRoot),

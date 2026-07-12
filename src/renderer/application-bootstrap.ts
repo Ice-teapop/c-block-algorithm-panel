@@ -23,6 +23,7 @@ export interface ApplicationBootstrapOptions {
   readonly workspace: Pick<WorkspaceController, "initialize">;
   readonly getAnalysis: () => CAnalysisSnapshot | null;
   readonly isDestroyed: () => boolean;
+  readonly onStartGuidedLesson: () => void;
   readonly onReady: (
     parser: CParser,
     learningSurface: LearningSurface,
@@ -55,6 +56,7 @@ export async function initializeWorkbenchApplication(
       getAnalysis: options.getAnalysis,
       getAnalyzer: () => readyParser,
       storage: catalogStorage.storage,
+      onStartGuidedLesson: options.onStartGuidedLesson,
       onError: options.onLearningError,
     });
     options.onReady(readyParser, learningSurface, catalogStorage);
@@ -69,7 +71,6 @@ export async function initializeWorkbenchApplication(
     if (options.isDestroyed()) return;
     sourceImport.setStatus("可新建本地条目，或打开、拖入、粘贴现有 .c 文件。", "ready");
     startupLoader.complete();
-    globalThis.setTimeout(() => learningSurface.startOnboardingIfNeeded(), 500);
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : "未知错误";
     startupLoader.fail(`启动失败：${detail}`);

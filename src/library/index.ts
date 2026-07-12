@@ -10,10 +10,16 @@ export { searchLibrary } from "./search.js";
 export type {
   LibraryBranchDefinition,
   LibraryBranchId,
+  LibraryAudience,
   LibraryCodeExample,
   LibraryEntry,
   LibraryExampleLanguage,
   LibraryFeatureLink,
   LibrarySearchOptions,
   LibrarySearchResult,
+  LibraryTutorial,
+  LibraryTutorialArtifact,
+  LibraryTutorialArtifactKind,
+  LibraryTutorialLevel,
+  LibraryTutorialStep,
 } from "./contracts.js";

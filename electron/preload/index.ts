@@ -35,6 +35,24 @@ import type {
   LearningCatalogSaveResult,
   SaveLearningCatalogRequest,
 } from "../../src/shared/learning-catalog-store.js";
+import {
+  AI_PROVIDER_IPC_CHANNELS,
+  type AiMentorCancelResult,
+  type AiMentorReadResult,
+  type AiMentorStartResult,
+  type AiProviderConnectResult,
+  type AiProviderDisconnectResult,
+  type AiProviderModelsResult,
+  type AiProviderModelSelectResult,
+  type AiProviderReadResult,
+  type CancelAiMentorRequest,
+  type ConnectAiProviderRequest,
+  type DisconnectAiProviderRequest,
+  type ListAiProviderModelsRequest,
+  type ReadAiMentorRequest,
+  type SelectAiProviderModelRequest,
+  type StartAiMentorRequest,
+} from "../../src/shared/ai-provider.js";
 
 const IPC_CHANNELS = Object.freeze({
   openSource: "panel:open-source",
@@ -151,6 +169,42 @@ const panelApi: PanelApi = Object.freeze({
       IPC_CHANNELS.saveLearningCatalog,
       request,
     )) as LearningCatalogSaveResult,
+  getAiProviderConfig: async (): Promise<AiProviderReadResult> =>
+    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.getConfig)) as AiProviderReadResult,
+  connectAiProvider: async (
+    request: ConnectAiProviderRequest,
+  ): Promise<AiProviderConnectResult> =>
+    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.connect, request)) as AiProviderConnectResult,
+  listAiProviderModels: async (
+    request: ListAiProviderModelsRequest,
+  ): Promise<AiProviderModelsResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.listModels,
+      request,
+    )) as AiProviderModelsResult,
+  selectAiProviderModel: async (
+    request: SelectAiProviderModelRequest,
+  ): Promise<AiProviderModelSelectResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.selectModel,
+      request,
+    )) as AiProviderModelSelectResult,
+  disconnectAiProvider: async (
+    request: DisconnectAiProviderRequest,
+  ): Promise<AiProviderDisconnectResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.disconnect,
+      request,
+    )) as AiProviderDisconnectResult,
+  startAiMentor: async (request: StartAiMentorRequest): Promise<AiMentorStartResult> =>
+    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.startMentor, request)) as AiMentorStartResult,
+  readAiMentor: async (request: ReadAiMentorRequest): Promise<AiMentorReadResult> =>
+    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.readMentor, request)) as AiMentorReadResult,
+  cancelAiMentor: async (request: CancelAiMentorRequest): Promise<AiMentorCancelResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.cancelMentor,
+      request,
+    )) as AiMentorCancelResult,
   onWorkspaceCloseRequested: (handler: () => Promise<void>): (() => void) => {
     if (typeof handler !== "function") throw new TypeError("关闭前保存处理器必须是函数");
     workspaceCloseHandler = handler;

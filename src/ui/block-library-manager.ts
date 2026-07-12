@@ -394,10 +394,19 @@ function renderEntry(
     source.className = "block-library-manager__entry-source";
     source.textContent = entry.source;
     item.append(source);
-    if (entry.origin === "custom" && entry.lifecycle === "active") {
-      item.append(actionFactory(entry, "deprecate"));
-    } else if (entry.origin === "custom" && entry.lifecycle === "deprecated") {
-      item.append(actionFactory(entry, "reactivate"), actionFactory(entry, "retire"));
+    const lifecycleActions =
+      entry.origin === "custom" && entry.lifecycle === "active"
+        ? [actionFactory(entry, "deprecate")]
+        : entry.origin === "custom" && entry.lifecycle === "deprecated"
+          ? [actionFactory(entry, "reactivate"), actionFactory(entry, "retire")]
+          : [];
+    if (lifecycleActions.length > 0) {
+      const management = ownerDocument.createElement("details");
+      management.className = "block-library-manager__management";
+      const summary = ownerDocument.createElement("summary");
+      summary.textContent = "管理";
+      management.append(summary, ...lifecycleActions);
+      item.append(management);
     }
   } else {
     const note = ownerDocument.createElement("p");

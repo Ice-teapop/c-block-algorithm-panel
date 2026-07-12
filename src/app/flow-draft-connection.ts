@@ -15,12 +15,14 @@ export type FlowDraftConnectionPostcondition =
   | "source-roundtrip"
   | "cfg-complete"
   | "cfg-draft-before-target"
+  | "cfg-edge-insertion"
   | "no-new-partial-cfg";
 
 export type FlowDraftConnectionRejectionCode =
   | "stale-source"
   | "invalid-draft"
   | "unsupported-draft-edge"
+  | "stale-edge"
   | "unknown-target"
   | "locked-target"
   | "invalid-target-port"
@@ -111,6 +113,28 @@ export function planFlowDraftConnection(
   if (!isEditableControlInput(targetNode, intent.toPortId)) {
     return reject(intent, "invalid-target-port", "目标端口不是可编辑的控制输入");
   }
+  const insertion = intent.insertOnEdge;
+  if (insertion !== undefined) {
+    const anchoredEdge = input.projection.edges.find((edge) => edge.id === insertion.edgeId);
+    const anchoredFrom = input.projection.nodes.find(
+      (node) => node.id === insertion.fromNodeId,
+    );
+    if (
+      anchoredEdge === undefined ||
+      anchoredFrom === undefined ||
+      anchoredFrom.locked ||
+      anchoredEdge.kind !== "next" ||
+      insertion.edgeKind !== "next" ||
+      anchoredEdge.from.nodeId !== insertion.fromNodeId ||
+      anchoredEdge.from.portId !== insertion.fromPortId ||
+      anchoredEdge.to.nodeId !== insertion.toNodeId ||
+      anchoredEdge.to.portId !== insertion.toPortId ||
+      insertion.toNodeId !== intent.toNodeId ||
+      insertion.toPortId !== intent.toPortId
+    ) {
+      return reject(intent, "stale-edge", "待插入连线已变化或不属于可安全插入的 next 边");
+    }
+  }
   if (targetNode.functionId === null || targetNode.sourceNodeId === null) {
     return reject(intent, "unknown-target", "目标节点没有可验证的 CFG 来源");
   }
@@ -159,7 +183,10 @@ export function planFlowDraftConnection(
       patches: statementPlan.patches,
       insertedStatementText: statementPlan.insertedStatementText,
       requiresConfirmation: true,
-      requiredPostconditions: REQUIRED_POSTCONDITIONS,
+      requiredPostconditions:
+        insertion === undefined
+          ? REQUIRED_POSTCONDITIONS
+          : Object.freeze([...REQUIRED_POSTCONDITIONS, "cfg-edge-insertion" as const]),
     });
   } catch (error: unknown) {
     return reject(
@@ -210,7 +237,12 @@ function isEditableControlInput(node: FlowNode, portId: string): boolean {
 }
 
 function freezeIntent(intent: FlowCanvasDraftConnectionIntent): FlowCanvasDraftConnectionIntent {
-  return Object.freeze({ ...intent });
+  return Object.freeze({
+    ...intent,
+    ...(intent.insertOnEdge === undefined
+      ? {}
+      : { insertOnEdge: Object.freeze({ ...intent.insertOnEdge }) }),
+  });
 }
 
 function reject(
