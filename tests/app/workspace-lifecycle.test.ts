@@ -12,6 +12,20 @@ describe("workspace renderer lifecycle", () => {
     lifecycle.destroy();
   });
 
+  it("authorizes the native second close after its durable flush", async () => {
+    const harness = createHarness(true);
+    installWorkspaceLifecycle(harness.options);
+
+    await harness.closeHandler?.();
+    const event = new Event("beforeunload", { cancelable: true });
+    harness.target.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(harness.flush).toHaveBeenCalledTimes(1);
+    expect(harness.destroy).toHaveBeenCalledTimes(1);
+    expect(harness.reload).not.toHaveBeenCalled();
+  });
+
   it("blocks a reload until dirty source is durable", async () => {
     const deferred = deferredPromise();
     const harness = createHarness(true, () => deferred.promise);

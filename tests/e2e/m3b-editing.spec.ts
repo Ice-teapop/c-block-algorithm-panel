@@ -95,7 +95,7 @@ test("supports direct input, bracket pairing, and exact CRLF undo", async () => 
   await expect(projectionStatus()).toHaveAttribute("data-state", "synced");
   await expect(page.locator("#source-meta")).toContainText("CRLF");
 
-  await undoUntilSource(CRLF_SOURCE);
+  await undoAndAwaitProjection(CRLF_SOURCE, originalMetadata ?? "");
   await expect(page.locator("#source-meta")).toHaveText(originalMetadata ?? "");
   await expect(projectionStatus()).toHaveAttribute("data-state", "synced");
 });
@@ -481,14 +481,18 @@ async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> 
   await page.keyboard.insertText(source);
 }
 
-async function undoUntilSource(source: string): Promise<void> {
+async function undoAndAwaitProjection(source: string, metadata: string): Promise<void> {
   await showDock("搭建");
-  await page.locator(".cm-content").click();
-  const expected = normalizedEditorSource(source);
-  for (let attempts = 0; attempts < 12 && (await editorText()) !== expected; attempts += 1) {
-    await page.keyboard.press("Meta+Z");
-  }
-  await expectEditorSource(source);
+  const content = page.locator(".cm-content");
+  await content.click();
+  await content.press("Meta+Z");
+  // A browser-native contenteditable undo can expose transient DOM before
+  // CodeMirror commits its authoritative state. Keep focus in the editor and
+  // wait for the source projection instead of using `.cm-line` to decide
+  // whether another undo should be sent.
+  await expect(page.locator("#source-meta")).toHaveText(metadata, { timeout: 15_000 });
+  await expect(projectionStatus()).toHaveAttribute("data-state", "synced");
+  await expect.poll(editorText).toBe(normalizedEditorSource(source));
 }
 
 async function expectEditorSource(source: string): Promise<void> {

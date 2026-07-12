@@ -151,6 +151,40 @@ describe("M3a exact CodeMirror source history", () => {
     expect(getExactSource(state)).toContain("42;\r\n  value += 1;");
   });
 
+  it("undoes paired CRLF typing as one authoritative exact-source event", () => {
+    const source = [
+      "int helper(int value) {",
+      "  return value;",
+      "}",
+      "",
+      "int main(void) {",
+      "  return 0;",
+      "}",
+      "",
+    ].join("\r\n");
+    let state = createExactSourceState(source, [basicSetup, allowExactSourceInput.of(true)]);
+    const afterZero = state.doc.toString().indexOf("0;") + 1;
+
+    state = state.update({
+      changes: { from: afterZero, insert: "()" },
+      selection: { anchor: afterZero + 1 },
+      userEvent: "input.type",
+    }).state;
+    state = state.update({
+      changes: { from: afterZero + 1, insert: "1" },
+      selection: { anchor: afterZero + 2 },
+      userEvent: "input.type",
+    }).state;
+    state = state.update({ selection: { anchor: afterZero + 3 }, userEvent: "select" }).state;
+
+    expect(getExactSource(state)).toContain("  return 0(1);\r\n");
+    expect(undoDepth(state)).toBe(1);
+    state = runCommand(state, undo);
+    expect(getExactSource(state)).toBe(source);
+    expect(state.doc.toString()).toBe(normalizeSourceForCodeMirror(source));
+    expect(undoDepth(state)).toBe(0);
+  });
+
   it("uses the nearest existing newline convention for mixed-source insertions", () => {
     const source = "a\r\nb\nc\r";
     let state = createExactSourceState(source, allowExactSourceInput.of(true));

@@ -210,6 +210,7 @@ describe("Runner compile and run", () => {
       (specification, child) => {
         expect(statSync(specification.cwd).mode & 0o777).toBe(0o700);
         expect(specification.shell).toBe(false);
+        expect(specification.env).not.toHaveProperty("MallocStackLogging");
         expect(specification.args).toContain(hostileArgument);
         expect(readFileSync(join(specification.cwd, "data/input.txt"), "utf8")).toBe(
           "fixture-data",
@@ -501,21 +502,24 @@ describe("Runner sample verification path", () => {
   });
 
   it("launches the C executable directly under leaks and trusts documented exit zero", async () => {
-    const leaksReport =
-      "program(123) MallocStackLogging: recording malloc (and VM allocation) stacks using lite mode\n";
+    const leaksReport = "Process 123: 0 leaks for 0 total leaked bytes.\n";
     const host = new FakeProcessHost([
       successfulCompile,
       (specification, child) => {
-        expect(specification.args).toContain("/usr/bin/leaks");
+        const leaksIndex = specification.args.indexOf("/usr/bin/leaks");
+        expect(leaksIndex).toBeGreaterThanOrEqual(0);
         expect(specification.args).toContain(LEAKS_EXECUTION_PROFILE);
         expect(specification.args).not.toContain(COMPILE_EXECUTION_PROFILE);
-        expect(specification.args).not.toContain("--quiet");
-        const atExitIndex = specification.args.indexOf("--atExit");
-        expect(specification.args.slice(atExitIndex, atExitIndex + 3)).toEqual([
+        expect(specification.args.slice(leaksIndex, leaksIndex + 7)).toEqual([
+          "/usr/bin/leaks",
+          "--quiet",
+          "--nostacks",
+          "--noContent",
           "--atExit",
           "--",
           join(specification.cwd, "program"),
         ]);
+        expect(specification.env).toMatchObject({ MallocStackLogging: "NO" });
         expect(specification.args).not.toContain("leaks-runner.sh");
         queueMicrotask(() => {
           child.emitStderr(leaksReport);

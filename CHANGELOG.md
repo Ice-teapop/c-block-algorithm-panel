@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.7] - 2026-07-12
+
+### Fixed
+
+- Kept macOS `leaks` inside the existing Seatbelt and resource boundaries while
+  disabling stack logging, stack rendering, and memory-content rendering. This
+  removes hosted-runner symbolication stalls without widening permissions or
+  increasing the three-second execution limit.
+- Authorized the renderer's second native close attempt only after all pending
+  workspace state is durable, preventing a competing JavaScript unload dialog.
+- Made the CRLF undo release gate wait for the authoritative source projection
+  instead of treating transient contenteditable DOM as a completed undo, and
+  added an exact-source history regression for the paired-input sequence.
+
 ## [0.1.0-beta.6] - 2026-07-12
 
 ### Fixed

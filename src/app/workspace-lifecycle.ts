@@ -22,7 +22,13 @@ export function installWorkspaceLifecycle(options: WorkspaceLifecycleOptions): W
   let unloadAuthorized = false;
   let unloadFlushInFlight = false;
 
-  const removeCloseHandler = options.onCloseRequested(() => options.workspace.flush());
+  const removeCloseHandler = options.onCloseRequested(async () => {
+    await options.workspace.flush();
+    // The native close handshake now owns the second close attempt. Mark it
+    // authorized before replying so beforeunload cannot open a competing JS
+    // dialog after the durable flush has already completed.
+    unloadAuthorized = true;
+  });
 
   const destroy = (): void => {
     if (destroyed) return;

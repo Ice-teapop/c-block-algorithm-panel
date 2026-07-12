@@ -247,6 +247,9 @@ describe("split execution profiles", () => {
     expect(LEAKS_EXECUTION_PROFILE).toContain('(allow process-exec (literal "/bin/bash"))');
     expect(LEAKS_EXECUTION_PROFILE).toContain('(allow process-exec (subpath (param "WORKDIR")))');
     expect(LEAKS_EXECUTION_PROFILE).not.toContain("(allow process*)");
+    expect(LEAKS_EXECUTION_PROFILE).not.toContain("com.apple.coresymbolicationd");
+    expect(LEAKS_EXECUTION_PROFILE).not.toContain("sysctl");
+    expect(LEAKS_EXECUTION_PROFILE).not.toContain("/var/select");
   });
 
   it("keeps compiler subprocess permission out of the runtime profile", () => {
