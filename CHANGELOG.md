@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.4] - 2026-07-12
+
+### Fixed
+
+- Pinned one fail-closed, verified Apple toolchain snapshot for the lifetime of
+  each internal gold/equivalence verification process, avoiding repeated
+  `xcrun --no-cache` probes while preserving isolated Runner instances.
+
 ## [0.1.0-beta.3] - 2026-07-12
 
 ### Fixed

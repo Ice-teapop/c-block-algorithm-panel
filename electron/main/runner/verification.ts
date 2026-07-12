@@ -10,6 +10,11 @@ import {
   type VerificationRunMode,
   type VerificationRunResult,
 } from "./runner.js";
+import {
+  detectSupportedAppleClang,
+  type ToolchainDetector,
+  type ToolchainProbeResult,
+} from "./capability.js";
 
 interface VerificationCompileRequest {
   readonly source: string | Uint8Array;
@@ -38,9 +43,22 @@ const utf8Decoder = new TextDecoder("utf-8", {
   ignoreBOM: true,
 });
 const utf8Encoder = new TextEncoder();
+const stableVerificationToolchainDetector =
+  createStableToolchainDetector(detectSupportedAppleClang);
+
+export function createStableToolchainDetector(detect: ToolchainDetector): ToolchainDetector {
+  let snapshot: ToolchainProbeResult | undefined;
+  return () => {
+    snapshot ??= detect();
+    return snapshot;
+  };
+}
 
 export function createSampleVerificationRunner(): SampleVerificationRunner {
-  const runner = new Runner({ mode: "seatbelt-best-effort" });
+  const runner = new Runner({
+    mode: "seatbelt-best-effort",
+    toolchainDetector: stableVerificationToolchainDetector,
+  });
   return Object.freeze({
     capabilities: () => runner.getCapabilities(),
     compile: async (value: VerificationCompileRequest) => {
