@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { assertReleaseGateOrder } from "./lib/installed-dmg-gate.mjs";
 
 const expected = Object.freeze({
-  version: "0.1.0-beta.4",
+  version: "0.1.0-beta.5",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   repository: "https://github.com/Ice-teapop/c-block-algorithm-panel.git",
@@ -42,6 +42,7 @@ const [
   nvmrc,
   nodeVersion,
   workspaceRootSource,
+  playwrightConfiguration,
 ] = await Promise.all([
   readJson("package.json"),
   readJson("package-lock.json"),
@@ -56,6 +57,7 @@ const [
   readText(".nvmrc"),
   readText(".node-version"),
   readText("electron/main/workspace-root.ts"),
+  readText("playwright.config.ts"),
 ]);
 
 check(manifest.version === expected.version, `package version 必须为 ${expected.version}`);
@@ -212,6 +214,10 @@ includes(ci, "npm test", "CI");
 includes(ci, "npm run accept:m0-m5-regression", "CI");
 includes(ci, "npm run build", "CI");
 includes(ci, "npm run test:e2e", "CI");
+includes(ci, "id: electron_e2e", "CI");
+includes(ci, "steps.electron_e2e.outcome == 'failure'", "CI");
+includes(ci, "Upload Electron failure traces", "CI");
+includes(ci, "${{ runner.temp }}/c-block-algorithm-panel-playwright", "CI");
 
 includes(release, '      - "v*"', "release workflow");
 includes(release, "RELEASE_TAG: ${{ github.ref_name }}", "release workflow");
@@ -221,16 +227,23 @@ includes(release, "npm run accept:m7", "release workflow");
 includes(release, "npm run accept:m8", "release workflow");
 includes(release, "npm run accept:m0-m5-regression", "release workflow");
 includes(release, "npm run test:e2e", "release workflow");
+includes(release, "id: electron_e2e", "release workflow");
+includes(release, "steps.electron_e2e.outcome == 'failure'", "release workflow");
+includes(release, "Upload Electron failure traces", "release workflow");
+includes(release, "${{ runner.temp }}/c-block-algorithm-panel-playwright", "release workflow");
 includes(release, "npm run dist:mac:beta", "release workflow");
 includes(release, "npm run verify:installed-dmg", "release workflow");
 includes(release, "shasum -a 256", "release workflow");
 includes(release, "shasum -a 256 --check", "release workflow");
+includes(release, "uses: actions/upload-artifact@v4", "release workflow");
 includes(release, "gh release view", "release workflow");
 includes(release, "gh release edit", "release workflow");
 includes(release, "gh release create", "release workflow");
 includes(release, "gh release upload", "release workflow");
 includes(release, "--verify-tag", "release workflow");
 includes(release, "--prerelease", "release workflow");
+includes(playwrightConfiguration, "process.env.RUNNER_TEMP ?? tmpdir()", "Playwright config");
+includes(playwrightConfiguration, '"c-block-algorithm-panel-playwright"', "Playwright config");
 try {
   assertReleaseGateOrder(release);
   check(true, "release workflow installed-DMG order");

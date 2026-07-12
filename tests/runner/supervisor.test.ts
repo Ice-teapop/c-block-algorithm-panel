@@ -83,7 +83,7 @@ describe("superviseProcess", () => {
     expect(host.children[0]?.inputChunks).toEqual([Uint8Array.from([65])]);
   });
 
-  it("kills and rejects a descendant that survives leader exit and close", async () => {
+  it("accepts a normal exit whose process group disappears during the bounded reap grace", async () => {
     const clock = new FakeClock();
     const host = new FakeProcessHost();
     host.keepGroupAliveAfterClose = true;
@@ -93,6 +93,29 @@ describe("superviseProcess", () => {
     });
 
     host.children[0]?.complete(0);
+    clock.advanceBy(20);
+    host.groupAlive = false;
+    clock.advanceBy(10);
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "process-exit",
+      processControlFailed: false,
+    });
+    expect(host.groupKills).toEqual([]);
+    expect(clock.pendingTimerCount).toBe(0);
+  });
+
+  it("kills and rejects a descendant that outlives the bounded normal-exit grace", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    host.keepGroupAliveAfterClose = true;
+    const outcomePromise = superviseProcess(SPECIFICATION, new Uint8Array(), LIMITS, {
+      clock,
+      processHost: host,
+    });
+
+    host.children[0]?.complete(0);
+    clock.advanceBy(50);
 
     await expect(outcomePromise).resolves.toMatchObject({
       termination: "process-exit",
@@ -100,6 +123,49 @@ describe("superviseProcess", () => {
     });
     expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
     expect(host.groupAlive).toBe(false);
+  });
+
+  it("fails closed when process-group liveness becomes unobservable during reap grace", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    host.keepGroupAliveAfterClose = true;
+    const outcomePromise = superviseProcess(SPECIFICATION, new Uint8Array(), LIMITS, {
+      clock,
+      processHost: host,
+    });
+
+    host.children[0]?.complete(0);
+    host.groupLivenessError = new Error("EPERM");
+    clock.advanceBy(10);
+    host.groupLivenessError = undefined;
+    clock.advanceBy(10);
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "process-exit",
+      processControlFailed: true,
+    });
+    expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
+  });
+
+  it("lets the wall-time watchdog preempt normal-exit reap grace", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    host.keepGroupAliveAfterClose = true;
+    const outcomePromise = superviseProcess(
+      SPECIFICATION,
+      new Uint8Array(),
+      { ...LIMITS, wallTimeMs: 5 },
+      { clock, processHost: host },
+    );
+
+    host.children[0]?.complete(0);
+    clock.advanceBy(5);
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "wall-time-limit",
+      processControlFailed: false,
+    });
+    expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
   });
 
   it("fails closed when the RSS monitor errors", async () => {

@@ -57,7 +57,17 @@ jobs:
         run: npm run accept:m8
 
       - name: Run Electron end-to-end regression
+        id: electron_e2e
         run: npm run test:e2e
+
+      - name: Upload Electron failure traces
+        if: failure() && steps.electron_e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-e2e-failure-${{ github.ref_name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/c-block-algorithm-panel-playwright
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Build unsigned Universal beta DMG
         run: npm run dist:mac:beta

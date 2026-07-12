@@ -90,7 +90,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
     .poll(() => readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8"))
     .toBe(editedSource);
 
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadThroughApplicationLifecycle();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.getByRole("tab", { name: "Dashboard" })).toHaveAttribute(
@@ -108,7 +108,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
     "true",
   );
 
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await reloadThroughApplicationLifecycle();
   await expect(page.locator("#startup-loader")).toBeHidden();
   const rowAfterReload = page.getByRole("link", { name: "打开项目“二分搜索”" });
   const kindCell = rowAfterReload.locator("td").nth(1);
@@ -170,3 +170,18 @@ test("flushes the final debounced edit before the desktop window closes", async 
     .poll(() => readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8"))
     .toBe(closingSource);
 });
+
+async function reloadThroughApplicationLifecycle(): Promise<void> {
+  const previousTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  await page.evaluate(() => window.location.reload());
+  await expect
+    .poll(async () => {
+      try {
+        return await page.evaluate(() => performance.timeOrigin);
+      } catch {
+        return previousTimeOrigin;
+      }
+    })
+    .not.toBe(previousTimeOrigin);
+  await page.waitForLoadState("domcontentloaded");
+}

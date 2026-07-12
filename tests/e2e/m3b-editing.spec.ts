@@ -44,6 +44,7 @@ test.beforeAll(async () => {
     },
   });
   page = await electronApplication.firstWindow();
+  await expect(page.locator("#startup-loader")).toBeHidden();
   await electronApplication.evaluate(({ dialog }, path) => {
     const mutableDialog = dialog as unknown as {
       showOpenDialog: () => Promise<{
@@ -57,6 +58,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "粘贴源码" })).toBeEnabled();
   await showDock("搭建");
@@ -87,6 +89,9 @@ test("supports direct input, bracket pairing, and exact CRLF undo", async () => 
   await page.keyboard.press("ArrowRight");
 
   await expectEditorSource(CRLF_SOURCE.replace("  return 0;", "  return 0(1);"));
+  // Observe the final source notification before accepting a `synced` state;
+  // otherwise a fast assertion can match the pre-edit projection.
+  await expect(page.locator("#source-meta")).toHaveText("CRLF · 84 B · UTF-8");
   await expect(projectionStatus()).toHaveAttribute("data-state", "synced");
   await expect(page.locator("#source-meta")).toContainText("CRLF");
 
@@ -256,7 +261,8 @@ test("moves adjacent statements with buttons and supports a real drag while reje
 
   const beforeRejectedDrop = await editorText();
   await showDock("搭建");
-  await draggableStatement("expression_statement", "a();").dragTo(
+  await dispatchExactStatementDrag(
+    draggableStatement("expression_statement", "a();"),
     draggableStatement("expression_statement", "b();"),
   );
   await expect(confirmationDialog()).toBeHidden();
@@ -266,7 +272,8 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   expect(await editorText()).toBe(beforeRejectedDrop);
 
   await showDock("搭建");
-  await draggableStatement("expression_statement", "a();").dragTo(
+  await dispatchExactStatementDrag(
+    draggableStatement("expression_statement", "a();"),
     draggableStatement("expression_statement", "nested();"),
   );
   await expect(confirmationDialog()).toBeHidden();
@@ -435,6 +442,30 @@ async function confirmVisibleDiff(): Promise<void> {
   await expect(dialog.locator(".edit-panel__diff").first()).toBeVisible();
   await dialog.getByRole("button", { name: "确认修改" }).click();
   await expect(dialog).toBeHidden();
+}
+
+async function dispatchExactStatementDrag(source: Locator, target: Locator): Promise<void> {
+  const sourceElement = await source.elementHandle();
+  const targetElement = await target.elementHandle();
+  if (sourceElement === null || targetElement === null) {
+    throw new Error("拖拽语句元素不存在");
+  }
+  await page.evaluate(
+    ({ sourceNode, targetNode }) => {
+      const dataTransfer = new DataTransfer();
+      const dragEvent = (type: string): DragEvent =>
+        new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+        });
+      sourceNode.dispatchEvent(dragEvent("dragstart"));
+      targetNode.dispatchEvent(dragEvent("dragover"));
+      targetNode.dispatchEvent(dragEvent("drop"));
+      sourceNode.dispatchEvent(dragEvent("dragend"));
+    },
+    { sourceNode: sourceElement, targetNode: targetElement },
+  );
 }
 
 async function replaceEditorSource(source: string): Promise<void> {

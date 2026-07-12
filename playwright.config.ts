@@ -15,6 +15,10 @@ if (
   throw new Error("PANEL_E2E_PORT 必须是 1 到 65535 的整数端口");
 }
 const developmentServerUrl = `http://127.0.0.1:${String(developmentServerPort)}/`;
+const outputDirectory = join(
+  process.env.RUNNER_TEMP ?? tmpdir(),
+  "c-block-algorithm-panel-playwright",
+);
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -22,7 +26,7 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
   expect: { timeout: 15_000 },
-  outputDir: join(tmpdir(), "c-block-algorithm-panel-playwright"),
+  outputDir: outputDirectory,
   reporter: "line",
   webServer: {
     command: `npm run dev:web -- --host 127.0.0.1 --port ${String(developmentServerPort)} --strictPort`,

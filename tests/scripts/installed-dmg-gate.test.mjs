@@ -98,6 +98,7 @@ describe("installed DMG release gate", () => {
 run: npm run dist:mac:beta
 run: npm run verify:installed-dmg
 shasum -a 256
+- name: Upload verified build artifact
 uses: actions/upload-artifact@v4
 gh release create
 `),
@@ -107,6 +108,7 @@ gh release create
 run: npm run verify:installed-dmg
 run: npm run dist:mac:beta
 shasum -a 256
+- name: Upload verified build artifact
 uses: actions/upload-artifact@v4
 gh release create
 `),

@@ -106,7 +106,10 @@ export function assertReleaseGateOrder(workflow) {
     Object.freeze({ label: "DMG 构建", fragment: "run: npm run dist:mac:beta" }),
     Object.freeze({ label: "安装态 DMG 门禁", fragment: "run: npm run verify:installed-dmg" }),
     Object.freeze({ label: "SHA-256", fragment: "shasum -a 256" }),
-    Object.freeze({ label: "artifact 上传", fragment: "uses: actions/upload-artifact@" }),
+    Object.freeze({
+      label: "已验证 artifact 上传",
+      fragment: "- name: Upload verified build artifact",
+    }),
     Object.freeze({ label: "GitHub Release", fragment: "gh release" }),
   ]);
   let previousIndex = -1;

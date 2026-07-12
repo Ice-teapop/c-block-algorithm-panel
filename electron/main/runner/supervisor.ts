@@ -46,6 +46,12 @@ export interface ProcessObserver {
 
 const KILL_REAP_TIMEOUT_MS = 1_000;
 const KILL_REAP_POLL_INTERVAL_MS = 10;
+// Node's `close` event can precede the kernel removing a just-exited process
+// group by a few scheduler ticks on hosted macOS runners. Give normal exits a
+// tiny, bounded reap window before treating the group as a surviving child.
+// Resource and wall-time watchdogs remain active throughout this window.
+const NORMAL_EXIT_REAP_GRACE_MS = 50;
+const NORMAL_EXIT_REAP_POLL_INTERVAL_MS = 10;
 
 export async function superviseProcess(
   specification: SpawnSpecification,
@@ -77,6 +83,8 @@ export async function superviseProcess(
   let rssTimer: TimerToken | undefined;
   let reapTimer: TimerToken | undefined;
   let reapPollTimer: TimerToken | undefined;
+  let normalExitReapTimer: TimerToken | undefined;
+  let normalExitReapPollTimer: TimerToken | undefined;
   let winner: ProcessTerminationReason | undefined;
   let exitCode: number | null = null;
   let exitSignal: string | null = null;
@@ -117,6 +125,14 @@ export async function superviseProcess(
     if (reapPollTimer !== undefined) {
       dependencies.clock.clearTimeout(reapPollTimer);
       reapPollTimer = undefined;
+    }
+    if (normalExitReapTimer !== undefined) {
+      dependencies.clock.clearTimeout(normalExitReapTimer);
+      normalExitReapTimer = undefined;
+    }
+    if (normalExitReapPollTimer !== undefined) {
+      dependencies.clock.clearTimeout(normalExitReapPollTimer);
+      normalExitReapPollTimer = undefined;
     }
   };
 
@@ -190,6 +206,7 @@ export async function superviseProcess(
       processControlFailed = true;
     }
     clearLimitTimers();
+    clearReapTimers();
     try {
       dependencies.processHost.killProcessGroup(processGroupId, "SIGKILL");
     } catch {
@@ -211,6 +228,43 @@ export async function superviseProcess(
       finish(reason);
     }, KILL_REAP_TIMEOUT_MS);
     waitForCloseAndReap();
+  };
+
+  const waitForNormalExitReap = (): void => {
+    if (finished || terminationInProgress || normalExitReapTimer !== undefined) return;
+
+    const poll = (): void => {
+      normalExitReapPollTimer = undefined;
+      if (finished || terminationInProgress) return;
+      const processGroupGone = observeProcessGroupGone();
+      if (processGroupGone === true) {
+        finish("process-exit");
+        return;
+      }
+      if (processGroupGone === undefined) {
+        terminate("process-exit", true);
+        return;
+      }
+      normalExitReapPollTimer = dependencies.clock.setTimeout(
+        poll,
+        NORMAL_EXIT_REAP_POLL_INTERVAL_MS,
+      );
+    };
+
+    normalExitReapTimer = dependencies.clock.setTimeout(() => {
+      normalExitReapTimer = undefined;
+      if (finished || terminationInProgress) return;
+      const processGroupGone = observeProcessGroupGone();
+      if (processGroupGone === true) {
+        finish("process-exit");
+        return;
+      }
+      terminate("process-exit", true);
+    }, NORMAL_EXIT_REAP_GRACE_MS);
+    normalExitReapPollTimer = dependencies.clock.setTimeout(
+      poll,
+      NORMAL_EXIT_REAP_POLL_INTERVAL_MS,
+    );
   };
 
   const capture = (
@@ -269,10 +323,14 @@ export async function superviseProcess(
           finish("process-exit");
           return;
         }
+        if (processGroupGone === undefined) {
+          terminate("process-exit", true);
+          return;
+        }
         // A descendant can close inherited stdio and keep running in the same
-        // process group. Treat that residue as a control failure, kill it, and
-        // still wait for bounded confirmation instead of reporting success.
-        terminate("process-exit", true);
+        // process group. First allow a bounded natural-reap grace; persistent
+        // residue is then killed and still reported as a control failure.
+        waitForNormalExitReap();
         return;
       }
       waitForCloseAndReap();

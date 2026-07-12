@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.5] - 2026-07-12
+
+### Fixed
+
+- Added a 50 ms, watchdog-protected normal-exit process-group reap grace. A
+  naturally disappearing macOS group is accepted without rerunning user code;
+  persistent descendants are still killed and reported fail-closed.
+- Removed three Electron E2E synchronization races around application-managed
+  reload, exact CRLF metadata, and negative drag targets.
+- Persisted Playwright failure traces as short-lived CI artifacts so a failed
+  hosted run retains its actionable page and event evidence.
+
 ## [0.1.0-beta.4] - 2026-07-12
 
 ### Fixed
