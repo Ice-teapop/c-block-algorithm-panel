@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.3] - 2026-07-12
+
+### Fixed
+
+- Added one suite-wide, fail-closed recovery attempt for a pure macOS `leaks`
+  tool/process-group cleanup failure. Findings, sanitizer evidence, abnormal
+  exits, resource failures, and repeated tool failures remain non-retryable.
+
 ## [0.1.0-beta.2] - 2026-07-12
 
 ### Fixed

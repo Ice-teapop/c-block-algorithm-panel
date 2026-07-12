@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve, sep } from "node:path";
+import { createGoldLeaksToolRecoveryGate } from "./lib/gold-leaks-tool-recovery.mjs";
 import { createGoldWallTimeRecoveryGate } from "./lib/gold-wall-time-recovery.mjs";
 
 const projectRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -28,6 +29,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 let stringOutputObserved = false;
 const goldWallTimeRecovery = createGoldWallTimeRecoveryGate();
+const goldLeaksToolRecovery = createGoldLeaksToolRecoveryGate();
 
 const fail = (message) => {
   throw new Error(message);
@@ -378,7 +380,32 @@ const runGoldCase = async (backend, sample, test, artifactId, mode) => {
 };
 
 const runGoldLeakCase = async (backend, sample, test, artifactId) => {
-  const result = await runGoldWithBoundedRecovery(backend, sample, test, artifactId, "leaks");
+  const label = `${sample.name}/${test.id} leaks`;
+  const attempt = () => runGoldWithBoundedRecovery(backend, sample, test, artifactId, "leaks");
+  const { result } = await goldLeaksToolRecovery.run(attempt, {
+    label,
+    hasNonRetryableEvidence: (candidate) => {
+      const stdout = outputBytes(candidate.stdout, `${label} recovery stdout`);
+      const stderr = outputBytes(candidate.stderr, `${label} recovery stderr`);
+      const reportText = Buffer.concat([stdout, stderr]).toString("utf8");
+      const leakSummary =
+        typeof candidate.leakCheck === "object" &&
+        candidate.leakCheck !== null &&
+        typeof candidate.leakCheck.summary === "string"
+          ? candidate.leakCheck.summary
+          : "";
+      return (
+        sanitizerReportPattern.test(reportText) ||
+        nonZeroLeakReportPattern.test(reportText) ||
+        nonZeroLeakReportPattern.test(leakSummary)
+      );
+    },
+    onRecovery: () => {
+      console.warn(
+        `⚠ ${label} 首次遇到纯 leaks 工具/进程组回收故障；使用全套件唯一一次同制品、同限制恢复重试`,
+      );
+    },
+  });
   const leakCheck = requireRecord(result.leakCheck, `${sample.name}/${test.id} leakCheck`);
   if (
     result.ok !== true ||
@@ -570,6 +597,12 @@ try {
 if (goldWallTimeRecovery.recoveries.length > 0) {
   console.warn(
     `⚠ 金样本门禁使用了 ${goldWallTimeRecovery.recoveries.length} 次环境恢复重试；每次仍执行固定 3s Runner 限制`,
+  );
+}
+
+if (goldLeaksToolRecovery.recoveries.length > 0) {
+  console.warn(
+    `⚠ 金样本门禁使用了 ${goldLeaksToolRecovery.recoveries.length} 次 leaks 工具恢复重试；首次结果未被视为安全结论`,
   );
 }
 
