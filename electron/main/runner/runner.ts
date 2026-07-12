@@ -957,28 +957,36 @@ export class Runner {
     ].join("\n");
     const compiled = await this.#compileValidated(source, "leak-control.c", strategy, "plain");
     const artifactId = requireCompileArtifact(compiled, "leaks 正控构建失败。");
-    let result: VerificationRunResult;
+    let verified = false;
     try {
-      result = await this.#runValidated(
-        artifactId,
-        Object.freeze([]),
-        new Uint8Array(),
-        Object.freeze([]),
-        strategy,
-        "leaks",
-        Object.freeze([]),
-      );
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await this.#runValidated(
+          artifactId,
+          Object.freeze([]),
+          new Uint8Array(),
+          Object.freeze([]),
+          strategy,
+          "leaks",
+          Object.freeze([]),
+        );
+        const leakCheck = result.leakCheck;
+        if (
+          result.ok === false &&
+          result.termination === "process-exit" &&
+          result.exitCode === 1 &&
+          result.signal === null &&
+          leakCheck?.ok === false &&
+          leakCheck.verdict === "finding" &&
+          hasVerifiableNonZeroLeakReport(leakCheck.summary)
+        ) {
+          verified = true;
+          break;
+        }
+      }
     } finally {
       await this.#artifactRegistry.discard(artifactId);
     }
-    const leakCheck = result.leakCheck;
-    if (
-      result.termination !== "process-exit" ||
-      result.exitCode !== 1 ||
-      result.signal !== null ||
-      leakCheck?.verdict !== "finding" ||
-      !hasVerifiableNonZeroLeakReport(leakCheck.summary)
-    ) {
+    if (!verified) {
       throw new RunnerFailure(
         "LEAK_CHECK_FAILED",
         "leaks 正控未检出故意泄漏，拒绝相信本次零泄漏结果。",

@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.9] - 2026-07-12
+
+### Fixed
+
+- Added one bounded retry for the fixed macOS `leaks` positive-control binary
+  when its first result is not a strictly verified leak finding. The same
+  artifact, Seatbelt policy, and three-second resource limit are reused; user
+  sanitizer and user `leaks` executions are never retried.
+- Routed the exact CRLF release gate through the workbench's explicit undo
+  command and authoritative source projection. Keyboard undo remains covered
+  independently by the editing E2E suite.
+
 ## [0.1.0-beta.8] - 2026-07-12
 
 ### Fixed

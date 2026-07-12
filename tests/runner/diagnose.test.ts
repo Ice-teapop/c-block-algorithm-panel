@@ -205,12 +205,59 @@ describe("M5b trusted deterministic diagnostics", () => {
     await runner.dispose();
   });
 
-  it("fails closed when the leaks positive control does not detect its leak", async () => {
+  it("reuses one positive-control artifact after a clean result and runs user code once", async () => {
+    let controlCompileCount = 0;
+    let userSanitizerRunCount = 0;
+    let userLeaksRunCount = 0;
+    const host = new FakeProcessHost([
+      successfulSyntax,
+      successfulCompile,
+      (specification, child) => {
+        userSanitizerRunCount += 1;
+        successfulRun(specification, child);
+      },
+      (specification, child) => {
+        controlCompileCount += 1;
+        successfulCompile(specification, child);
+      },
+      leaksClean,
+      leaksFinding("Process: leak-control\n1 leak for 32 total leaked bytes."),
+      successfulCompile,
+      (specification, child) => {
+        userLeaksRunCount += 1;
+        leaksClean(specification, child);
+      },
+    ]);
+    const runner = createTestRunner({ mode: "trusted-only", processHost: host });
+    const request = { source: "int main(void){return 0;}", runtime: {} };
+
+    await expect(
+      runner.diagnose(request, runner.createTrustedExecutionGrant("diagnose", request)),
+    ).resolves.toMatchObject({
+      ok: true,
+      memory: {
+        status: "completed",
+        clean: true,
+        leaks: { verdict: "clean", positiveControl: "passed" },
+      },
+    });
+    expect(controlCompileCount).toBe(1);
+    expect(userSanitizerRunCount).toBe(1);
+    expect(userLeaksRunCount).toBe(1);
+    expect(host.specifications).toHaveLength(8);
+    expect(host.specifications[4]?.args).toContain("/usr/bin/leaks");
+    expect(host.specifications[5]?.args).toContain("/usr/bin/leaks");
+    expect(host.specifications[7]?.args).toContain("/usr/bin/leaks");
+    await runner.dispose();
+  });
+
+  it("fails closed when both positive-control attempts report clean", async () => {
     const host = new FakeProcessHost([
       successfulSyntax,
       successfulCompile,
       successfulRun,
       successfulCompile,
+      leaksClean,
       leaksClean,
     ]);
     const runner = createTestRunner({ mode: "trusted-only", processHost: host });
@@ -222,7 +269,7 @@ describe("M5b trusted deterministic diagnostics", () => {
       ok: false,
       error: { code: "LEAK_CHECK_FAILED" },
     });
-    expect(host.specifications).toHaveLength(5);
+    expect(host.specifications).toHaveLength(6);
     await runner.dispose();
   });
 
@@ -236,6 +283,7 @@ describe("M5b trusted deterministic diagnostics", () => {
       successfulRun,
       successfulCompile,
       leaksFinding(report),
+      leaksFinding(report),
     ]);
     const runner = createTestRunner({ mode: "trusted-only", processHost: host });
     const request = { source: "int main(void){return 0;}", runtime: {} };
@@ -246,7 +294,7 @@ describe("M5b trusted deterministic diagnostics", () => {
       ok: false,
       error: { code: "LEAK_CHECK_FAILED" },
     });
-    expect(host.specifications).toHaveLength(5);
+    expect(host.specifications).toHaveLength(6);
     await runner.dispose();
   });
 

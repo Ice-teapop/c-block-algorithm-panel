@@ -482,14 +482,13 @@ async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> 
 }
 
 async function undoAndAwaitProjection(source: string, metadata: string): Promise<void> {
-  await showDock("搭建");
-  const content = page.locator(".cm-content");
-  await content.click();
-  await content.press("Meta+Z");
-  // A browser-native contenteditable undo can expose transient DOM before
-  // CodeMirror commits its authoritative state. Keep focus in the editor and
-  // wait for the source projection instead of using `.cm-line` to decide
-  // whether another undo should be sent.
+  await showDock("编辑");
+  const undoButton = historyButton("撤销");
+  await expect(undoButton).toBeEnabled();
+  await expect(undoButton).toHaveAttribute("aria-label", /^撤销，可用 [1-9]\d* 步$/u);
+  await undoButton.click();
+  // Use the explicit application command here so this test exercises the
+  // authoritative exact-source history. M3a separately covers Meta+Z.
   await expect(page.locator("#source-meta")).toHaveText(metadata, { timeout: 15_000 });
   await expect(projectionStatus()).toHaveAttribute("data-state", "synced");
   await expect.poll(editorText).toBe(normalizedEditorSource(source));
