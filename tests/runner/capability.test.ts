@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   COMPILE_EXECUTION_PROFILE,
+  DEFAULT_DEVELOPER_ROOT,
   LEAKS_EXECUTION_PROFILE,
   RUN_EXECUTION_PROFILE,
   SANITIZER_RUN_PROFILE,
@@ -9,6 +13,7 @@ import {
   SystemSeatbeltCanary,
   classifyClangVersion,
   parseRunnerMode,
+  resolveCanonicalDeveloperRoots,
   toolchainIdentifier,
   type CanaryCommandExecutor,
   type CanaryCommandResult,
@@ -26,12 +31,19 @@ const UNAVAILABLE_TOOLCHAIN = Object.freeze({
 });
 
 describe("Apple clang capability", () => {
-  it("accepts only Apple clang 21.x", () => {
+  it("accepts the bounded Apple clang 17.x–21.x compatibility range", () => {
+    expect(classifyClangVersion("Apple clang version 17.0.0\nTarget: arm64")).toEqual({
+      available: true,
+      detail: "Apple clang version 17.0.0",
+    });
     expect(classifyClangVersion("Apple clang version 21.0.0\nTarget: arm64")).toEqual({
       available: true,
       detail: "Apple clang version 21.0.0",
     });
-    expect(classifyClangVersion("Apple clang version 20.1.0")).toMatchObject({
+    expect(classifyClangVersion("Apple clang version 16.1.0")).toMatchObject({
+      available: false,
+    });
+    expect(classifyClangVersion("Apple clang version 22.0.0")).toMatchObject({
       available: false,
     });
     expect(classifyClangVersion("clang version 21.0.0")).toMatchObject({
@@ -82,6 +94,23 @@ describe("Apple clang capability", () => {
     expect(parseRunnerMode("unexpected", detector)).toBe("disabled");
     expect(detector).not.toHaveBeenCalled();
   });
+
+  it("trusts the canonical target of an active Xcode.app symlink", () => {
+    const root = mkdtempSync(join(tmpdir(), "c-block-xcode-root-"));
+    try {
+      const versionedApp = join(root, "Xcode_16.4.app");
+      const developerRoot = join(versionedApp, "Contents", "Developer");
+      mkdirSync(developerRoot, { recursive: true });
+      const activeApp = join(root, "Xcode.app");
+      symlinkSync(versionedApp, activeApp);
+
+      expect(resolveCanonicalDeveloperRoots([join(activeApp, "Contents", "Developer")])).toEqual([
+        realpathSync(developerRoot),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Seatbelt capability canary", () => {
@@ -102,6 +131,7 @@ describe("Seatbelt capability canary", () => {
       timeoutMs: 10_000,
     });
     expect(compile?.args).toContain(COMPILE_EXECUTION_PROFILE);
+    expect(compile?.args).toContain(`DEVROOT=${DEFAULT_DEVELOPER_ROOT}`);
     expect(compile?.args).toContain("/usr/bin/clang");
     expect(compile?.args).toContain("seatbelt-canary.c");
     expect(run).toMatchObject({
@@ -194,7 +224,7 @@ describe("split execution profiles", () => {
     expect(LEAKS_EXECUTION_PROFILE).toContain("(deny network*)");
   });
 
-  it("adds the Apple clang 21 runtime only to the sanitizer run profile", () => {
+  it("adds the detected Apple clang runtime only to the sanitizer run profile", () => {
     const runtimeDirectory =
       "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin";
 
@@ -227,16 +257,24 @@ describe("split execution profiles", () => {
   });
 
   it("allows only metadata traversal above trusted Developer roots", () => {
-    const ancestorMetadataRule =
+    const compileAncestorMetadataRule =
+      '(allow file-read-metadata file-test-existence (subpath "/Applications") (literal "/Library"))';
+    const sanitizerAncestorMetadataRule =
       '(allow file-read-metadata file-test-existence (literal "/Applications") (literal "/Applications/Xcode.app") (literal "/Applications/Xcode.app/Contents") (literal "/Library"))';
 
-    expect(COMPILE_EXECUTION_PROFILE).toContain(ancestorMetadataRule);
+    expect(COMPILE_EXECUTION_PROFILE).toContain(compileAncestorMetadataRule);
     expect(COMPILE_EXECUTION_PROFILE).toContain(
       '(allow file-read-metadata file-test-existence (subpath (param "TEMPROOT")))',
     );
-    expect(SANITIZER_RUN_PROFILE).toContain(ancestorMetadataRule);
-    expect(RUN_EXECUTION_PROFILE).not.toContain(ancestorMetadataRule);
-    expect(ancestorMetadataRule).not.toContain("file-read-data");
+    expect(COMPILE_EXECUTION_PROFILE).toContain(
+      '(allow file-read* file-test-existence (subpath (param "DEVROOT")))',
+    );
+    expect(COMPILE_EXECUTION_PROFILE).toContain(
+      '(allow file-map-executable (subpath (param "DEVROOT")))',
+    );
+    expect(SANITIZER_RUN_PROFILE).toContain(sanitizerAncestorMetadataRule);
+    expect(RUN_EXECUTION_PROFILE).not.toContain(compileAncestorMetadataRule);
+    expect(compileAncestorMetadataRule).not.toContain("file-read-data");
   });
 
   it("explicitly rejects compile and runtime reads/mappings under usr/local", () => {

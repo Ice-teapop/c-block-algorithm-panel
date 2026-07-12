@@ -11,12 +11,16 @@ const CLANG_PATH = "/usr/bin/clang";
 const XCRUN_PATH = "/usr/bin/xcrun";
 const BASH_PATH = "/bin/bash";
 const LEAKS_PATH = "/usr/bin/leaks";
-const DEFAULT_APPLE_CLANG_21_SANITIZER_RUNTIME =
+const MIN_SUPPORTED_APPLE_CLANG_MAJOR = 17;
+const MAX_SUPPORTED_APPLE_CLANG_MAJOR = 21;
+const DEFAULT_DEVELOPER_ROOT = "/Applications/Xcode.app/Contents/Developer";
+const DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME =
   "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin";
-const TRUSTED_DEVELOPER_ROOTS = Object.freeze([
-  "/Applications/Xcode.app/Contents/Developer",
+const TRUSTED_DEVELOPER_ROOT_CANDIDATES = Object.freeze([
+  DEFAULT_DEVELOPER_ROOT,
   "/Library/Developer/CommandLineTools",
 ]);
+const TRUSTED_DEVELOPER_ROOTS = resolveCanonicalDeveloperRoots(TRUSTED_DEVELOPER_ROOT_CANDIDATES);
 const PROBE_TIMEOUT_MS = 1_500;
 const CANARY_COMPILE_TIMEOUT_MS = 10_000;
 const CANARY_RUN_TIMEOUT_MS = 10_000;
@@ -44,13 +48,15 @@ export const COMPILE_EXECUTION_PROFILE = [
   '(allow file-read* file-test-existence (subpath "/System"))',
   '(allow file-read* file-test-existence (subpath "/Library/Developer"))',
   '(allow file-read* file-test-existence (subpath "/Applications/Xcode.app/Contents/Developer"))',
-  '(allow file-read-metadata file-test-existence (literal "/Applications") (literal "/Applications/Xcode.app") (literal "/Applications/Xcode.app/Contents") (literal "/Library"))',
+  '(allow file-read* file-test-existence (subpath (param "DEVROOT")))',
+  '(allow file-read-metadata file-test-existence (subpath "/Applications") (literal "/Library"))',
   '(allow file-read-metadata file-test-existence (subpath (param "TEMPROOT")))',
   '(allow file-map-executable (subpath "/bin"))',
   '(allow file-map-executable (subpath "/usr"))',
   '(allow file-map-executable (subpath "/System"))',
   '(allow file-map-executable (subpath "/Library/Developer"))',
   '(allow file-map-executable (subpath "/Applications/Xcode.app/Contents/Developer"))',
+  '(allow file-map-executable (subpath (param "DEVROOT")))',
   '(deny file-read* file-test-existence (subpath "/usr/local"))',
   '(deny file-map-executable (subpath "/usr/local"))',
 ].join("\n");
@@ -150,6 +156,7 @@ export interface ToolchainProbeResult {
   readonly detail: string;
   readonly executablePath?: string;
   readonly sdkPath?: string;
+  readonly developerRootPath?: string;
   readonly sanitizerRuntimePath?: string;
 }
 
@@ -201,7 +208,7 @@ export class SystemCapabilityProbe implements CapabilityProbe {
   readonly #canary: SeatbeltCanary | undefined;
 
   constructor(options: SystemCapabilityProbeOptions = {}) {
-    this.#detectToolchain = options.detectToolchain ?? detectAppleClang21;
+    this.#detectToolchain = options.detectToolchain ?? detectSupportedAppleClang;
     this.#canary = options.canary;
   }
 
@@ -228,6 +235,9 @@ export class SystemCapabilityProbe implements CapabilityProbe {
         new SystemSeatbeltCanary({
           clangPath: clangPath as string,
           sdkPath: sdkPath as string,
+          ...(toolchain.developerRootPath === undefined
+            ? {}
+            : { developerRootPath: toolchain.developerRootPath }),
         });
       const canaryResult = await canary.run();
       return Object.freeze({
@@ -248,6 +258,7 @@ interface SystemSeatbeltCanaryOptions {
   readonly tempRoot?: string;
   readonly clangPath?: string;
   readonly sdkPath?: string;
+  readonly developerRootPath?: string;
 }
 
 export class SystemSeatbeltCanary implements SeatbeltCanary {
@@ -255,12 +266,14 @@ export class SystemSeatbeltCanary implements SeatbeltCanary {
   readonly #tempRoot: string;
   readonly #clangPath: string;
   readonly #sdkPath: string | undefined;
+  readonly #developerRootPath: string;
 
   constructor(options: SystemSeatbeltCanaryOptions = {}) {
     this.#execute = options.execute ?? execFileResult;
     this.#tempRoot = realpathSync(options.tempRoot ?? tmpdir());
     this.#clangPath = options.clangPath ?? CLANG_PATH;
     this.#sdkPath = options.sdkPath;
+    this.#developerRootPath = options.developerRootPath ?? DEFAULT_DEVELOPER_ROOT;
   }
 
   async run(): Promise<SeatbeltCanaryResult> {
@@ -297,6 +310,8 @@ export class SystemSeatbeltCanary implements SeatbeltCanary {
           `WORKDIR=${workDirectory}`,
           "-D",
           `TEMPROOT=${this.#tempRoot}`,
+          "-D",
+          `DEVROOT=${this.#developerRootPath}`,
           "-p",
           COMPILE_EXECUTION_PROFILE,
           this.#clangPath,
@@ -403,7 +418,12 @@ int main(int argc, char **argv) {
 
 export function classifyClangVersion(output: string): ToolchainProbeResult {
   const firstLine = output.split(/\r?\n/u)[0]?.trim() ?? "";
-  if (/^Apple clang version 21\./u.test(firstLine)) {
+  const major = appleClangMajor(firstLine);
+  if (
+    major !== undefined &&
+    major >= MIN_SUPPORTED_APPLE_CLANG_MAJOR &&
+    major <= MAX_SUPPORTED_APPLE_CLANG_MAJOR
+  ) {
     return Object.freeze({
       available: true,
       detail: firstLine,
@@ -414,11 +434,20 @@ export function classifyClangVersion(output: string): ToolchainProbeResult {
     detail:
       firstLine.length === 0
         ? "工具链不可用/未验证：无法读取 /usr/bin/clang 版本。"
-        : `工具链不可用/未验证：要求 Apple clang 21.x，实际为 ${firstLine}`,
+        : `工具链不可用/未验证：要求 Apple clang ${MIN_SUPPORTED_APPLE_CLANG_MAJOR}.x–${MAX_SUPPORTED_APPLE_CLANG_MAJOR}.x，实际为 ${firstLine}`,
   });
 }
 
-export function detectAppleClang21(): ToolchainProbeResult {
+function appleClangMajor(firstLine: string): number | undefined {
+  const match = /^Apple clang version (\d+)\./u.exec(firstLine);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+  const major = Number(match[1]);
+  return Number.isSafeInteger(major) ? major : undefined;
+}
+
+export function detectSupportedAppleClang(): ToolchainProbeResult {
   const result = spawnSync(CLANG_PATH, ["--version"], {
     encoding: "utf8",
     env: minimalProbeEnvironment(),
@@ -468,7 +497,16 @@ export function detectAppleClang21(): ToolchainProbeResult {
       resolvedVersion.status !== 0 ||
       !resolvedGate.available
     ) {
-      throw new Error("xcrun 返回的 clang 不是 Apple clang 21.x。 ");
+      throw new Error("xcrun 返回的 clang 不在受支持版本范围。 ");
+    }
+    const initialMajor = appleClangMajor(gate.detail);
+    const resolvedMajor = appleClangMajor(resolvedGate.detail);
+    if (
+      initialMajor === undefined ||
+      resolvedMajor === undefined ||
+      initialMajor !== resolvedMajor
+    ) {
+      throw new Error("/usr/bin/clang 与 xcrun 解析出的 clang 主版本不一致。 ");
     }
 
     const sanitizerRuntimePath = resolveTrustedCommandPath(
@@ -479,9 +517,9 @@ export function detectAppleClang21(): ToolchainProbeResult {
     );
     if (
       trustedDeveloperRoot(sanitizerRuntimePath) !== developerRoot ||
-      !sanitizerRuntimePath.endsWith("/usr/lib/clang/21/lib/darwin")
+      !sanitizerRuntimePath.endsWith(`/usr/lib/clang/${resolvedMajor}/lib/darwin`)
     ) {
-      throw new Error("sanitizer runtime 不属于已验证的 Apple clang 21。 ");
+      throw new Error("sanitizer runtime 与已验证的 Apple clang 主版本不匹配。 ");
     }
 
     return Object.freeze({
@@ -489,6 +527,7 @@ export function detectAppleClang21(): ToolchainProbeResult {
       detail: `${gate.detail}；工具链 ${executablePath}`,
       executablePath,
       sdkPath,
+      developerRootPath: developerRoot,
       sanitizerRuntimePath,
     });
   } catch (error) {
@@ -548,9 +587,22 @@ function trustedDeveloperRoot(path: string): string | undefined {
   });
 }
 
+export function resolveCanonicalDeveloperRoots(candidates: readonly string[]): readonly string[] {
+  const roots = new Set<string>();
+  for (const candidate of candidates) {
+    try {
+      const resolved = realpathSync(candidate);
+      if (statSync(resolved).isDirectory()) roots.add(resolved);
+    } catch {
+      // An absent candidate is not trusted; detector remains fail-closed.
+    }
+  }
+  return Object.freeze([...roots]);
+}
+
 export function parseRunnerMode(
   value: string | undefined,
-  detectToolchain: ToolchainDetector = detectAppleClang21,
+  detectToolchain: ToolchainDetector = detectSupportedAppleClang,
 ): RunnerMode {
   if (value === "disabled") {
     return "disabled";
@@ -645,4 +697,9 @@ function minimalProbeEnvironment(workDirectory?: string): Readonly<Record<string
 }
 
 export { SANDBOX_EXEC_PATH };
-export { DEFAULT_APPLE_CLANG_21_SANITIZER_RUNTIME };
+export {
+  DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME,
+  DEFAULT_DEVELOPER_ROOT,
+  MAX_SUPPORTED_APPLE_CLANG_MAJOR,
+  MIN_SUPPORTED_APPLE_CLANG_MAJOR,
+};

@@ -2,7 +2,7 @@
 
 > **用法**:新建空项目目录,把这份文档存为 `CLAUDE.md`(或整个作为首条消息)交给 Claude Code。按里程碑 M0→M9 推进,每个里程碑的验收命令全绿才能进入下一个,不许跳。
 >
-> 文中所有标注【实测】的结论,是 2026-07 在本机(macOS 27 / Apple Silicon / Node v25.8.1 / Apple clang 21 / web-tree-sitter 0.26.10 + tree-sitter-c 0.24.1)用探针脚本验证过的事实:直接采信,不要重新调研。标注【规约】的条目是强制约束,违反即返工。
+> 文中所有标注【实测】的结论,是 2026-07 在本机(macOS 27 / Apple Silicon / Apple clang 21 / web-tree-sitter 0.26.10 + tree-sitter-c 0.24.1)用探针脚本验证过的事实:直接采信,不要重新调研。M9 起构建规约已迁移到 Node 24 LTS,工具链支持 Apple clang 17.x–21.x;这些较新的发布规约覆盖下文残留的历史环境描述。标注【规约】的条目是强制约束,违反即返工。
 
 ---
 
@@ -16,7 +16,7 @@
 
 ## 1. 不可协商的转换契约
 
-**v1 输入边界【规约】**:输入是 UTF-8 编码(可带 BOM)、不超过 512 KiB 的单个 `.c` 翻译单元;CRLF/LF 原样保留。结构化投影的承诺范围是 Apple clang 21 以 `-std=c17` 接受的 C17 核心语法,加 D2 明列的预处理形式。v1 不解析项目本地头文件、不做跨文件符号解析、不承诺 GCC/Clang 扩展或任意构建参数的结构化投影;这些内容仍可导入,但不支持的最小源码区间必须降级为原始 C 积木。非 UTF-8 或超限文件必须给出明确错误,禁止以替换字符静默解码。这里的“可导入”不等于“全部结构化”或“可独立编译”。
+**v1 输入边界【规约】**:输入是 UTF-8 编码(可带 BOM)、不超过 512 KiB 的单个 `.c` 翻译单元;CRLF/LF 原样保留。结构化投影的承诺范围是受支持的 Apple clang 17.x–21.x 以 `-std=c17` 接受的 C17 核心语法,加 D2 明列的预处理形式。v1 不解析项目本地头文件、不做跨文件符号解析、不承诺 GCC/Clang 扩展或任意构建参数的结构化投影;这些内容仍可导入,但不支持的最小源码区间必须降级为原始 C 积木。非 UTF-8 或超限文件必须给出明确错误,禁止以替换字符静默解码。这里的“可导入”不等于“全部结构化”或“可独立编译”。
 
 1. 任意符合上述输入边界的源码文本都能导入;包含不支持或非法片段时也不许崩溃,必须按契约 2 降级。
 2. 无法识别语义 → 语法积木;无法安全拆解 → 原始 C 积木(原文切片)。**绝不静默丢失任何一个字符**。
@@ -60,9 +60,9 @@
 
 | 组件 | 版本(锁死) | 备注 |
 |---|---|---|
-| Node.js | 25.8.1 | 仅开发工具和 Electron main;打包后用户不需安装 Node |
+| Node.js | 24.x LTS | 仅开发工具和 Electron main;打包后用户不需安装 Node |
 | npm | 11.11.0 | 只用 `npm ci`,提交 lockfile v3 |
-| @types/node | 25.9.2 | Node 25 类型声明 |
+| @types/node | 24.13.3 | Node 24 LTS 类型声明 |
 | Electron | 43.0.0 | macOS 本地应用、main/preload/renderer 三进程边界 |
 | web-tree-sitter | 0.26.10 | 具名导出 `{ Parser, Language }`;ESM + `.cjs` 双发行 |
 | tree-sitter-c | 0.24.1 | 包根自带 `tree-sitter-c.wasm`(ABI 15) |
@@ -71,7 +71,7 @@
 | typescript | 7.0.2 | 全工程 `strict:true` |
 | vitest | 4.1.10 | 纯逻辑、main/preload 与 IPC 单元/集成测试 |
 | fast-check | 4.9.0 | 属性测试 + fuzz 驱动 |
-| dependency-cruiser | 17.4.3 | 18.0.0 排除 Node 25；17.4.3 是兼容 Node 25 的锁定版本，用于 D9/D10 依赖边界 |
+| dependency-cruiser | 17.4.3 | 用于 D9/D10 依赖边界；升级必须重跑完整架构门禁 |
 | @playwright/test | 1.61.1 | Electron 自动 E2E;不以人工冒烟代替验收 |
 | electron-builder | 26.15.3 | M9 arm64 `.dmg` 打包 |
 | concurrently | 10.0.3 | 开发态编排 Vite 与 Electron,不进入产品运行架构 |
@@ -80,7 +80,7 @@
 
 `package.json` 的全部直接依赖必须写精确版本,禁止 `^`/`~`/`latest`;提交 `package-lock.json`,本地与 CI 均以 `npm ci` 安装。上表版本需要变更时,先提交独立的工具链升级变更并重跑 M0–当前里程碑全部验收,不得在功能提交中顺手漂移。
 
-本机工具链 gate 固定先执行 `/usr/bin/clang --version`,找不到或版本不是 Apple clang 21.x 时必须显示“工具链不可用/未验证”并禁用编译、运行、诊断与 trace,绝不悄悄换 gcc。【macOS 27 实测修正】`/usr/bin/clang` 在 Seatbelt 内会再走 xcrun/xcodebuild 并尝试写宿主 `xcrun_db-*`,不可直接拿来执行编译;main 必须在目标沙箱外用固定 `/usr/bin/xcrun --no-cache --find clang` 和 `--no-cache --sdk macosx --show-sdk-path` 解析 clang/SDK,对两者 `realpath`,验证均位于受信 Apple Developer root 且解析出的 clang 仍为 Apple clang 21.x,再在 Seatbelt 内直接调用该 clang并显式传 `-fintegrated-cc1 -isysroot <validated-sdk>`。解析、realpath、root 或版本任一失败即禁用工具链,不得放宽到系统 temp 可写。普通构建其余固定参数为 `-std=c17 -O0 -g0 -Wall -Wextra -Wpedantic -fno-color-diagnostics`;静态诊断追加 `-fsyntax-only`;R13 的 sanitizer/plain 两套参数在各自脚本中集中定义,禁止散落 magic flags。所有工具调用都用 `spawn(executable,args,{shell:false})`。
+本机工具链 gate 固定先执行 `/usr/bin/clang --version`,找不到或版本不在 Apple clang 17.x–21.x 时必须显示“工具链不可用/未验证”并禁用编译、运行、诊断与 trace,绝不悄悄换 gcc。【M9 兼容性修正】`/usr/bin/clang` 在 Seatbelt 内会再走 xcrun/xcodebuild并尝试写宿主 `xcrun_db-*`,不可直接拿来执行编译;main 必须在目标沙箱外用固定 `/usr/bin/xcrun --no-cache --find clang` 和 `--no-cache --sdk macosx --show-sdk-path` 解析 clang/SDK,对两者 `realpath`,验证均位于同一受信 Apple Developer root、`/usr/bin/clang` 与解析出的 clang 主版本一致,并验证动态 `--print-runtime-dir` 与该主版本匹配,再在 Seatbelt 内直接调用该 clang 并显式传 `-fintegrated-cc1 -isysroot <validated-sdk>`。解析、realpath、root、版本或 Seatbelt canary 任一失败即禁用工具链,不得放宽到系统 temp 可写。普通构建其余固定参数为 `-std=c17 -O0 -g0 -Wall -Wextra -Wpedantic -fno-color-diagnostics`;静态诊断追加 `-fsyntax-only`;R13 的 sanitizer/plain 两套参数在各自脚本中集中定义,禁止散落 magic flags。所有工具调用都用 `spawn(executable,args,{shell:false})`。
 
 **已查证的坑(照抄官方文档会翻车的地方)**:
 
@@ -303,7 +303,7 @@ worklist + bitset。规则:
 ## 附录 A · 本机已验证事实速查(2026-07,不要重新调研)
 
 - macOS 27:无 `timeout`/`gtimeout`;`ulimit -t` 只作辅助,`-d/-v` 无效,`-u` 不得作为单任务进程上限;`sandbox-exec`、`leaks` 存在;ASan `detect_leaks` 不支持;ASan 二进制 + `leaks` = 假阴性。
-- Node v25.8.1:`spawn detached:true` + `kill(-pid)` 连孙进程回收,已验证。
+- Node 24 LTS:`spawn detached:true` + `kill(-pid)` 连孙进程回收,已验证。
 - web-tree-sitter 0.26.10:`{Parser, Language}` 具名导出;运行时文件 `web-tree-sitter.wasm`(README 旧名是坑);无 `loadSync`;`hasError/isError/isMissing` 是属性;`startIndex/endIndex` 为 UTF-16 码元;`node.id` 跨解析不稳定;`getChangedRanges` 对纯 token 修改返回空(失效判定须并上编辑区间);Node 端无浏览器环境直接可跑(测试无头化)。
 - tree-sitter-c 0.24.1:自带 wasm(ABI 15);节点与字段名已核对(`for_statement{initializer,condition,update,body}`、`if_statement{condition,consequence,alternative→else_clause 包装}`、`subscript_expression{argument,index}`、`update_expression{operator,argument}` 等,以包内 `node-types.json` 为准);comment/preproc_* 均为显式节点;`#ifdef` 分支内代码正常成树;`#if 0` 包非法代码会产生延伸到 EOF 的 ERROR(见 R2);`a*b;` 解析为声明(见 R11)。
 - clang(Apple 21):诊断列号为 UTF-8 字节基准(见 R1);`-fsyntax-only` 做完整语义分析(见 R10)。

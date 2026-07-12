@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.2] - 2026-07-12
+
+### Fixed
+
+- Expanded the fail-closed Apple clang capability gate from a single local
+  major to the bounded 17.x–21.x compatibility range used by the macOS release
+  runner and current development machine.
+- Kept compiler/SDK trust rooted in matching Apple Developer directories and
+  added same-major `/usr/bin`/`xcrun` plus dynamic sanitizer-runtime checks.
+- Canonicalized the active `Xcode.app` Developer root and passed that exact
+  verified path into the compile Seatbelt profile, including versioned Xcode
+  targets used by hosted macOS runners.
+
 ## [0.1.0-beta.1] - 2026-07-12
 
 ### Added

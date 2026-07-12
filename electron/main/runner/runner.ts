@@ -43,8 +43,9 @@ import { cleanupStaleWorkDirectories } from "./stale-cleanup.js";
 import {
   capabilitiesWithoutProbe,
   COMPILE_EXECUTION_PROFILE,
-  DEFAULT_APPLE_CLANG_21_SANITIZER_RUNTIME,
-  detectAppleClang21,
+  DEFAULT_DEVELOPER_ROOT,
+  DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME,
+  detectSupportedAppleClang,
   LEAKS_EXECUTION_PROFILE,
   RUN_EXECUTION_PROFILE,
   SANITIZER_RUN_PROFILE,
@@ -173,6 +174,7 @@ export class Runner {
   readonly #tempRoot: string;
   readonly #clangPath: string;
   readonly #sdkPath: string | undefined;
+  readonly #developerRootPath: string;
   readonly #sanitizerRuntimePath: string;
   readonly #toolchainId: string;
   readonly #trustedGrants = new WeakMap<TrustedExecutionGrant, TrustedGrantRecord>();
@@ -190,13 +192,14 @@ export class Runner {
 
   constructor(options: RunnerOptions = {}) {
     const requestedMode = options.mode ?? "seatbelt-best-effort";
-    const toolchain = (options.toolchainDetector ?? detectAppleClang21)();
+    const toolchain = (options.toolchainDetector ?? detectSupportedAppleClang)();
     this.#mode = toolchain.available ? requestedMode : "disabled";
     this.#toolchainId = toolchainIdentifier(toolchain, this.#mode);
     this.#clangPath = toolchain.executablePath ?? CLANG_PATH;
     this.#sdkPath = toolchain.sdkPath;
+    this.#developerRootPath = toolchain.developerRootPath ?? DEFAULT_DEVELOPER_ROOT;
     this.#sanitizerRuntimePath =
-      toolchain.sanitizerRuntimePath ?? DEFAULT_APPLE_CLANG_21_SANITIZER_RUNTIME;
+      toolchain.sanitizerRuntimePath ?? DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME;
     this.#limits = Object.freeze({ ...RUNNER_LIMITS, ...options.limits });
     this.#clock = options.clock ?? SYSTEM_CLOCK;
     this.#processHost = options.processHost ?? new SystemProcessHost();
@@ -639,7 +642,10 @@ export class Runner {
         compilerArguments(sourceName, preset, this.#sdkPath),
         strategy,
         COMPILE_EXECUTION_PROFILE,
-        Object.freeze({ TEMPROOT: this.#tempRoot }),
+        Object.freeze({
+          TEMPROOT: this.#tempRoot,
+          DEVROOT: this.#developerRootPath,
+        }),
       );
       const outcome = await this.#superviseProcess(specification, new Uint8Array(), {
         wallTimeMs: this.#limits.compileWallTimeMs,
@@ -825,7 +831,10 @@ export class Runner {
         syntaxCompilerArguments(request.sourceName, this.#sdkPath),
         strategy,
         COMPILE_EXECUTION_PROFILE,
-        Object.freeze({ TEMPROOT: this.#tempRoot }),
+        Object.freeze({
+          TEMPROOT: this.#tempRoot,
+          DEVROOT: this.#developerRootPath,
+        }),
       );
       const outcome = await this.#superviseProcess(specification, new Uint8Array(), {
         wallTimeMs: this.#limits.compileWallTimeMs,

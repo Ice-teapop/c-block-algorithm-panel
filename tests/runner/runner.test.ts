@@ -19,6 +19,7 @@ import {
 } from "../../electron/main/runner/index.js";
 import {
   COMPILE_EXECUTION_PROFILE,
+  DEFAULT_DEVELOPER_ROOT,
   LEAKS_EXECUTION_PROFILE,
   RUN_EXECUTION_PROFILE,
   SANITIZER_RUN_PROFILE,
@@ -129,14 +130,14 @@ describe("Runner capability gate", () => {
     await runner.dispose();
   });
 
-  it("disables direct Runner instances when Apple clang 21 is unavailable", async () => {
+  it("disables direct Runner instances when supported Apple clang is unavailable", async () => {
     const host = new FakeProcessHost();
     const runner = createTestRunner({
       mode: "trusted-only",
       processHost: host,
       toolchainDetector: () => ({
         available: false,
-        detail: "not Apple clang 21",
+        detail: "unsupported Apple clang",
       }),
     });
 
@@ -483,6 +484,7 @@ describe("Runner sample verification path", () => {
     expect(host.specifications[0]?.args).toContain(
       `TEMPROOT=${realpathSync(host.specifications[0]?.cwd ?? "").split("/c-block-compile-")[0]}`,
     );
+    expect(host.specifications[0]?.args).toContain(`DEVROOT=${DEFAULT_DEVELOPER_ROOT}`);
     expect(host.specifications[0]?.args).toContain(COMPILE_EXECUTION_PROFILE);
 
     await expect(

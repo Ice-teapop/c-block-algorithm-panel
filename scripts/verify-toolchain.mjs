@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 const expectedNodeMajor = 24;
 const expectedNodeEngine = ">=24.0.0 <25";
 const expectedNpmVersion = "11.11.0";
+const minimumAppleClangMajor = 17;
+const maximumAppleClangMajor = 21;
 const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
 const runFile = promisify(execFile);
 
@@ -55,10 +57,20 @@ if (actualNpmVersion !== undefined && actualNpmVersion !== expectedNpmVersion) {
   failures.push(`npm 版本不符：期望 ${expectedNpmVersion}，实际 ${actualNpmVersion}`);
 }
 
-if (clangVersion !== undefined && !/^Apple clang version 21\./u.test(clangVersion)) {
-  failures.push(
-    `clang 未验证：要求 /usr/bin/clang 为 Apple clang 21.x，实际首行为 ${clangVersion.split("\n")[0] ?? "<空>"}`,
-  );
+if (clangVersion !== undefined) {
+  const firstLine = clangVersion.split("\n")[0] ?? "";
+  const match = /^Apple clang version (\d+)\./u.exec(firstLine);
+  const major = match?.[1] === undefined ? undefined : Number(match[1]);
+  if (
+    major === undefined ||
+    !Number.isSafeInteger(major) ||
+    major < minimumAppleClangMajor ||
+    major > maximumAppleClangMajor
+  ) {
+    failures.push(
+      `clang 未验证：要求 /usr/bin/clang 为 Apple clang ${minimumAppleClangMajor}.x–${maximumAppleClangMajor}.x，实际首行为 ${firstLine || "<空>"}`,
+    );
+  }
 }
 
 const directDependencies = {
