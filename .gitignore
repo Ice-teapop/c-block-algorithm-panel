@@ -3,6 +3,7 @@ dist/
 dist-electron/
 coverage/
 .dependency-cruiser-build/
+.agents/
 release/
 playwright-report/
 test-results/
@@ -10,6 +11,7 @@ test-results/
 !/build/icon.png
 !/build/icon.icns
 !/build/electron-builder.beta.json
+!/build/electron-builder.release.json
 .DS_Store
 *.log
 .env

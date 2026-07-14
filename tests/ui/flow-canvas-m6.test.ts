@@ -3,6 +3,7 @@ import { textRange } from "../../src/core/model.js";
 import {
   FLOW_PROJECTION_SCHEMA_VERSION,
   FLOW_VIEW_STATE_SCHEMA_VERSION,
+  type FlowEdge,
   type FlowNode,
   type FlowPort,
   type FlowProjection,
@@ -16,8 +17,10 @@ import {
   distanceToFlowWire,
   exceedsFlowCanvasDragThreshold,
   fitFlowCanvasViewport,
+  flowWireLabelPoint,
   normalizeFlowCanvasDraftState,
   normalizeFlowCanvasViewState,
+  resolveFlowCanvasWireStart,
   type FlowCanvasDraftNode,
   type FlowCanvasWireEndpoint,
 } from "../../src/ui/flow-canvas.js";
@@ -77,6 +80,21 @@ describe("M6 flow canvas contracts", () => {
       "M 10 20 C 100 20, 120 120, 210 120",
     );
     expect(() => createFlowWirePath({ x: Number.NaN, y: 0 }, { x: 1, y: 1 })).toThrow(/有限坐标/u);
+  });
+
+  it("places wire labels at the deterministic cubic midpoint and rejects invalid endpoints", () => {
+    expect(flowWireLabelPoint({ x: 10, y: 20 }, { x: 210, y: 120 })).toEqual({
+      x: 110,
+      y: 70,
+    });
+    expect(flowWireLabelPoint({ x: 210, y: 120 }, { x: 10, y: 20 })).toEqual({
+      x: 110,
+      y: 70,
+    });
+    expect(() => flowWireLabelPoint({ x: Number.POSITIVE_INFINITY, y: 0 }, { x: 1, y: 1 })).toThrow(
+      /有限端点/u,
+    );
+    expect(() => flowWireLabelPoint({ x: 0, y: 0 }, { x: 1, y: Number.NaN })).toThrow(/有限端点/u);
   });
 
   it("uses the visible cubic geometry for edge insertion hit testing", () => {
@@ -148,6 +166,87 @@ describe("M6 flow canvas contracts", () => {
     expect(
       canonicalizeFlowCanvasWireEndpoints({ ...output, edgeKind: null }, misleadingInput),
     ).toBeNull();
+  });
+
+  it("unplugs the grabbed cable end while keeping the opposite end anchored", () => {
+    const { projection, edge, aOutput, bInput, cInput, dOutput } = reconnectProjection();
+
+    const moveTarget = resolveFlowCanvasWireStart(projection, bInput, null);
+    expect(moveTarget).toEqual({
+      status: "reconnect",
+      anchor: aOutput,
+      detached: bInput,
+      replaceEdgeId: edge.id,
+    });
+    if (moveTarget.status !== "reconnect") throw new Error("fixture 未进入目标端改接");
+    expect(canonicalizeFlowCanvasWireEndpoints(moveTarget.anchor, cInput)).toEqual({
+      from: aOutput,
+      to: cInput,
+      edgeKind: "next",
+    });
+
+    expect(resolveFlowCanvasWireStart(projection, aOutput, null)).toEqual({
+      status: "occupied-output",
+      edgeIds: [edge.id],
+    });
+  });
+
+  it("never guesses which cable to unplug when one socket has multiple incident edges", () => {
+    const fixture = reconnectProjection();
+    const second = Object.freeze({
+      ...fixture.edge,
+      id: "edge:d-b",
+      from: Object.freeze({ nodeId: "d", portId: "d:out" }),
+    });
+    const projection = Object.freeze({
+      ...fixture.projection,
+      edges: Object.freeze([...fixture.projection.edges, second]),
+    });
+
+    expect(resolveFlowCanvasWireStart(projection, fixture.bInput, null)).toEqual({
+      status: "ambiguous",
+      edgeIds: [fixture.edge.id, second.id],
+    });
+    expect(resolveFlowCanvasWireStart(projection, fixture.bInput, second.id)).toMatchObject({
+      status: "reconnect",
+      replaceEdgeId: second.id,
+      anchor: fixture.dOutput,
+    });
+  });
+
+  it("starts a new cable from a fan-out output unless a specific edge was selected", () => {
+    const fixture = reconnectProjection();
+    const projection = Object.freeze({
+      ...fixture.projection,
+      nodes: Object.freeze(
+        fixture.projection.nodes.map((candidate) =>
+          candidate.id === "a"
+            ? Object.freeze({
+                ...candidate,
+                allowsFanOut: true,
+                ports: Object.freeze(
+                  candidate.ports.map((port) =>
+                    port.id === "a:out"
+                      ? Object.freeze({ ...port, capacity: "many" as const, allowsFanOut: true })
+                      : port,
+                  ),
+                ),
+              })
+            : candidate,
+        ),
+      ),
+    });
+
+    expect(resolveFlowCanvasWireStart(projection, fixture.aOutput, null)).toEqual({
+      status: "new",
+      anchor: fixture.aOutput,
+      detached: null,
+      replaceEdgeId: null,
+    });
+    expect(resolveFlowCanvasWireStart(projection, fixture.aOutput, fixture.edge.id)).toEqual({
+      status: "occupied-output",
+      edgeIds: [fixture.edge.id],
+    });
   });
 
   it("aligns mixed free nodes without changing their unconstrained axis", () => {
@@ -343,6 +442,46 @@ function wireEndpoint(
     direction,
     channel: "control",
     edgeKind,
+  });
+}
+
+function reconnectProjection(): {
+  readonly projection: FlowProjection;
+  readonly edge: FlowEdge;
+  readonly aOutput: FlowCanvasWireEndpoint;
+  readonly bInput: FlowCanvasWireEndpoint;
+  readonly cInput: FlowCanvasWireEndpoint;
+  readonly dOutput: FlowCanvasWireEndpoint;
+} {
+  const aOutput = wireEndpoint("projection", "a", "a:out", "output", "next");
+  const bInput = wireEndpoint("projection", "b", "b:in", "input", null);
+  const cInput = wireEndpoint("projection", "c", "c:in", "input", null);
+  const dOutput = wireEndpoint("projection", "d", "d:out", "output", "next");
+  const a = node("a", "statement", "A", 0, 0, [controlPort("a:out", "output", "next")]);
+  const b = node("b", "statement", "B", 200, 0, [controlPort("b:in", "input", null)]);
+  const c = node("c", "statement", "C", 400, 0, [controlPort("c:in", "input", null)]);
+  const d = node("d", "statement", "D", 600, 0, [controlPort("d:out", "output", "next")]);
+  const edge = Object.freeze({
+    id: "edge:a-b",
+    functionId: "fn:main",
+    from: Object.freeze({ nodeId: "a", portId: "a:out" }),
+    to: Object.freeze({ nodeId: "b", portId: "b:in" }),
+    kind: "next" as const,
+    channel: "control" as const,
+    slot: 0,
+    editable: true,
+  });
+  return Object.freeze({
+    projection: Object.freeze({
+      ...fixtureProjection("sha256:wire"),
+      nodes: Object.freeze([a, b, c, d]),
+      edges: Object.freeze([edge]),
+    }),
+    edge,
+    aOutput,
+    bInput,
+    cInput,
+    dOutput,
   });
 }
 

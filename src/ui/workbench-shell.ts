@@ -22,6 +22,7 @@ export interface WorkbenchElements {
   readonly languageSelect: HTMLSelectElement;
   readonly backgroundSelect: HTMLSelectElement;
   readonly aiProviderSettingsHost: HTMLElement;
+  readonly aiAssistantButton: HTMLButtonElement;
   readonly fileName: HTMLElement;
   readonly sourceMeta: HTMLElement;
   readonly parserStatus: HTMLOutputElement;
@@ -31,6 +32,8 @@ export interface WorkbenchElements {
   readonly blockPalette: HTMLElement;
   readonly blockTree: HTMLElement;
   readonly flowCanvas: HTMLElement;
+  readonly tracePrimaryButton: HTMLButtonElement;
+  readonly manualRunInputHost: HTMLElement;
   readonly codePane: HTMLElement;
   readonly buildLayout: HTMLElement;
   readonly workArea: HTMLElement;
@@ -59,9 +62,18 @@ export interface WorkbenchElements {
   readonly focusPanel: (panelId: string) => void;
   readonly getPanelVisibility: () => Readonly<Record<string, boolean>>;
   readonly setPanelVisibility: (value: Readonly<Record<string, boolean>>) => void;
-  readonly applyLayoutPreset: (layoutId: string) => void;
+  readonly applyLayoutPreset: (layoutId: string, options?: ApplyLayoutPresetOptions) => void;
+  readonly executeMenuAction: (rootId: string, branchId: string) => void;
   readonly setLocale: (locale: InterfaceLocale) => void;
   readonly destroy: () => void;
+}
+
+export interface ApplyLayoutPresetOptions {
+  /**
+   * User-invoked layout changes activate the workspace by default. Background state restoration
+   * must opt out so a late sidecar read cannot steal navigation from Library or Analysis.
+   */
+  readonly activateWorkspace?: boolean;
 }
 
 export const WORKBENCH_REVEAL_FLOW_DETAIL_EVENT = "workbench-reveal-flow-detail";
@@ -88,6 +100,16 @@ const PANEL_FOCUS_TARGETS: Readonly<Record<string, string>> = Object.freeze({
   runtime: "run-host",
   metrics: "runtime-metrics-host",
   mentor: "mentor-hints-host",
+});
+
+const FOCUS_PANEL_VISIBILITY: Readonly<Record<string, string>> = Object.freeze({
+  presets: "presets",
+  canvas: "canvas",
+  code: "code",
+  inspector: "properties",
+  runtime: "flow",
+  metrics: "metrics",
+  mentor: "ai-hints",
 });
 
 const MENU_PANEL_IDS: Readonly<Record<string, string>> = Object.freeze({
@@ -119,8 +141,7 @@ const SETTINGS_COPY: Readonly<Record<InterfaceLocale, Readonly<Record<string, st
   Object.freeze({
     "zh-CN": Object.freeze({
       general: "语言、背景和明暗主题只影响本机界面，不会写入项目源码。",
-      "ai-privacy":
-        "输入一个 API 密钥即可连接对应厂商并选择模型；凭据使用系统加密，只在本机主进程发出请求。",
+      "ai-privacy": "连接你自己的模型，解锁工作区中的 AI 对话与分析页复核。",
       keyboard: "方向键移动菜单焦点；Delete 删除草稿；⌘/Ctrl+K 搜索；⌘/Ctrl+Z 撤销。",
       "about-logs": "C Block Algorithm Panel · 本地 C 算法学习与设计工作台。",
     }),
@@ -128,7 +149,7 @@ const SETTINGS_COPY: Readonly<Record<InterfaceLocale, Readonly<Record<string, st
       general:
         "Language, background and theme are local UI preferences and never alter source files.",
       "ai-privacy":
-        "Enter one API key to connect its provider and choose a model. Credentials stay OS-encrypted and requests leave only from Electron main.",
+        "Connect your own model to unlock workspace chat and optional reviews in Analysis.",
       keyboard:
         "Arrow keys move menu focus; Delete removes drafts; Cmd/Ctrl+K searches; Cmd/Ctrl+Z undoes.",
       "about-logs": "C Block Algorithm Panel · a local C algorithm learning and design workbench.",
@@ -234,24 +255,44 @@ export function mountWorkbench(
       ["#dashboard-tab", "项目", "Projects"],
       ["#build-tab", "工作区", "Workspace"],
       ["#analysis-tab", "分析", "Analysis"],
+      ["#ai-assistant-button", "打开 AI 助手", "Open AI Assistant"],
       [".document-identity__label", "当前文件", "Current File"],
       ["#open-source", "打开", "Open"],
       ["#open-paste", "粘贴", "Paste"],
       ["#presets-pane .panel__header h2", "预设块", "Preset Blocks"],
       ["#outline-pane .panel__header h2", "源码结构", "Source Outline"],
       ["#center-canvas-pane .canvas-toolbar h2", "自由画布", "Flow Canvas"],
+      ["#trace-primary-action", "运行", "Run"],
       [
         "#center-canvas-pane .canvas-toolbar__hint",
-        "任一端发起连线 · 拖动节点 · 滚轮缩放",
-        "Wire from either end · drag nodes · wheel to zoom",
+        "拖入积木 · 拖空白平移 · 滚轮缩放",
+        "Drag in blocks · drag blank canvas to pan · wheel to zoom",
       ],
       ["#code-panel .panel__header h2", "C 代码", "C Source"],
       ["#run-tab", "运行", "Run"],
       ["#metrics-tab", "指标", "Metrics"],
-      ["#mentor-tab", "AI 提示", "Mentor"],
+      ["#mentor-tab", "本地检查", "Local Checks"],
       ["#explanation-tab", "解释", "Explain"],
       ["#edit-tab", "编辑", "Edit"],
+      [".canvas-toolbar__actions [data-flow-command='undo']", "撤销", "Undo"],
+      [".canvas-toolbar__actions [data-flow-command='align-left']", "左对齐", "Align Left"],
+      [
+        ".canvas-toolbar__actions [data-flow-command='distribute-y']",
+        "纵向分布",
+        "Distribute Vertically",
+      ],
+      [".runtime-advanced > summary", "输出与诊断", "Output & Diagnostics"],
+      ["#workbench-drawer-title", "设置", "Settings"],
+      ["#general-settings label:first-child > span", "Language / 语言", "Language"],
+      ["#general-settings label:nth-child(2) > span", "Background / 背景", "Background"],
       ["#theme-toggle", "切换浅色 / 深色", "Toggle Light / Dark"],
+      ["#workspace-recovery", "重新载入磁盘版本", "Reload Disk Version"],
+      ["#drop-overlay strong", "放下 .c 文件", "Drop .c File"],
+      ["#drop-overlay span", "仅在本机读取", "Read Locally Only"],
+      ["#paste-title", "粘贴 C 源码", "Paste C Source"],
+      [".paste-dialog__label", "UTF-8 C 源码，最大 512 KiB", "UTF-8 C source, up to 512 KiB"],
+      [".paste-dialog__actions [value='cancel']", "取消", "Cancel"],
+      ["#paste-confirm", "载入工作台", "Load into Workbench"],
     ];
     for (const [selector, zh, en] of labels) {
       const element = app.querySelector<HTMLElement>(selector);
@@ -267,8 +308,63 @@ export function mountWorkbench(
           element.setAttribute("aria-label", english ? "Open C File" : "打开 C 文件");
         } else if (selector === "#open-paste") {
           element.setAttribute("aria-label", english ? "Paste Source" : "粘贴源码");
+        } else if (selector === "#ai-assistant-button") {
+          element.setAttribute("aria-label", english ? "Open AI Assistant" : "打开 AI 助手");
         }
       }
+    }
+    const localizedAttributes: readonly [string, string, string, string][] = [
+      [".workspace-switcher", "aria-label", "工作区位置", "Workspace Location"],
+      [".document-identity", "aria-label", "当前文档", "Current Document"],
+      [".app-actions", "aria-label", "源码操作", "Source Actions"],
+      ["#workbench-pages", "aria-label", "C 算法工作台", "C Algorithm Workbench"],
+      ["#left-pane", "aria-label", "预设与源码结构", "Blocks and Source Outline"],
+      ["#center-pane", "aria-label", "自由节点画布", "Free Node Canvas"],
+      [".canvas-toolbar__actions", "aria-label", "画布排列与历史", "Canvas Layout and History"],
+      [
+        ".canvas-toolbar__actions [data-flow-command='undo']",
+        "title",
+        "撤销（⌘/Ctrl+Z）",
+        "Undo (⌘/Ctrl+Z)",
+      ],
+      [
+        ".canvas-toolbar__actions [data-flow-command='align-left']",
+        "title",
+        "左对齐所选节点",
+        "Align Selected Nodes Left",
+      ],
+      [
+        ".canvas-toolbar__actions [data-flow-command='distribute-y']",
+        "title",
+        "纵向等距分布所选节点",
+        "Distribute Selected Nodes Vertically",
+      ],
+      ["#right-pane", "aria-label", "代码与属性", "Code and Properties"],
+      ["#code-pane", "aria-label", "C 代码编辑器", "C Source Editor"],
+      ["#inspector-stack .panel-tabs", "aria-label", "节点详情", "Node Details"],
+      ["#bottom-pane", "aria-label", "运行流程与证据", "Runtime and Evidence"],
+      ["#bottom-pane .runtime-panel-tabs", "aria-label", "运行面板", "Runtime Panels"],
+      ["#scenario-workbench-host", "aria-label", "案例与分支执行", "Cases and Branch Execution"],
+      ["#trace-workbench-host", "aria-label", "实时运行流程", "Live Runtime Flow"],
+      ["#run-host", "aria-label", "编译运行控制", "Compile and Run Controls"],
+      ["#runtime-metrics-host", "aria-label", "运行指标", "Runtime Metrics"],
+      ["#diagnostics-panel", "aria-label", "诊断兼容面板", "Diagnostics Compatibility Panel"],
+      ["#runtime-diagnostics-host", "aria-label", "诊断", "Diagnostics"],
+      ["#mentor-hints-host", "aria-label", "本地证据检查", "Local Evidence Checks"],
+      ["#block-library-panel", "aria-label", "积木管理", "Block Management"],
+      ["#workbench-drawer-close", "aria-label", "关闭设置", "Close Settings"],
+      ["#paste-cancel", "aria-label", "关闭", "Close"],
+    ];
+    for (const [selector, attribute, zh, en] of localizedAttributes) {
+      app.querySelector<HTMLElement>(selector)?.setAttribute(attribute, english ? en : zh);
+    }
+    const defaultFileName = app.querySelector<HTMLElement>("#file-name");
+    if (
+      defaultFileName !== null &&
+      (defaultFileName.textContent === "本地工作区" ||
+        defaultFileName.textContent === "Local Workspace")
+    ) {
+      defaultFileName.textContent = english ? "Local Workspace" : "本地工作区";
     }
     languageSelect.options[0]!.textContent = english ? "Chinese" : "中文";
     languageSelect.options[1]!.textContent = "English";
@@ -363,6 +459,10 @@ export function mountWorkbench(
         );
       }
     }
+    const EventConstructor = shell.ownerDocument.defaultView?.Event;
+    if (EventConstructor !== undefined) {
+      shell.dispatchEvent(new EventConstructor("workbench-page-change"));
+    }
   };
 
   const showInspector = (viewId: string): void => {
@@ -409,7 +509,9 @@ export function mountWorkbench(
       )?.[0];
       const visible = panelIdForView === undefined || panelVisibility.get(panelIdForView) === true;
       const active = visible && id === activeView;
-      tab.hidden = !visible;
+      // Keep the assistant entry discoverable in every runtime layout. Selecting it opts the
+      // panel back in through showRuntimeView without overriding a saved layout at startup.
+      tab.hidden = !visible && id !== "mentor";
       tab.setAttribute("aria-selected", String(active));
       tab.tabIndex = active ? 0 : -1;
       const panel = runtimePanels.get(id);
@@ -435,7 +537,10 @@ export function mountWorkbench(
     }
   };
 
-  const applyRegisteredLayout = (layoutId: string): void => {
+  const applyRegisteredLayout = (
+    layoutId: string,
+    options: ApplyLayoutPresetOptions = {},
+  ): void => {
     const layout = registrySnapshot.layoutPresets.find((candidate) => candidate.id === layoutId);
     if (layout === undefined) throw new RangeError(`未知工作台布局：${layoutId}`);
     const visible = new Set(layout.panelIds);
@@ -443,7 +548,7 @@ export function mountWorkbench(
       if (panel.id === "project" || panel.id === "library") continue;
       setPanelVisible(panel.id, visible.has(panel.id));
     }
-    showFullPage("build");
+    if (options.activateWorkspace !== false) showFullPage("build");
     shell.dataset.layoutPreset = layoutId;
   };
 
@@ -481,6 +586,10 @@ export function mountWorkbench(
     assertActive(destroyed);
     const targetId = PANEL_FOCUS_TARGETS[panelId];
     if (targetId === undefined) throw new RangeError(`未知工作台面板：${panelId}`);
+    const visibilityId = FOCUS_PANEL_VISIBILITY[panelId];
+    if (visibilityId !== undefined && panelVisibility.get(visibilityId) !== true) {
+      setPanelVisible(visibilityId, true);
+    }
     if (panelId === "project") showFullPage("dashboard");
     else showFullPage("build");
     if (panelId === "runtime") showRuntimeView("run");
@@ -520,6 +629,14 @@ export function mountWorkbench(
     generalSettings.hidden = branchId !== "general";
     themeButton.hidden = branchId !== "general";
     aiProviderSettingsHost.hidden = branchId !== "ai-privacy";
+    const focusTarget =
+      branchId === "general"
+        ? languageSelect
+        : branchId === "ai-privacy"
+          ? (aiProviderSettingsHost.querySelector<HTMLElement>("input, select, button") ??
+            drawerClose)
+          : drawerClose;
+    focusTarget.focus({ preventScroll: true });
   };
 
   const handleMenuSelection = (selection: WorkbenchMenuSelection): void => {
@@ -574,6 +691,7 @@ export function mountWorkbench(
   const menu: WorkbenchMenuController = createWorkbenchMenu(dockHost, {
     onSelect: handleMenuSelection,
     definitions: menuDefinitions,
+    localeHost: shell,
   });
 
   const pageTabListeners = new Map<HTMLButtonElement, () => void>();
@@ -612,6 +730,7 @@ export function mountWorkbench(
     languageSelect,
     backgroundSelect,
     aiProviderSettingsHost,
+    aiAssistantButton: required(app, "#ai-assistant-button", HTMLButtonElement),
     fileName: required(app, "#file-name", HTMLElement),
     sourceMeta: required(app, "#source-meta", HTMLElement),
     parserStatus: required(app, "#parser-status", HTMLOutputElement),
@@ -621,6 +740,8 @@ export function mountWorkbench(
     blockPalette: required(app, "#block-palette", HTMLElement),
     blockTree: required(app, "#block-tree", HTMLElement),
     flowCanvas: required(app, "#flow-canvas", HTMLElement),
+    tracePrimaryButton: required(app, "#trace-primary-action", HTMLButtonElement),
+    manualRunInputHost: required(app, "#manual-run-input-host", HTMLElement),
     codePane: required(app, "#code-pane", HTMLElement),
     buildLayout: required(app, "#build-layout", HTMLElement),
     workArea: required(app, "#work-area", HTMLElement),
@@ -652,6 +773,15 @@ export function mountWorkbench(
     getPanelVisibility: () => Object.freeze(Object.fromEntries(panelVisibility)),
     setPanelVisibility: restorePanelVisibility,
     applyLayoutPreset: applyRegisteredLayout,
+    executeMenuAction(rootId: string, branchId: string): void {
+      assertActive(destroyed);
+      const definition = menuDefinitions.find((item) => item.id === rootId);
+      const branch = definition?.branches.find((item) => item.id === branchId);
+      if (definition === undefined || branch === undefined) {
+        throw new RangeError(`未知工作台菜单操作：${rootId}/${branchId}`);
+      }
+      handleMenuSelection(Object.freeze({ rootId: definition.id, branchId: branch.id }));
+    },
     setLocale,
     destroy(): void {
       if (destroyed) return;
@@ -731,7 +861,9 @@ function workbenchMarkup(): string {
                     <section id="center-canvas-pane" class="center-canvas-pane">
                       <header class="canvas-toolbar">
                         <h2>自由画布</h2>
-                        <span class="canvas-toolbar__hint">任一端发起连线 · 拖动节点 · 滚轮缩放</span>
+                        <button id="trace-primary-action" class="canvas-toolbar__trace-action" type="button" data-primary-action="run" data-tour-target="trace-start">运行</button>
+                        <div id="manual-run-input-host" class="manual-run-input-host"></div>
+                        <span class="canvas-toolbar__hint">拖入积木 · 拖空白平移 · 滚轮缩放</span>
                         <div class="canvas-toolbar__actions" aria-label="画布排列与历史">
                           <button type="button" data-flow-command="undo" title="撤销（⌘/Ctrl+Z）">撤销</button>
                           <button type="button" data-flow-command="align-left" title="左对齐所选节点">左对齐</button>
@@ -759,20 +891,26 @@ function workbenchMarkup(): string {
                 </div>
 
                 <section id="bottom-pane" class="workbench-region workbench-region--bottom" tabindex="-1" aria-label="运行流程与证据">
-                  <nav class="panel-tabs" role="tablist" aria-label="运行面板">
-                    <button id="run-tab" type="button" role="tab" aria-controls="run-panel" aria-selected="true">运行</button>
-                    <button id="metrics-tab" type="button" role="tab" aria-controls="metrics-panel" aria-selected="false">指标</button>
-                    <button id="mentor-tab" type="button" role="tab" aria-controls="mentor-panel" aria-selected="false">AI 提示</button>
-                  </nav>
+                  <header class="runtime-panel-bar">
+                    <nav class="panel-tabs runtime-panel-tabs" role="tablist" aria-label="运行面板">
+                      <button id="run-tab" type="button" role="tab" aria-controls="run-panel" aria-selected="true">运行</button>
+                      <button id="metrics-tab" type="button" role="tab" aria-controls="metrics-panel" aria-selected="false">指标</button>
+                      <button id="mentor-tab" type="button" role="tab" aria-controls="mentor-panel" aria-selected="false">本地检查</button>
+                    </nav>
+                    <button id="ai-assistant-button" class="runtime-ai-action" type="button" aria-label="打开 AI 助手" aria-haspopup="dialog" aria-expanded="false">打开 AI 助手</button>
+                  </header>
                   <div class="runtime-grid workbench-scroll-region">
                     <section id="run-panel" role="tabpanel" aria-labelledby="run-tab" data-tour-target="runtime-flow">
                       <div id="scenario-workbench-host" aria-label="案例与分支执行"></div>
                       <div id="trace-workbench-host" aria-label="实时运行流程"></div>
-                      <div id="run-host" aria-label="编译运行控制"></div>
+                      <details class="runtime-advanced">
+                        <summary>输出与诊断</summary>
+                        <div id="run-host" aria-label="编译运行控制"></div>
+                      </details>
                     </section>
                     <section id="metrics-panel" role="tabpanel" aria-labelledby="metrics-tab" data-tour-target="runtime-metrics" hidden><div id="runtime-metrics-host" aria-label="运行指标"></div></section>
                     <section id="diagnostics-panel" role="tabpanel" aria-label="诊断兼容面板" hidden><div id="runtime-diagnostics-host" aria-label="诊断"></div></section>
-                    <section id="mentor-panel" role="tabpanel" aria-labelledby="mentor-tab" hidden><div id="mentor-hints-host" aria-label="本地 AI 提示" data-tour-target="mentor-hints"></div></section>
+                    <section id="mentor-panel" role="tabpanel" aria-labelledby="mentor-tab" hidden><div id="mentor-hints-host" aria-label="本地证据检查" data-tour-target="mentor-hints"></div></section>
                   </div>
                 </section>
               </div>

@@ -106,6 +106,32 @@ describe("source import controller", () => {
     controller.destroy();
   });
 
+  it("uses error-code copy instead of leaking Chinese IPC errors in English mode", async () => {
+    const harness = createHarness({
+      openSource: vi.fn().mockResolvedValue({
+        status: "failed",
+        error: { code: "SOURCE_READ_FAILED", message: "无法读取所选文件。" },
+      }),
+    });
+    harness.shell.dataset.locale = "en";
+    const controller = createSourceImportController(harness.elements, { load: vi.fn() });
+
+    harness.openButton.dispatchEvent(new Event("click"));
+    await flushMicrotasks();
+    expect(harness.importStatus.textContent).toBe(
+      "SOURCE_READ_FAILED: The selected C file could not be read.",
+    );
+    expect(harness.importStatus.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+
+    harness.pasteButton.dispatchEvent(new Event("click"));
+    harness.pasteSource.value = "int main(void) {\0}";
+    harness.pasteConfirm.dispatchEvent(new Event("click"));
+    expect(harness.pasteError.textContent).toBe(
+      "The C source contains a NUL byte and was rejected.",
+    );
+    controller.destroy();
+  });
+
   it("routes a single dropped file and rejects multi-file drops", async () => {
     const harness = createHarness({
       openDroppedSource: vi.fn().mockResolvedValue(opened("drop.c")),

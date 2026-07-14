@@ -22,6 +22,11 @@ if (
 }
 
 const preloadEntry = fileURLToPath(new URL("./electron/preload/index.ts", import.meta.url));
+const aiWindowPreloadEntry = fileURLToPath(
+  new URL("./electron/preload/ai-window.ts", import.meta.url),
+);
+const rendererEntry = fileURLToPath(new URL("./index.html", import.meta.url));
+const aiWindowRendererEntry = fileURLToPath(new URL("./ai-window.html", import.meta.url));
 
 export function injectCodeMirrorStyleNonce(html: string, nonce: string): string {
   const firstOccurrence = html.indexOf(CODE_MIRROR_STYLE_NONCE_PLACEHOLDER);
@@ -40,19 +45,24 @@ export function injectCodeMirrorStyleNonce(html: string, nonce: string): string 
 }
 
 export default defineConfig(({ mode }) => {
-  if (mode === "electron-preload") {
+  if (mode === "electron-preload" || mode === "electron-ai-preload") {
+    const aiWindow = mode === "electron-ai-preload";
     return {
       build: {
         copyPublicDir: false,
-        emptyOutDir: false,
+        // The first build removes stale shared chunks; the second adds the isolated AI preload.
+        emptyOutDir: !aiWindow,
         outDir: "dist-electron/preload",
-        sourcemap: true,
+        sourcemap: false,
         rollupOptions: {
-          input: preloadEntry,
+          // Sandboxed Electron preloads cannot require local shared chunks. Build each entry in a
+          // separate pass and inline all of its validators into one self-contained CJS file.
+          input: aiWindow ? aiWindowPreloadEntry : preloadEntry,
           external: ["electron"],
           output: {
-            entryFileNames: "index.cjs",
+            entryFileNames: aiWindow ? "ai-window.cjs" : "index.cjs",
             format: "cjs",
+            codeSplitting: false,
           },
         },
       },
@@ -67,13 +77,21 @@ export default defineConfig(({ mode }) => {
     plugins: [
       {
         name: CODE_MIRROR_STYLE_NONCE_PLUGIN_NAME,
-        transformIndexHtml: (html) => injectCodeMirrorStyleNonce(html, codeMirrorStyleNonce),
+        transformIndexHtml: (html, context) =>
+          context.path.endsWith("/ai-window.html")
+            ? html
+            : injectCodeMirrorStyleNonce(html, codeMirrorStyleNonce),
       },
     ],
     server: {
       host: "127.0.0.1",
       port: parsedDevServerPort,
       strictPort: true,
+    },
+    build: {
+      rollupOptions: {
+        input: { index: rendererEntry, "ai-window": aiWindowRendererEntry },
+      },
     },
   };
 });

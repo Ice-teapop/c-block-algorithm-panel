@@ -116,9 +116,7 @@ export function planFlowDraftConnection(
   const insertion = intent.insertOnEdge;
   if (insertion !== undefined) {
     const anchoredEdge = input.projection.edges.find((edge) => edge.id === insertion.edgeId);
-    const anchoredFrom = input.projection.nodes.find(
-      (node) => node.id === insertion.fromNodeId,
-    );
+    const anchoredFrom = input.projection.nodes.find((node) => node.id === insertion.fromNodeId);
     if (
       anchoredEdge === undefined ||
       anchoredFrom === undefined ||

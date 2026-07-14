@@ -85,6 +85,53 @@ describe("run panel evidence summary", () => {
 });
 
 describe("run panel scenario completion", () => {
+  it("updates static and completed run evidence when the workbench locale changes", async () => {
+    const ownerDocument = new FakeDocument();
+    const shell = ownerDocument.createElement("div");
+    shell.id = "workbench-shell";
+    shell.dataset.locale = "zh-CN";
+    const host = ownerDocument.createElement("div");
+    shell.append(host);
+    const rawDiagnostics = "warning: compiler 原始信息";
+    installPanelGlobals(ownerDocument, {
+      compile: async () => ({
+        ok: true,
+        artifactId: "artifact-locale",
+        expiresAtMs: 100,
+        diagnostics: rawDiagnostics,
+        compileDurationMs: 4,
+      }),
+      run: async () => runResult({ peakProcessCount: 0, peakRssBytes: 0 }),
+    });
+    const panel = createRunPanel(host as unknown as HTMLElement, {
+      getSource: () => "int main(void) { return 0; }\n",
+      getDisplayName: () => "main.c",
+    });
+
+    await flushMicrotasks();
+    find(host, (element) => element.className === "run-panel__run-button").click();
+    await flushMicrotasks();
+    shell.dataset.locale = "en";
+    shell.dispatchEvent(new Event("workbench-locale-change"));
+
+    const runButton = find(host, (element) => element.className === "run-panel__run-button");
+    expect(runButton.textContent).toBe("Run current code");
+    expect(runButton.attributes.get("aria-label")).toBe("Run current code");
+    expect(
+      find(host, (element) => element.className === "run-panel__operation-status").textContent,
+    ).toBe("Run completed successfully.");
+    expect(find(host, (element) => element.dataset.runField === "diagnostics").textContent).toBe(
+      rawDiagnostics,
+    );
+    expect(find(host, (element) => element.dataset.runField === "peak-rss").textContent).toBe(
+      "No valid sample",
+    );
+    expect(find(host, (element) => element.dataset.runField === "termination").textContent).toBe(
+      "Process exited (process-exit)",
+    );
+    panel.destroy();
+  });
+
   it("normalizes and freezes a bounded manual scenario", () => {
     const input = scenario();
     const normalized = normalizeManualRunScenario(input);
@@ -241,7 +288,7 @@ class FakeElement {
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string> = {};
   readonly attributes = new Map<string, string>();
-  readonly listeners = new Map<string, (() => void)[]>();
+  readonly listeners = new Map<string, ((event?: Event) => void)[]>();
   parent: FakeElement | null = null;
   className = "";
   textContent = "";
@@ -264,13 +311,13 @@ class FakeElement {
     this.attributes.set(name, value);
   }
 
-  addEventListener(name: string, listener: () => void): void {
+  addEventListener(name: string, listener: (event?: Event) => void): void {
     const listeners = this.listeners.get(name) ?? [];
     listeners.push(listener);
     this.listeners.set(name, listeners);
   }
 
-  removeEventListener(name: string, listener: () => void): void {
+  removeEventListener(name: string, listener: (event?: Event) => void): void {
     const listeners = this.listeners.get(name);
     if (listeners === undefined) return;
     this.listeners.set(
@@ -282,6 +329,22 @@ class FakeElement {
   click(): void {
     if (this.disabled) return;
     for (const listener of this.listeners.get("click") ?? []) listener();
+  }
+
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) listener(event);
+    return true;
+  }
+
+  closest<T extends Element>(selector: string): T | null {
+    let candidate: FakeElement | null = this;
+    while (candidate !== null) {
+      if (selector === "#workbench-shell" && candidate.id === "workbench-shell") {
+        return candidate as unknown as T;
+      }
+      candidate = candidate.parent;
+    }
+    return null;
   }
 
   remove(): void {

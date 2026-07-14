@@ -10,6 +10,7 @@ export interface ThemeStorage {
 export interface ThemeControllerOptions {
   readonly root: HTMLElement;
   readonly button: HTMLButtonElement;
+  readonly localeHost?: HTMLElement | undefined;
   readonly storage?: ThemeStorage | undefined;
 }
 
@@ -29,9 +30,18 @@ export function createThemeController(options: ThemeControllerOptions): ThemeCon
   const storage = options.storage ?? defaultStorage();
   let theme = readStoredTheme(storage);
   let destroyed = false;
+  const localeHost = options.localeHost;
 
   function render(): void {
-    const actionLabel = theme === "dark" ? "切换为浅色主题" : "切换为深色主题";
+    const english = options.root.dataset.locale === "en";
+    const actionLabel =
+      theme === "dark"
+        ? english
+          ? "Switch to light theme"
+          : "切换为浅色主题"
+        : english
+          ? "Switch to dark theme"
+          : "切换为深色主题";
     options.root.dataset.theme = theme;
     options.button.dataset.theme = theme;
     options.button.setAttribute("aria-label", actionLabel);
@@ -49,6 +59,7 @@ export function createThemeController(options: ThemeControllerOptions): ThemeCon
 
   render();
   options.button.addEventListener("click", handleClick);
+  localeHost?.addEventListener("workbench-locale-change", render);
 
   return Object.freeze({
     destroy(): void {
@@ -57,6 +68,7 @@ export function createThemeController(options: ThemeControllerOptions): ThemeCon
       }
       destroyed = true;
       options.button.removeEventListener("click", handleClick);
+      localeHost?.removeEventListener("workbench-locale-change", render);
     },
   });
 }

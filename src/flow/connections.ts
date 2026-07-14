@@ -78,8 +78,8 @@ export function planFlowConnection(
   const replacement = findReplacement(projection, intent);
   if (replacement.status === "rejected") return replacement;
   const replacedEdge = replacement.edge;
-  const outgoing = projection.edges.filter((edge) => edge.from.nodeId === fromNode.id);
   const remaining = projection.edges.filter((edge) => edge.id !== replacedEdge?.id);
+  const outgoing = remaining.filter((edge) => edge.from.nodeId === fromNode.id);
   const duplicate = remaining.find(
     (edge) =>
       edge.from.nodeId === fromNode.id && edge.to.nodeId === toNode.id && edge.kind === intent.kind,
@@ -144,11 +144,22 @@ function findReplacement(projection: FlowProjection, intent: ConnectionIntent): 
   if (edge === undefined) {
     return reject(intent, "replacement-not-found", "找不到待替换的控制边");
   }
-  if (edge.from.nodeId !== intent.fromNodeId || edge.kind !== intent.kind) {
-    return reject(intent, "replacement-mismatch", "待替换边与连接起点或语义类型不一致");
+  if (!edge.editable) {
+    return reject(intent, "replacement-mismatch", "待替换控制边为只读，不能拔出或改接");
+  }
+  const oldSource = projection.nodes.find((node) => node.id === edge.from.nodeId);
+  const oldTarget = projection.nodes.find((node) => node.id === edge.to.nodeId);
+  if (oldSource === undefined || oldTarget === undefined || oldSource.locked || oldTarget.locked) {
+    return reject(intent, "replacement-mismatch", "待替换控制边的原端点已经失效或被锁定");
+  }
+  if (edge.kind !== intent.kind) {
+    return reject(intent, "replacement-mismatch", "待替换边与插头的控制流语义不一致");
+  }
+  if (edge.from.nodeId !== intent.fromNodeId) {
+    return reject(intent, "replacement-mismatch", "首版只允许拔出输入端插头并保留原输出插座");
   }
   if (intent.fromPortId !== null && edge.from.portId !== intent.fromPortId) {
-    return reject(intent, "replacement-mismatch", "待替换边不属于指定起点端口");
+    return reject(intent, "replacement-mismatch", "待替换边不属于指定输出插座");
   }
   return Object.freeze({ status: "accepted", edge });
 }

@@ -8,6 +8,21 @@ export function forwardRuntimeLearningObservation(
   observation: RuntimeLearningObservation,
 ): void {
   if (lesson === null) return;
+  if (observation.type === "benchmark-completed") {
+    const binding = lesson.binding(
+      observation.sourceFingerprint,
+      observation.scenarioId,
+      observation.scenarioVersion,
+    );
+    if (binding === null || binding.workspaceId !== observation.workspaceId) return;
+    lesson.recordEvidence({
+      type: "benchmark-completed",
+      binding,
+      sizes: observation.sizes,
+      repetitions: observation.repetitions,
+    });
+    return;
+  }
   const caseId = caseIdForSize(observation.size);
   if (caseId === null) return;
   const binding = lesson.binding(

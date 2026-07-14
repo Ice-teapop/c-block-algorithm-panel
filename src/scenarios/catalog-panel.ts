@@ -1,4 +1,5 @@
 import type { AlgorithmScenarioFamily } from "../mentor/index.js";
+import type { InterfaceLocale } from "../shared/interface-locale.js";
 import { emptyCustomScenarioDraft, type ScenarioCatalogStore } from "./catalog.js";
 import type {
   CustomScenarioCaseDraft,
@@ -16,8 +17,154 @@ const FAMILIES: readonly AlgorithmScenarioFamily[] = Object.freeze([
   "dynamic-programming",
 ]);
 
+const COPY = Object.freeze({
+  "zh-CN": Object.freeze({
+    rootAria: "项目案例目录",
+    heading: "案例目录",
+    create: "新建",
+    copy: "复制",
+    delete: "删除",
+    more: "更多",
+    listAria: "内置与自定义案例",
+    builtinMeta: "内置 · 只读",
+    customMeta: (n: number) => `自定义 · ${String(n)} 个输入`,
+    empty: "尚无案例。新建一个项目案例开始。",
+    builtinStatus: "内置场景只读；可复制为自定义版本。",
+    customStatus: "自定义场景",
+    created: "已创建自定义场景；请填写输入与期望结果。",
+    builtinCopied: "内置场景已复制为可编辑的项目场景。",
+    customCopied: "自定义场景副本已创建。",
+    scenarioDeleted: "自定义场景已删除。",
+    saved: "场景已校验并保存到项目目录。",
+    caseCreated: "已新增输入案例。",
+    caseCopied: "输入案例副本已创建。",
+    caseDeleted: "输入案例已删除。",
+    readonlyNotice: "内置场景只读。点击“复制”后编辑项目副本。",
+    name: "名称",
+    description: "说明",
+    family: "算法分类",
+    inputModel: "输入模型",
+    minimum: "最小规模",
+    maximum: "最大规模",
+    defaults: "默认规模（逗号分隔）",
+    validation: "输入与验证",
+    caseAria: "输入案例",
+    addCase: "新增输入",
+    copyCase: "复制输入",
+    deleteCase: "删除输入",
+    caseName: "输入名称",
+    caseSize: "规模 n",
+    args: "args（每行一项）",
+    expected: "期望 stdout",
+    explanation: "期望结果说明",
+    target: "目标分支 edge id（可空）",
+    save: "保存",
+    newScenario: "新建场景",
+    newCase: (n: number) => `案例 ${String(n)}`,
+    confirmScenario: (label: string) => `删除场景“${label}”及其全部输入？`,
+    confirmCase: (label: string) => `删除输入“${label}”？`,
+    notSaved: (detail: string) => `未保存：${detail}`,
+  }),
+  en: Object.freeze({
+    rootAria: "Project scenario catalog",
+    heading: "Scenario Catalog",
+    create: "New",
+    copy: "Copy",
+    delete: "Delete",
+    more: "More",
+    listAria: "Built-in and custom scenarios",
+    builtinMeta: "Built-in · Read only",
+    customMeta: (n: number) => `Custom · ${String(n)} inputs`,
+    empty: "No scenarios yet. Create a project scenario to begin.",
+    builtinStatus: "Built-in scenarios are read only. Copy one to edit it.",
+    customStatus: "Custom scenario",
+    created: "Custom scenario created. Add input and expected output.",
+    builtinCopied: "Built-in scenario copied to an editable project scenario.",
+    customCopied: "Custom scenario copy created.",
+    scenarioDeleted: "Custom scenario deleted.",
+    saved: "Scenario validated and saved to the project.",
+    caseCreated: "Input case added.",
+    caseCopied: "Input case copy created.",
+    caseDeleted: "Input case deleted.",
+    readonlyNotice: "Built-in scenarios are read only. Select Copy to edit a project copy.",
+    name: "Name",
+    description: "Description",
+    family: "Algorithm family",
+    inputModel: "Input model",
+    minimum: "Minimum size",
+    maximum: "Maximum size",
+    defaults: "Default sizes (comma-separated)",
+    validation: "Input and validation",
+    caseAria: "Input case",
+    addCase: "Add input",
+    copyCase: "Copy input",
+    deleteCase: "Delete input",
+    caseName: "Input name",
+    caseSize: "Size n",
+    args: "args (one per line)",
+    expected: "Expected stdout",
+    explanation: "Expected result notes",
+    target: "Target branch edge id (optional)",
+    save: "Save",
+    newScenario: "New scenario",
+    newCase: (n: number) => `Case ${String(n)}`,
+    confirmScenario: (label: string) => `Delete scenario “${label}” and all of its inputs?`,
+    confirmCase: (label: string) => `Delete input “${label}”?`,
+    notSaved: (_detail: string) => "Not saved. Check the scenario fields and try again.",
+  }),
+});
+
+const BUILTIN_ENGLISH: Readonly<Record<string, readonly [string, string, string]>> = Object.freeze({
+  "scenario.sorting.integers": [
+    "Integer sorting",
+    "Read descending integers and print them in ascending order.",
+    "The first value is n, followed by n integers in descending order.",
+  ],
+  "scenario.searching.linear": [
+    "Linear search",
+    "Search for the final value in an increasing integer sequence.",
+    "The first line contains n and the target; the second contains n increasing integers.",
+  ],
+  "scenario.searching.maximum": [
+    "Maximum scan",
+    "Scan integers, including negative values, and print the maximum.",
+    "The first value is count, followed by count integers.",
+  ],
+  "scenario.searching.minimum": [
+    "Minimum scan",
+    "Scan positive and negative integers and print the minimum.",
+    "The first value is count, followed by count integers.",
+  ],
+  "scenario.recursion.factorial": [
+    "Recursive factorial",
+    "Calculate the factorial of a small non-negative integer.",
+    "stdin contains n; the range avoids overflow in the sample.",
+  ],
+  "scenario.linked-list.reverse": [
+    "Reverse linked-list traversal",
+    "Build a linked list in input order and print it in reverse.",
+    "The first value is the node count, followed by the node values.",
+  ],
+  "scenario.tree.inorder": [
+    "Binary search tree inorder traversal",
+    "Traverse a binary search tree in inorder.",
+    "The first value is the key count, followed by distinct integer keys in deterministic interleaved order.",
+  ],
+  "scenario.graph.bfs-chain": [
+    "Chain graph BFS",
+    "Breadth-first traverse an undirected chain starting at 0.",
+    "The first line contains vertex and edge counts, followed by one undirected edge per line.",
+  ],
+  "scenario.dynamic-programming.fibonacci": [
+    "Dynamic-programming Fibonacci",
+    "Calculate Fibonacci values from the bottom up.",
+    "stdin contains n; the maximum fits a signed 32-bit example.",
+  ],
+});
+
 export interface ScenarioCatalogPanelOptions {
   readonly store: ScenarioCatalogStore;
+  readonly localeHost?: HTMLElement | undefined;
   readonly confirmDelete?: ((label: string) => boolean | Promise<boolean>) | undefined;
   readonly onSelectionChange?:
     ((scenarioId: string | null, caseId: string | null) => void) | undefined;
@@ -59,21 +206,24 @@ export function createScenarioCatalogPanel(
   options: ScenarioCatalogPanelOptions,
 ): ScenarioCatalogPanel {
   const document = host.ownerDocument;
+  const localeHost = options.localeHost ?? host;
+  let locale: InterfaceLocale = localeHost.dataset.locale === "en" ? "en" : "zh-CN";
+  const copy = () => COPY[locale];
   const root = document.createElement("section");
   root.className = "scenario-catalog";
-  root.setAttribute("aria-label", "项目案例目录");
+  root.setAttribute("aria-label", copy().rootAria);
 
   const toolbar = document.createElement("header");
   toolbar.className = "scenario-catalog__toolbar";
   const heading = document.createElement("h2");
-  heading.textContent = "案例目录";
-  const createButton = actionButton(document, "新建", "new");
-  const copyButton = actionButton(document, "复制", "copy");
-  const deleteButton = actionButton(document, "删除", "delete");
+  heading.textContent = copy().heading;
+  const createButton = actionButton(document, copy().create, "new");
+  const copyButton = actionButton(document, copy().copy, "copy");
+  const deleteButton = actionButton(document, copy().delete, "delete");
   const moreActions = document.createElement("details");
   moreActions.className = "scenario-catalog__more-actions";
   const moreSummary = document.createElement("summary");
-  moreSummary.textContent = "更多";
+  moreSummary.textContent = copy().more;
   moreActions.append(moreSummary, deleteButton);
   toolbar.append(heading, createButton, copyButton, moreActions);
 
@@ -81,7 +231,7 @@ export function createScenarioCatalogPanel(
   body.className = "scenario-catalog__body";
   const list = document.createElement("nav");
   list.className = "scenario-catalog__list";
-  list.setAttribute("aria-label", "内置与自定义案例");
+  list.setAttribute("aria-label", copy().listAria);
   const editor = document.createElement("div");
   editor.className = "scenario-catalog__editor";
   const status = document.createElement("output");
@@ -113,11 +263,11 @@ export function createScenarioCatalogPanel(
       button.dataset.origin = entry.origin;
       button.setAttribute("aria-current", String(entry.id === selectedScenarioId));
       const name = document.createElement("strong");
-      name.textContent = entry.definition.label;
+      name.textContent = displayScenarioText(entry, "label", locale);
       const meta = document.createElement("small");
       meta.textContent = entry.readOnly
-        ? "内置 · 只读"
-        : `自定义 · ${String(entry.cases.length)} 个输入`;
+        ? copy().builtinMeta
+        : copy().customMeta(entry.cases.length);
       button.append(name, meta);
       button.addEventListener("click", () => selectScenario(entry.id));
       list.append(button);
@@ -132,7 +282,7 @@ export function createScenarioCatalogPanel(
     deleteButton.disabled = entry === null || entry.readOnly;
     if (entry === null) {
       const empty = document.createElement("p");
-      empty.textContent = "尚无案例。新建一个项目案例开始。";
+      empty.textContent = copy().empty;
       editor.append(empty);
       selectedCaseId = null;
       return;
@@ -140,7 +290,7 @@ export function createScenarioCatalogPanel(
     const cases = entry.cases;
     if (!cases.some((item) => item.id === selectedCaseId)) selectedCaseId = cases[0]?.id ?? null;
     const currentCase = cases.find((item) => item.id === selectedCaseId) ?? null;
-    const fields = createEditorFields(document, entry, currentCase?.id ?? null);
+    const fields = createEditorFields(document, entry, currentCase?.id ?? null, locale);
     editorFields = fields;
     editor.append(fields.form);
     fields.caseSelect.addEventListener("change", () => selectCase(fields.caseSelect.value));
@@ -160,7 +310,6 @@ export function createScenarioCatalogPanel(
     }
     renderList();
     renderEditor();
-    announceSelection();
   };
 
   const selectScenario = (id: string): void => {
@@ -169,8 +318,9 @@ export function createScenarioCatalogPanel(
     if (entry === null) throw new RangeError(`未知场景：${id}`);
     selectedScenarioId = id;
     selectedCaseId = entry.cases[0]?.id ?? null;
-    status.textContent = entry.readOnly ? "内置场景只读；可复制为自定义版本。" : "自定义场景";
+    status.textContent = entry.readOnly ? copy().builtinStatus : copy().customStatus;
     render();
+    announceSelection();
   };
 
   const selectCase = (id: string): void => {
@@ -186,13 +336,14 @@ export function createScenarioCatalogPanel(
 
   const createScenario = (): void => {
     try {
-      const created = options.store.createScenario(emptyCustomScenarioDraft());
+      const created = options.store.createScenario(localizedEmptyScenarioDraft(locale));
       selectedScenarioId = created.id;
       selectedCaseId = created.cases[0]?.id ?? null;
-      status.textContent = "已创建自定义场景；请填写输入与期望结果。";
+      status.textContent = copy().created;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
@@ -203,28 +354,33 @@ export function createScenarioCatalogPanel(
       const created = options.store.duplicateScenario(entry.id);
       selectedScenarioId = created.id;
       selectedCaseId = created.cases[0]?.id ?? null;
-      status.textContent = entry.readOnly
-        ? "内置场景已复制为可编辑的项目场景。"
-        : "自定义场景副本已创建。";
+      status.textContent = entry.readOnly ? copy().builtinCopied : copy().customCopied;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
   const deleteScenario = async (): Promise<void> => {
     const entry = selectedEntry();
     if (entry === null || entry.readOnly) return;
-    if (!(await confirmDelete(options, `删除场景“${entry.definition.label}”及其全部输入？`)))
+    if (
+      !(await confirmDelete(
+        options,
+        copy().confirmScenario(displayScenarioText(entry, "label", locale)),
+      ))
+    )
       return;
     try {
       options.store.deleteScenario(entry.id);
       selectedScenarioId = options.store.list()[0]?.id ?? null;
       selectedCaseId = null;
-      status.textContent = "自定义场景已删除。";
+      status.textContent = copy().scenarioDeleted;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
@@ -238,10 +394,11 @@ export function createScenarioCatalogPanel(
       );
       const updated = options.store.updateScenario(entry.id, readScenarioDraft(fields, cases));
       selectedCaseId = updated.cases.find((item) => item.id === selectedCaseId)?.id ?? null;
-      status.textContent = "场景已校验并保存到项目目录。";
+      status.textContent = copy().saved;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
@@ -251,7 +408,7 @@ export function createScenarioCatalogPanel(
     try {
       const size = firstAvailableSize(entry);
       const created = options.store.createCase(entry.id, {
-        label: `案例 ${String(entry.cases.length + 1)}`,
+        label: copy().newCase(entry.cases.length + 1),
         size,
         stdin: "",
         arguments: Object.freeze([]),
@@ -260,10 +417,11 @@ export function createScenarioCatalogPanel(
         targetBranchId: null,
       });
       selectedCaseId = created.id;
-      status.textContent = "已新增输入案例。";
+      status.textContent = copy().caseCreated;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
@@ -273,10 +431,11 @@ export function createScenarioCatalogPanel(
     try {
       const created = options.store.duplicateCase(entry.id, selectedCaseId);
       selectedCaseId = created.id;
-      status.textContent = "输入案例副本已创建。";
+      status.textContent = copy().caseCopied;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
@@ -284,23 +443,43 @@ export function createScenarioCatalogPanel(
     const entry = selectedEntry();
     const item = entry?.cases.find((candidate) => candidate.id === selectedCaseId);
     if (entry === null || entry.readOnly || item === undefined) return;
-    if (!(await confirmDelete(options, `删除输入“${item.label}”？`))) return;
+    if (!(await confirmDelete(options, copy().confirmCase(displayCaseLabel(entry, item, locale)))))
+      return;
     try {
       options.store.deleteCase(entry.id, item.id);
       selectedCaseId = options.store.get(entry.id)?.cases[0]?.id ?? null;
-      status.textContent = "输入案例已删除。";
+      status.textContent = copy().caseDeleted;
       render();
+      announceSelection();
     } catch (error) {
-      showError(status, error);
+      showError(status, error, locale);
     }
   };
 
   const onCreate = (): void => createScenario();
   const onCopy = (): void => copyScenario();
   const onDelete = (): void => void deleteScenario();
+  const renderStaticCopy = (): void => {
+    root.setAttribute("aria-label", copy().rootAria);
+    heading.textContent = copy().heading;
+    createButton.textContent = copy().create;
+    copyButton.textContent = copy().copy;
+    deleteButton.textContent = copy().delete;
+    moreSummary.textContent = copy().more;
+    list.setAttribute("aria-label", copy().listAria);
+  };
+  const onLocaleChange = (): void => {
+    const next: InterfaceLocale = localeHost.dataset.locale === "en" ? "en" : "zh-CN";
+    if (next === locale) return;
+    locale = next;
+    status.textContent = "";
+    renderStaticCopy();
+    render();
+  };
   createButton.addEventListener("click", onCreate);
   copyButton.addEventListener("click", onCopy);
   deleteButton.addEventListener("click", onDelete);
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
   render();
 
   return Object.freeze({
@@ -314,6 +493,7 @@ export function createScenarioCatalogPanel(
       createButton.removeEventListener("click", onCreate);
       copyButton.removeEventListener("click", onCopy);
       deleteButton.removeEventListener("click", onDelete);
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       root.remove();
     },
   });
@@ -323,7 +503,9 @@ function createEditorFields(
   document: Document,
   entry: ScenarioCatalogEntry,
   selectedCaseId: string | null,
+  locale: InterfaceLocale,
 ): EditorFields {
+  const copy = COPY[locale];
   const readonly = entry.readOnly;
   const item = entry.cases.find((candidate) => candidate.id === selectedCaseId) ?? entry.cases[0];
   const form = document.createElement("form");
@@ -331,73 +513,78 @@ function createEditorFields(
   const readonlyNotice = document.createElement("p");
   readonlyNotice.className = "scenario-catalog__readonly";
   readonlyNotice.hidden = !readonly;
-  readonlyNotice.textContent = "内置场景只读。点击“复制”后编辑项目副本。";
-  const label = inputField(document, form, "名称", entry.definition.label);
-  const description = textareaField(document, form, "说明", entry.definition.description);
-  const family = selectField(document, form, "算法分类", FAMILIES, entry.definition.family);
+  readonlyNotice.textContent = copy.readonlyNotice;
+  const label = inputField(document, form, copy.name, displayScenarioText(entry, "label", locale));
+  const description = textareaField(
+    document,
+    form,
+    copy.description,
+    displayScenarioText(entry, "description", locale),
+  );
+  const family = selectField(document, form, copy.family, FAMILIES, entry.definition.family);
   const inputModel = inputField(
     document,
     form,
-    "输入模型",
-    entry.definition.sizeGenerator.inputModel,
+    copy.inputModel,
+    displayScenarioText(entry, "inputModel", locale),
   );
-  const minimum = numberField(document, form, "最小规模", entry.definition.sizeGenerator.minimum);
-  const maximum = numberField(document, form, "最大规模", entry.definition.sizeGenerator.maximum);
+  const minimum = numberField(document, form, copy.minimum, entry.definition.sizeGenerator.minimum);
+  const maximum = numberField(document, form, copy.maximum, entry.definition.sizeGenerator.maximum);
   const defaults = inputField(
     document,
     form,
-    "默认规模（逗号分隔）",
+    copy.defaults,
     entry.definition.sizeGenerator.defaultSizes.join(", "),
   );
 
   const caseHeading = document.createElement("h3");
-  caseHeading.textContent = "输入与验证";
+  caseHeading.textContent = copy.validation;
   const caseSelect = document.createElement("select");
-  caseSelect.setAttribute("aria-label", "输入案例");
-  caseSelect.dataset.scenarioField = "输入案例";
+  caseSelect.setAttribute("aria-label", copy.caseAria);
+  caseSelect.dataset.scenarioField = copy.caseAria;
   for (const candidate of entry.cases) {
     const option = document.createElement("option");
     option.value = candidate.id;
-    option.textContent = `${candidate.label} · n=${String(candidate.runCase.size)}`;
+    option.textContent = `${displayCaseLabel(entry, candidate, locale)} · n=${String(candidate.runCase.size)}`;
     caseSelect.append(option);
   }
   caseSelect.value = item?.id ?? "";
   const caseActions = document.createElement("div");
   caseActions.className = "scenario-catalog__case-actions";
-  const addCase = actionButton(document, "新增输入", "add-case");
-  const copyCase = actionButton(document, "复制输入", "copy-case");
-  const deleteCase = actionButton(document, "删除输入", "delete-case");
+  const addCase = actionButton(document, copy.addCase, "add-case");
+  const copyCase = actionButton(document, copy.copyCase, "copy-case");
+  const deleteCase = actionButton(document, copy.deleteCase, "delete-case");
   const caseMore = document.createElement("details");
   caseMore.className = "scenario-catalog__more-actions";
   const caseMoreSummary = document.createElement("summary");
-  caseMoreSummary.textContent = "更多";
+  caseMoreSummary.textContent = copy.more;
   caseMore.append(caseMoreSummary, deleteCase);
   caseActions.append(caseSelect, addCase, copyCase, caseMore);
   form.append(caseHeading, caseActions);
 
-  const caseLabel = inputField(document, form, "输入名称", item?.label ?? "");
-  const caseSize = numberField(document, form, "规模 n", item?.runCase.size ?? 1);
-  const stdin = textareaField(document, form, "stdin", item?.runCase.stdin ?? "");
-  const args = textareaField(
+  const caseLabel = inputField(
     document,
     form,
-    "args（每行一项）",
-    item?.runCase.arguments.join("\n") ?? "",
+    copy.caseName,
+    item === undefined ? "" : displayCaseLabel(entry, item, locale),
   );
+  const caseSize = numberField(document, form, copy.caseSize, item?.runCase.size ?? 1);
+  const stdin = textareaField(document, form, "stdin", item?.runCase.stdin ?? "");
+  const args = textareaField(document, form, copy.args, item?.runCase.arguments.join("\n") ?? "");
   const expected = textareaField(
     document,
     form,
-    "期望 stdout",
+    copy.expected,
     item?.runCase.expected.stdout ?? "",
   );
   const explanation = textareaField(
     document,
     form,
-    "期望结果说明",
-    item?.runCase.expected.explanation ?? "",
+    copy.explanation,
+    displayExpectedExplanation(entry, item?.runCase.expected.explanation ?? "", locale),
   );
-  const target = inputField(document, form, "目标分支 edge id（可空）", item?.targetBranchId ?? "");
-  const save = actionButton(document, "保存", "save");
+  const target = inputField(document, form, copy.target, item?.targetBranchId ?? "");
+  const save = actionButton(document, copy.save, "save");
   save.type = "submit";
   form.append(readonlyNotice, save);
 
@@ -490,6 +677,111 @@ function caseDraftFromEntry(item: ScenarioCatalogEntry["cases"][number]): Custom
     explanation: item.runCase.expected.explanation,
     targetBranchId: item.targetBranchId,
   });
+}
+
+function localizedEmptyScenarioDraft(locale: InterfaceLocale): CustomScenarioDraft {
+  const draft = emptyCustomScenarioDraft();
+  if (locale !== "en") return draft;
+  return Object.freeze({
+    ...draft,
+    label: COPY.en.newScenario,
+    cases: Object.freeze(
+      draft.cases.map((item, index) =>
+        Object.freeze({ ...item, label: COPY.en.newCase(index + 1) }),
+      ),
+    ),
+  });
+}
+
+function displayScenarioText(
+  entry: ScenarioCatalogEntry,
+  field: "label" | "description" | "inputModel",
+  locale: InterfaceLocale,
+): string {
+  const raw =
+    field === "label"
+      ? entry.definition.label
+      : field === "description"
+        ? entry.definition.description
+        : entry.definition.sizeGenerator.inputModel;
+  if (locale !== "en") return raw;
+  const builtin = BUILTIN_ENGLISH[entry.id];
+  if (builtin !== undefined)
+    return builtin[field === "label" ? 0 : field === "description" ? 1 : 2];
+  return localizeGeneratedScenarioText(raw);
+}
+
+function displayCaseLabel(
+  entry: ScenarioCatalogEntry,
+  item: ScenarioCatalogEntry["cases"][number],
+  locale: InterfaceLocale,
+): string {
+  if (locale !== "en") return item.label;
+  if (entry.readOnly) return `Size ${String(item.runCase.size)}`;
+  return localizeGeneratedScenarioText(item.label);
+}
+
+function displayExpectedExplanation(
+  entry: ScenarioCatalogEntry,
+  value: string,
+  locale: InterfaceLocale,
+): string {
+  if (locale !== "en") return value;
+  if (entry.readOnly || value === "输出必须与该确定性情景的预期结果逐字节一致。") {
+    return "Output must exactly match the expected result for this deterministic scenario.";
+  }
+  return value;
+}
+
+function localizeGeneratedScenarioText(value: string): string {
+  const exact: Readonly<Record<string, string>> = Object.freeze({
+    新建场景: "New scenario",
+    整数排序: "Integer sorting",
+    线性搜索: "Linear search",
+    线性扫描最大值: "Maximum scan",
+    线性扫描最小值: "Minimum scan",
+    递归阶乘: "Recursive factorial",
+    链表逆序遍历: "Reverse linked-list traversal",
+    二叉搜索树中序遍历: "Binary search tree inorder traversal",
+    "链式图 BFS": "Chain graph BFS",
+    "动态规划 Fibonacci": "Dynamic-programming Fibonacci",
+    "读取一组逆序整数并输出升序结果。":
+      "Read descending integers and print them in ascending order.",
+    "第一项是 n，随后 n 个逆序整数。":
+      "The first value is n, followed by n integers in descending order.",
+    "在递增整数序列中搜索最后一个元素。":
+      "Search for the final value in an increasing integer sequence.",
+    "第一行是 n 与目标值，第二行是 n 个递增整数。":
+      "The first line contains n and the target; the second contains n increasing integers.",
+    "线性扫描一组含负数的整数并输出最大值。":
+      "Scan integers, including negative values, and print the maximum.",
+    "线性扫描一组含正负数的整数并输出最小值。":
+      "Scan positive and negative integers and print the minimum.",
+    "第一项是 count，随后是 count 个整数。":
+      "The first value is count, followed by count integers.",
+    "计算小规模非负整数的阶乘。": "Calculate the factorial of a small non-negative integer.",
+    "stdin 只包含 n；范围限制避免整数样例溢出。":
+      "stdin contains n; the range avoids overflow in the sample.",
+    "按输入顺序建立链表，并输出逆序遍历结果。":
+      "Build a linked list in input order and print it in reverse.",
+    "第一项是节点数，随后是节点值。":
+      "The first value is the node count, followed by the node values.",
+    "按给定顺序插入不同键，并输出中序遍历。": "Traverse a binary search tree in inorder.",
+    "第一项是键数，随后使用确定性交错顺序给出不同整数键。":
+      "The first value is the key count, followed by distinct integer keys in deterministic interleaved order.",
+    "从 0 开始广度优先遍历一条无向链。":
+      "Breadth-first traverse an undirected chain starting at 0.",
+    "第一行是顶点数与边数，随后每行一条无向边。":
+      "The first line contains vertex and edge counts, followed by one undirected edge per line.",
+    "自底向上计算 Fibonacci 数列。": "Calculate Fibonacci values from the bottom up.",
+    "stdin 只包含 n；最大值适配 32 位有符号示例。":
+      "stdin contains n; the maximum fits a signed 32-bit example.",
+  });
+  const copied = value.endsWith(" 副本") ? value.slice(0, -3) : null;
+  if (copied !== null) return `${localizeGeneratedScenarioText(copied)} copy`;
+  const numbered = /^(?:案例|规模)\s+(\d+)$/u.exec(value);
+  if (numbered !== null) return `${value.startsWith("案例") ? "Case" : "Size"} ${numbered[1]}`;
+  return exact[value] ?? value;
 }
 
 function firstAvailableSize(entry: ScenarioCatalogEntry): number {
@@ -593,8 +885,9 @@ async function confirmDelete(
   return typeof globalThis.confirm === "function" ? globalThis.confirm(message) : false;
 }
 
-function showError(status: HTMLOutputElement, error: unknown): void {
-  status.textContent = `未保存：${error instanceof Error ? error.message : String(error)}`;
+function showError(status: HTMLOutputElement, error: unknown, locale: InterfaceLocale): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  status.textContent = COPY[locale].notSaved(detail);
 }
 
 function assertAlive(destroyed: boolean): void {

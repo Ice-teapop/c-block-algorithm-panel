@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { analyzeProgramCst } from "../../src/analysis/index.js";
 import { textRange, type Block, type SourceDoc, type SymbolRecord } from "../../src/core/model.js";
-import { renderExplanationView } from "../../src/ui/explanation-view.js";
+import {
+  destroyExplanationView,
+  renderExplanationView,
+  resolveExplanationLocale,
+} from "../../src/ui/explanation-view.js";
 import { createTestParser } from "../core/parser-fixture.js";
 
 describe("explanation view", () => {
@@ -128,6 +132,25 @@ describe("explanation view", () => {
         fixture.root.findByClass("explanation__findings")?.children.map((item) => item.textContent),
       ).toEqual(["提示 · 分配结果未经空值检查 · p", "确定 · 释放后使用 · p"]);
 
+      fixture.root.dataset.locale = "en";
+      fixture.root.dispatchEvent(localeChangeEvent("en"));
+      expect(fixture.root.findByClass("explanation__analysis")?.children[0]?.textContent).toBe(
+        "Program analysis facts",
+      );
+      expect(
+        fixture.root
+          .findByClass("explanation__data-flow")
+          ?.children.map((item) => item.textContent),
+      ).toEqual(["Write · x", "Read · x", "Write · y", "Escape · x · address stored", "Read · y"]);
+      expect(
+        fixture.root.findByClass("explanation__findings")?.children.map((item) => item.textContent),
+      ).toEqual([
+        "Hint · Allocation result is not checked for null · p",
+        "Certain · Use after free · p",
+      ]);
+      fixture.root.dataset.locale = "zh-CN";
+      fixture.root.dispatchEvent(localeChangeEvent("zh-CN"));
+
       const injected = '<img src=x onerror="globalThis.pwned=true">';
       const adversarial = Object.freeze({
         ...inspected.analysis,
@@ -207,7 +230,58 @@ describe("explanation view", () => {
       parser.dispose();
     }
   });
+
+  it("switches view chrome and built-in templates while preserving source-derived text", () => {
+    const source = "value;";
+    const block = syntaxBlock("expression_statement", 0, source.length);
+    const local = symbol("local:value", "value", "local-variable", {
+      description: "外部说明原文",
+    });
+    const document = sourceDoc(source, block, [local], [occurrence(local.id, 0, 5)]);
+    const fixture = fakeHost();
+    fixture.root.dataset.locale = "en";
+
+    renderExplanationView(fixture.host, document, block, local);
+
+    expect(resolveExplanationLocale("en-AU")).toBe("en");
+    expect(resolveExplanationLocale("zh-Hans")).toBe("zh-CN");
+    expect(fixture.root.dataset.locale).toBe("en");
+    expect(fixture.root.getAttribute("aria-label")).toBe("Code explanation");
+    expect(fixture.root.findByClass("symbol-card__meta")?.textContent).toBe(
+      "Local variable · 1 uses",
+    );
+    expect(fixture.root.findByClass("explanation__summary")?.textContent).toBe(
+      "Evaluates an expression and preserves its C side effects.",
+    );
+    expect(fixture.root.findByClass("explanation__title")?.textContent).toBe(
+      "Expression statement · value",
+    );
+    expect(fixture.root.findByClass("symbol-card")?.children.at(-1)?.textContent).toBe(
+      "外部说明原文",
+    );
+    expect(fixture.root.listenerCount("workbench-locale-change")).toBe(1);
+
+    fixture.root.dataset.locale = "zh-CN";
+    fixture.root.dispatchEvent(localeChangeEvent("zh-CN"));
+
+    expect(fixture.root.dataset.locale).toBe("zh-CN");
+    expect(fixture.root.getAttribute("aria-label")).toBe("代码解释");
+    expect(fixture.root.findByClass("symbol-card__meta")?.textContent).toBe("局部变量 · 1 处使用");
+    expect(fixture.root.findByClass("explanation__summary")?.textContent).toBe(
+      "计算一个表达式，并保留它产生的 C 语言副作用。",
+    );
+    expect(fixture.root.findByClass("explanation__title")?.textContent).toBe("表达式语句 · value");
+
+    destroyExplanationView(fixture.host);
+    expect(fixture.root.listenerCount("workbench-locale-change")).toBe(0);
+  });
 });
+
+function localeChangeEvent(locale: "zh-CN" | "en"): Event {
+  const event = new Event("workbench-locale-change");
+  Object.defineProperty(event, "detail", { value: Object.freeze({ locale }) });
+  return event;
+}
 
 class FakeDocument {
   readonly createdTags: string[] = [];
@@ -224,6 +298,8 @@ class FakeElement {
   readonly ownerDocument: FakeDocument;
   readonly dataset: Record<string, string> = {};
   readonly children: FakeElement[] = [];
+  readonly #attributes = new Map<string, string>();
+  readonly #listeners = new Map<string, Set<(event: Event) => void>>();
   className = "";
   textContent = "";
 
@@ -238,6 +314,32 @@ class FakeElement {
 
   replaceChildren(...children: FakeElement[]): void {
     this.children.splice(0, this.children.length, ...children);
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.#attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | undefined {
+    return this.#attributes.get(name);
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    const listeners = this.#listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener);
+    this.#listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: Event) => void): void {
+    this.#listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: Event): void {
+    for (const listener of this.#listeners.get(event.type) ?? []) listener(event);
+  }
+
+  listenerCount(type: string): number {
+    return this.#listeners.get(type)?.size ?? 0;
   }
 
   findByClass(className: string): FakeElement | undefined {

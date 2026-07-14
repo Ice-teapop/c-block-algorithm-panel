@@ -3,6 +3,7 @@ import type {
   WorkspaceKind,
   WorkspaceSnapshot,
 } from "../shared/workspace.js";
+import type { InterfaceLocale } from "./interface-preferences.js";
 
 export type WorkspaceDashboardFilter = "recent" | WorkspaceKind;
 export type WorkspaceDashboardStatus = "ready" | "loading" | "success" | "error";
@@ -23,20 +24,77 @@ export interface WorkspaceDashboard {
   destroy(): void;
 }
 
-const FILTERS: readonly {
-  readonly id: WorkspaceDashboardFilter;
-  readonly label: string;
-}[] = Object.freeze([
-  Object.freeze({ id: "recent", label: "最近" }),
-  Object.freeze({ id: "project", label: "项目" }),
-  Object.freeze({ id: "sandbox", label: "沙箱" }),
-  Object.freeze({ id: "test", label: "测试" }),
+const FILTERS: readonly WorkspaceDashboardFilter[] = Object.freeze([
+  "recent",
+  "project",
+  "sandbox",
+  "test",
 ]);
 
-const KIND_LABELS: Readonly<Record<WorkspaceKind, string>> = Object.freeze({
-  project: "项目",
-  sandbox: "沙箱",
-  test: "测试",
+const COPY = Object.freeze({
+  "zh-CN": Object.freeze({
+    dashboardLabel: "本地工作区 Dashboard",
+    modulesLabel: "工作区模块",
+    filters: Object.freeze({ recent: "最近", project: "项目", sandbox: "沙箱", test: "测试" }),
+    kinds: Object.freeze({ project: "项目", sandbox: "沙箱", test: "测试" }),
+    reading: "正在读取…",
+    searchPlaceholder: "筛选名称",
+    searchLabel: "筛选工作区条目",
+    refresh: "刷新",
+    create: "新建",
+    tableCaption: "本地工作区条目",
+    headings: Object.freeze(["名称", "类型", "修改时间", "同步"]),
+    createFirst: "新建第一个条目",
+    emptyAll: "这里还没有本地条目。",
+    emptyFilter: "当前筛选没有匹配条目。",
+    initialStatus: "正在读取 Documents 工作区…",
+    open: "打开",
+    saved: "已保存",
+    invalidKind: "请选择有效类型。",
+    missingTitle: "请输入名称。",
+    dialogTitle: "新建工作区条目",
+    kindLabel: "条目类型",
+    titlePlaceholder: "例如：二分搜索",
+    titleLabel: "条目名称",
+    type: "类型",
+    name: "名称",
+    cancel: "取消",
+    createAndOpen: "创建并打开",
+  }),
+  en: Object.freeze({
+    dashboardLabel: "Local Workspace Dashboard",
+    modulesLabel: "Workspace Sections",
+    filters: Object.freeze({
+      recent: "Recent",
+      project: "Projects",
+      sandbox: "Sandboxes",
+      test: "Tests",
+    }),
+    kinds: Object.freeze({ project: "Project", sandbox: "Sandbox", test: "Test" }),
+    reading: "Loading…",
+    searchPlaceholder: "Filter by name",
+    searchLabel: "Filter workspace entries",
+    refresh: "Refresh",
+    create: "New",
+    tableCaption: "Local workspace entries",
+    headings: Object.freeze(["Name", "Type", "Modified", "Sync"]),
+    createFirst: "Create your first entry",
+    emptyAll: "No local entries yet.",
+    emptyFilter: "No entries match this filter.",
+    initialStatus: "Reading the Documents workspace…",
+    open: "Open",
+    saved: "Saved",
+    invalidKind: "Choose a valid type.",
+    missingTitle: "Enter a name.",
+    dialogTitle: "New Workspace Entry",
+    kindLabel: "Entry type",
+    titlePlaceholder: "For example: Binary Search",
+    titleLabel: "Entry name",
+    type: "Type",
+    name: "Name",
+    cancel: "Cancel",
+    createAndOpen: "Create and Open",
+  }),
 });
 
 export function createWorkspaceDashboard(
@@ -48,23 +106,26 @@ export function createWorkspaceDashboard(
   const root = ownerDocument.createElement("section");
   root.className = "workspace-dashboard";
   root.dataset.tourTarget = "dashboard-content";
-  root.setAttribute("aria-label", "本地工作区 Dashboard");
+  const localeHost = host.closest?.<HTMLElement>("[data-locale]") ?? null;
+  let locale: InterfaceLocale = localeHost?.dataset.locale === "en" ? "en" : "zh-CN";
+  const copy = () => COPY[locale];
+  root.setAttribute("aria-label", copy().dashboardLabel);
 
   const sidebar = ownerDocument.createElement("nav");
   sidebar.className = "workspace-dashboard__sidebar";
-  sidebar.setAttribute("aria-label", "工作区模块");
+  sidebar.setAttribute("aria-label", copy().modulesLabel);
   sidebar.dataset.tourTarget = "dashboard-modules";
   const filterButtons = new Map<WorkspaceDashboardFilter, HTMLButtonElement>();
   for (const filter of FILTERS) {
     const button = ownerDocument.createElement("button");
     button.className = "workspace-dashboard__filter";
     button.type = "button";
-    button.dataset.dashboardFilter = filter.id;
-    button.dataset.tourTarget = filter.id === "recent" ? "dashboard-recent" : filter.id;
-    button.textContent = filter.label;
-    button.setAttribute("aria-label", filter.label);
+    button.dataset.dashboardFilter = filter;
+    button.dataset.tourTarget = filter === "recent" ? "dashboard-recent" : filter;
+    button.textContent = copy().filters[filter];
+    button.setAttribute("aria-label", copy().filters[filter]);
     sidebar.append(button);
-    filterButtons.set(filter.id, button);
+    filterButtons.set(filter, button);
   }
 
   const content = ownerDocument.createElement("section");
@@ -76,17 +137,17 @@ export function createWorkspaceDashboard(
   const locationLabel = ownerDocument.createElement("span");
   locationLabel.textContent = "Documents";
   const rootName = ownerDocument.createElement("strong");
-  rootName.textContent = "正在读取…";
+  rootName.textContent = copy().reading;
   location.append(locationLabel, ownerDocument.createTextNode(" / "), rootName);
 
   const search = ownerDocument.createElement("input");
   search.className = "workspace-dashboard__search";
   search.type = "search";
-  search.placeholder = "筛选名称";
-  search.setAttribute("aria-label", "筛选工作区条目");
+  search.placeholder = copy().searchPlaceholder;
+  search.setAttribute("aria-label", copy().searchLabel);
 
-  const refreshButton = textButton(ownerDocument, "刷新", "button button--quiet");
-  const createButton = textButton(ownerDocument, "新建", "button button--primary");
+  const refreshButton = textButton(ownerDocument, copy().refresh, "button button--quiet");
+  const createButton = textButton(ownerDocument, copy().create, "button button--primary");
   createButton.dataset.tourTarget = "create-entry";
   toolbar.append(location, search, refreshButton, createButton);
 
@@ -102,14 +163,16 @@ export function createWorkspaceDashboard(
   table.className = "workspace-dashboard__table";
   const caption = ownerDocument.createElement("caption");
   caption.className = "visually-hidden";
-  caption.textContent = "本地工作区条目";
+  caption.textContent = copy().tableCaption;
   const head = ownerDocument.createElement("thead");
   const headingRow = ownerDocument.createElement("tr");
-  for (const heading of ["名称", "类型", "修改时间", "同步"]) {
+  const headingCells: HTMLTableCellElement[] = [];
+  for (const heading of copy().headings) {
     const cell = ownerDocument.createElement("th");
     cell.scope = "col";
     cell.textContent = heading;
     headingRow.append(cell);
+    headingCells.push(cell);
   }
   head.append(headingRow);
   const body = ownerDocument.createElement("tbody");
@@ -119,14 +182,14 @@ export function createWorkspaceDashboard(
   empty.className = "workspace-dashboard__empty";
   empty.hidden = true;
   const emptyCopy = ownerDocument.createElement("p");
-  const emptyCreate = textButton(ownerDocument, "新建第一个条目", "button button--primary");
+  const emptyCreate = textButton(ownerDocument, copy().createFirst, "button button--primary");
   empty.append(emptyCopy, emptyCreate);
   tableRegion.append(table, empty);
   content.append(toolbar, status, tableRegion);
   root.append(sidebar, content);
   host.append(root);
 
-  const dialog = createNewEntryDialog(ownerDocument);
+  const dialog = createNewEntryDialog(ownerDocument, locale);
   host.append(dialog.element);
 
   let snapshot: WorkspaceSnapshot = Object.freeze({ rootName: "", entries: Object.freeze([]) });
@@ -171,13 +234,37 @@ export function createWorkspaceDashboard(
     }
     const entries = filterWorkspaceEntries(snapshot.entries, filter, search.value);
     body.replaceChildren(
-      ...entries.map((entry) => renderEntryRow(ownerDocument, entry, openEntry)),
+      ...entries.map((entry) => renderEntryRow(ownerDocument, entry, openEntry, locale)),
     );
     const isEmpty = entries.length === 0;
     table.hidden = isEmpty;
     empty.hidden = !isEmpty;
-    emptyCopy.textContent =
-      snapshot.entries.length === 0 ? "这里还没有本地条目。" : "当前筛选没有匹配条目。";
+    emptyCopy.textContent = snapshot.entries.length === 0 ? copy().emptyAll : copy().emptyFilter;
+  };
+
+  const renderLocale = (): void => {
+    const localized = copy();
+    root.setAttribute("aria-label", localized.dashboardLabel);
+    sidebar.setAttribute("aria-label", localized.modulesLabel);
+    for (const [id, button] of filterButtons) {
+      button.textContent = localized.filters[id];
+      button.setAttribute("aria-label", localized.filters[id]);
+    }
+    if (rootName.textContent === "正在读取…" || rootName.textContent === "Loading…") {
+      rootName.textContent = localized.reading;
+    }
+    search.placeholder = localized.searchPlaceholder;
+    search.setAttribute("aria-label", localized.searchLabel);
+    refreshButton.textContent = localized.refresh;
+    createButton.textContent = localized.create;
+    caption.textContent = localized.tableCaption;
+    localized.headings.forEach((heading, index) => {
+      const cell = headingCells[index];
+      if (cell !== undefined) cell.textContent = heading;
+    });
+    emptyCreate.textContent = localized.createFirst;
+    dialog.setLocale(locale);
+    render();
   };
 
   async function runOperation(operationCallback: () => void | Promise<void>): Promise<void> {
@@ -225,12 +312,12 @@ export function createWorkspaceDashboard(
     if (busy) return;
     const kind = dialog.kind.value;
     if (!isWorkspaceKind(kind)) {
-      dialog.error.textContent = "请选择有效类型。";
+      dialog.error.textContent = copy().invalidKind;
       return;
     }
     const title = dialog.title.value.trim();
     if (title.length === 0) {
-      dialog.error.textContent = "请输入名称。";
+      dialog.error.textContent = copy().missingTitle;
       dialog.title.focus();
       return;
     }
@@ -260,8 +347,14 @@ export function createWorkspaceDashboard(
   dialog.cancel.addEventListener("click", onDialogCancel);
   dialog.element.addEventListener("close", onDialogClose);
   root.addEventListener("keydown", onKeydown);
+  const onLocaleChange = (event: Event): void => {
+    const detail = (event as CustomEvent<{ readonly locale?: unknown }>).detail;
+    locale = detail?.locale === "en" ? "en" : "zh-CN";
+    renderLocale();
+  };
+  localeHost?.addEventListener("workbench-locale-change", onLocaleChange);
   render();
-  setStatus("正在读取 Documents 工作区…", "loading");
+  setStatus(copy().initialStatus, "loading");
 
   return Object.freeze({
     element: root,
@@ -291,6 +384,7 @@ export function createWorkspaceDashboard(
       dialog.cancel.removeEventListener("click", onDialogCancel);
       dialog.element.removeEventListener("close", onDialogClose);
       root.removeEventListener("keydown", onKeydown);
+      localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
       if (dialog.element.open) dialog.element.close("destroyed");
       dialog.element.remove();
       root.remove();
@@ -315,14 +409,16 @@ function renderEntryRow(
   ownerDocument: Document,
   entry: WorkspaceEntrySummary,
   onOpen: (entryId: string) => void,
+  locale: InterfaceLocale,
 ): HTMLTableRowElement {
+  const copy = COPY[locale];
   const row = ownerDocument.createElement("tr");
   row.dataset.entryId = entry.id;
   row.dataset.entryKind = entry.kind;
   row.className = "workspace-dashboard__entry";
   row.tabIndex = 0;
   row.setAttribute("role", "link");
-  row.setAttribute("aria-label", `打开${KIND_LABELS[entry.kind]}“${entry.title}”`);
+  row.setAttribute("aria-label", `${copy.open} ${copy.kinds[entry.kind]} “${entry.title}”`);
   const open = (): void => onOpen(entry.id);
   row.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
@@ -339,24 +435,24 @@ function renderEntryRow(
   name.textContent = entry.title;
   nameCell.append(name);
   const kindCell = ownerDocument.createElement("td");
-  kindCell.textContent = KIND_LABELS[entry.kind];
+  kindCell.textContent = copy.kinds[entry.kind];
   const timeCell = ownerDocument.createElement("td");
   const time = ownerDocument.createElement("time");
   time.dateTime = entry.updatedAt;
-  time.textContent = formatModifiedTime(entry.updatedAt);
+  time.textContent = formatModifiedTime(entry.updatedAt, locale);
   timeCell.append(time);
   const syncCell = ownerDocument.createElement("td");
-  syncCell.textContent = "已保存";
+  syncCell.textContent = copy.saved;
   syncCell.dataset.state = "saved";
   row.append(nameCell, kindCell, timeCell, syncCell);
   return row;
 }
 
-function formatModifiedTime(timestamp: string): string {
+function formatModifiedTime(timestamp: string, locale: InterfaceLocale): string {
   const date = new Date(timestamp);
   return Number.isNaN(date.valueOf())
     ? "—"
-    : new Intl.DateTimeFormat("zh-CN", {
+    : new Intl.DateTimeFormat(locale, {
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
@@ -364,7 +460,10 @@ function formatModifiedTime(timestamp: string): string {
       }).format(date);
 }
 
-function createNewEntryDialog(ownerDocument: Document): {
+function createNewEntryDialog(
+  ownerDocument: Document,
+  initialLocale: InterfaceLocale,
+): {
   readonly element: HTMLDialogElement;
   readonly form: HTMLFormElement;
   readonly kind: HTMLSelectElement;
@@ -372,7 +471,10 @@ function createNewEntryDialog(ownerDocument: Document): {
   readonly submit: HTMLButtonElement;
   readonly cancel: HTMLButtonElement;
   readonly error: HTMLElement;
+  readonly setLocale: (locale: InterfaceLocale) => void;
 } {
+  let locale = initialLocale;
+  const copy = () => COPY[locale];
   const element = ownerDocument.createElement("dialog");
   element.className = "workspace-create-dialog";
   element.setAttribute("aria-labelledby", "workspace-create-title");
@@ -380,39 +482,64 @@ function createNewEntryDialog(ownerDocument: Document): {
   form.className = "workspace-create-dialog__surface";
   const heading = ownerDocument.createElement("h2");
   heading.id = "workspace-create-title";
-  heading.textContent = "新建工作区条目";
+  heading.textContent = copy().dialogTitle;
   const kind = ownerDocument.createElement("select");
-  kind.setAttribute("aria-label", "条目类型");
+  kind.setAttribute("aria-label", copy().kindLabel);
   for (const workspaceKind of WORKSPACE_KINDS_IN_UI_ORDER) {
     const option = ownerDocument.createElement("option");
     option.value = workspaceKind;
-    option.textContent = KIND_LABELS[workspaceKind];
+    option.textContent = copy().kinds[workspaceKind];
     kind.append(option);
   }
   const title = ownerDocument.createElement("input");
   title.type = "text";
   title.maxLength = 80;
   title.required = true;
-  title.placeholder = "例如：二分搜索";
-  title.setAttribute("aria-label", "条目名称");
+  title.placeholder = copy().titlePlaceholder;
+  title.setAttribute("aria-label", copy().titleLabel);
   const error = ownerDocument.createElement("p");
   error.className = "form-error";
   error.setAttribute("role", "alert");
   const actions = ownerDocument.createElement("footer");
   actions.className = "workspace-create-dialog__actions";
-  const cancel = textButton(ownerDocument, "取消", "button button--quiet");
-  const submit = textButton(ownerDocument, "创建并打开", "button button--primary");
+  const cancel = textButton(ownerDocument, copy().cancel, "button button--quiet");
+  const submit = textButton(ownerDocument, copy().createAndOpen, "button button--primary");
   submit.type = "submit";
   actions.append(cancel, submit);
   form.append(
     heading,
-    field(ownerDocument, "类型", kind),
-    field(ownerDocument, "名称", title),
+    field(ownerDocument, copy().type, kind),
+    field(ownerDocument, copy().name, title),
     error,
     actions,
   );
   element.append(form);
-  return { element, form, kind, title, submit, cancel, error };
+  const [typeField, nameField] = [...form.querySelectorAll<HTMLLabelElement>("label")];
+  return {
+    element,
+    form,
+    kind,
+    title,
+    submit,
+    cancel,
+    error,
+    setLocale(nextLocale: InterfaceLocale): void {
+      locale = nextLocale;
+      const localized = copy();
+      heading.textContent = localized.dialogTitle;
+      kind.setAttribute("aria-label", localized.kindLabel);
+      [...kind.options].forEach((option) => {
+        const workspaceKind = option.value as WorkspaceKind;
+        if (workspaceKind in localized.kinds) option.textContent = localized.kinds[workspaceKind];
+      });
+      title.placeholder = localized.titlePlaceholder;
+      title.setAttribute("aria-label", localized.titleLabel);
+      typeField?.querySelector("span")?.replaceChildren(localized.type);
+      nameField?.querySelector("span")?.replaceChildren(localized.name);
+      cancel.textContent = localized.cancel;
+      submit.textContent = localized.createAndOpen;
+    },
+  };
 }
 
 const WORKSPACE_KINDS_IN_UI_ORDER = Object.freeze(["project", "sandbox", "test"] as const);

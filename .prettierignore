@@ -9,3 +9,4 @@ test-results/
 samples/
 malicious/
 package-lock.json
+THIRD_PARTY_NOTICES.md

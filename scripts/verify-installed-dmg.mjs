@@ -102,6 +102,13 @@ try {
     timeout: 30_000,
   });
   const page = await application.firstWindow({ timeout: 30_000 });
+  const rendererDiagnostics = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      rendererDiagnostics.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => rendererDiagnostics.push(`pageerror: ${formatError(error)}`));
   await page.waitForLoadState("domcontentloaded");
   await page.locator("#startup-loader").waitFor({ state: "hidden", timeout: 30_000 });
   await page.waitForFunction(
@@ -111,26 +118,46 @@ try {
   );
   const dashboardInitiallyVisible = await page.locator("#dashboard-panel").isVisible();
 
-  await page.getByRole("button", { name: "新建", exact: true }).click();
-  const create = page.getByRole("dialog", { name: "新建工作区条目" });
-  await create.getByRole("combobox", { name: "条目类型" }).selectOption("project");
-  await create.getByRole("textbox", { name: "条目名称" }).fill("Installed Gate");
-  await create.getByRole("button", { name: "创建并打开" }).click();
+  await page.locator('[data-tour-target="create-entry"]').click();
+  const create = page.locator("dialog.workspace-create-dialog");
+  await create.locator("select").selectOption("project");
+  await create.locator('input[type="text"]').fill("Installed Gate");
+  await create.locator('button[type="submit"]').click();
   const source =
     "int main(void) {\n  int value = 1;\n  value++;\n  return value == 2 ? 0 : 1;\n}\n";
   const editor = page.locator(".cm-content");
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(source);
-  await page.waitForFunction(
-    () =>
-      document.querySelector("#parser-status")?.getAttribute("data-state") === "ready" &&
-      document.querySelector("#parser-status")?.getAttribute("data-analysis-state") ===
-        "complete" &&
-      document.querySelector("#workspace-save-status")?.getAttribute("data-state") === "saved",
-    undefined,
-    { timeout: 30_000 },
-  );
+  try {
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#parser-status")?.getAttribute("data-state") === "ready" &&
+        document.querySelector("#parser-status")?.getAttribute("data-analysis-state") ===
+          "complete" &&
+        document.querySelector("#workspace-save-status")?.getAttribute("data-state") === "saved",
+      undefined,
+      { timeout: 30_000 },
+    );
+  } catch (error) {
+    const states = await page.evaluate(() => {
+      const parser = document.querySelector("#parser-status");
+      const save = document.querySelector("#workspace-save-status");
+      return {
+        parser: parser?.getAttribute("data-state") ?? "missing",
+        analysis: parser?.getAttribute("data-analysis-state") ?? "missing",
+        save: save?.getAttribute("data-state") ?? "missing",
+        parserText: parser?.textContent?.trim() ?? "",
+        saveText: save?.textContent?.trim() ?? "",
+      };
+    });
+    throw new Error(
+      `编辑后状态未收敛：parser=${states.parser}, analysis=${states.analysis}, save=${states.save}; ` +
+        `parserText=${JSON.stringify(states.parserText)}, saveText=${JSON.stringify(states.saveText)}, ` +
+        `renderer=${JSON.stringify(rendererDiagnostics.slice(-8))}; ` +
+        `原始错误=${formatError(error)}`,
+    );
+  }
   await page.locator(".flow-node").first().waitFor({ state: "visible", timeout: 30_000 });
   const appIsPackaged = await application.evaluate(({ app }) => app.isPackaged);
 

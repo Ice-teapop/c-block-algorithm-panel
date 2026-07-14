@@ -118,6 +118,54 @@ describe("evidence workspace controller", () => {
     expect(harness.mentorHost.children).toHaveLength(0);
   });
 
+  it("keeps machine-generated remote evidence language-neutral", async () => {
+    const harness = createHarness();
+    const controller = createEvidenceWorkspaceController({
+      ...harness.options,
+      getSource: () => SOURCE,
+    });
+    await controller.setWorkspaceEntry("project-a", SOURCE_FINGERPRINT);
+    controller.setAnalysis(analysisFixture());
+
+    const context = controller.getRemoteMentorContext();
+    expect(context).not.toBeNull();
+    expect(
+      JSON.stringify({
+        diagnostics: context?.diagnosticSummary,
+        controlFlow: context?.controlFlowSummary,
+        runs: context?.runEvidence,
+      }),
+    ).not.toMatch(/[\p{Script=Han}]/u);
+    expect(context?.controlFlowSummary).toBe("functions=0; cfg=unavailable");
+    await controller.destroy();
+  });
+
+  it("rebinds branch coverage to the newly analyzed source after an edit", async () => {
+    const harness = createHarness();
+    const controller = createEvidenceWorkspaceController(harness.options);
+    await controller.setWorkspaceEntry("project-a", SOURCE_FINGERPRINT);
+    const editedFingerprint = fingerprintSource(`${SOURCE}\n`);
+
+    controller.setAnalysis(
+      Object.freeze({
+        ...analysisFixture(),
+        sourceLength: SOURCE.length + 1,
+        sourceFingerprint: editedFingerprint,
+      }),
+    );
+
+    expect(() =>
+      controller.setBranchCoverage(
+        Object.freeze({
+          sourceFingerprint: editedFingerprint,
+          coveredBranchIds: Object.freeze([]),
+          totalBranchIds: Object.freeze([]),
+        }),
+      ),
+    ).not.toThrow();
+    await controller.destroy();
+  });
+
   it("resets only invalid history data and keeps accepting later real evidence", async () => {
     const harness = createHarness({ serialized: "{not-json" });
     const controller = createEvidenceWorkspaceController({

@@ -18,11 +18,13 @@ import {
   createGuidedLessonController,
   createGuidedLessonProgress,
   deserializeGuidedLessonProgress,
+  defineGuidedLesson,
   getGuidedLessonCheckpoint,
   recordGuidedLessonEvidence,
   saveGuidedLessonCheckpoint,
   serializeGuidedLessonProgress,
   type GuidedExactDiff,
+  type GuidedLessonDefinition,
   type GuidedLessonProgress,
   type GuidedSourceProfile,
   type LearningEvidenceBinding,
@@ -167,12 +169,107 @@ describe("guided lesson state machine", () => {
     expect(canAdvanceGuidedLesson(FIRST_GUIDED_LESSON, progress)).toBe(true);
   });
 
-  it("completes all five missions while preserving sealed debug reproduction evidence", () => {
+  it("accepts benchmark and visualization evidence only with exact trusted bindings", () => {
+    const definition = evidenceLesson();
+    let progress = createGuidedLessonProgress(definition, {
+      workspaceId: WORKSPACE_ID,
+      sourceFingerprint: FIRST_ALGORITHM_SOURCE_FINGERPRINT,
+    });
+    const scenarioBinding = Object.freeze({
+      lessonId: definition.id,
+      lessonVersion: definition.version,
+      workspaceId: WORKSPACE_ID,
+      sourceFingerprint: progress.sourceFingerprint,
+      scenarioId: MAXIMUM_SCENARIO_ID,
+      scenarioVersion: FIRST_ALGORITHM_SCENARIO_VERSION,
+    });
+    const noScenarioBinding = Object.freeze({
+      ...scenarioBinding,
+      scenarioId: null,
+      scenarioVersion: null,
+    });
+
+    expect(
+      recordGuidedLessonEvidence(definition, progress, {
+        type: "benchmark-completed",
+        binding: scenarioBinding,
+        sizes: Object.freeze([8, 32]),
+        repetitions: 3,
+      }),
+    ).toMatchObject({ status: "rejected", reason: "no-requirement-match" });
+    expect(() =>
+      recordGuidedLessonEvidence(definition, progress, {
+        type: "benchmark-completed",
+        binding: scenarioBinding,
+        sizes: [8, 32, 32, 128],
+        repetitions: 3,
+      }),
+    ).toThrow(/不重复/u);
+
+    progress = acceptFor(
+      definition,
+      progress,
+      Object.freeze({
+        type: "benchmark-completed",
+        binding: scenarioBinding,
+        sizes: Object.freeze([128, 8, 32]),
+        repetitions: 4,
+      }),
+    );
+    expect(
+      recordGuidedLessonEvidence(definition, progress, {
+        type: "visualization-answer",
+        binding: noScenarioBinding,
+        visualizationId: "analysis-chart",
+        answerId: "wrong-answer",
+      }),
+    ).toMatchObject({ status: "rejected", reason: "no-requirement-match" });
+    expect(() =>
+      recordGuidedLessonEvidence(definition, progress, {
+        type: "visualization-answer",
+        binding: scenarioBinding,
+        visualizationId: "analysis-chart",
+        answerId: "supports-not-proves",
+      }),
+    ).toThrow(/场景绑定/u);
+
+    progress = acceptFor(definition, progress, {
+      type: "visualization-answer",
+      binding: noScenarioBinding,
+      visualizationId: "analysis-chart",
+      answerId: "supports-not-proves",
+    });
+    expect(canAdvanceGuidedLesson(definition, progress)).toBe(true);
+    expect(progress.satisfiedRequirements.map((item) => item.eventType)).toEqual([
+      "benchmark-completed",
+      "visualization-answer",
+    ]);
+    const frozenRequirement = definition.missions[0]?.stages[0]?.requirements[0];
+    expect(frozenRequirement?.kind).toBe("benchmark-series");
+    if (frozenRequirement?.kind !== "benchmark-series") throw new Error("缺少 Benchmark 条件");
+    expect(Object.isFrozen(frozenRequirement.sizes)).toBe(true);
+
+    const restored = deserializeGuidedLessonProgress(
+      serializeGuidedLessonProgress(definition, progress),
+      definition,
+      { workspaceId: WORKSPACE_ID, sourceFingerprint: progress.sourceFingerprint },
+    );
+    expect(restored).toMatchObject({ status: "restored", progress });
+  });
+
+  it("completes all seven missions while preserving sealed debug reproduction evidence", () => {
     let progress = fresh();
 
     progress = accept(progress, runEvent(progress, MAXIMUM_SCENARIO_ID, "normal", "8\n"));
     progress = advanceGuidedLesson(FIRST_GUIDED_LESSON, progress);
     progress = accept(progress, traceEvent(progress, "normal"));
+    progress = advanceGuidedLesson(FIRST_GUIDED_LESSON, progress);
+
+    progress = accept(progress, visualizationEvent(progress, "trace-chart", "later-event"));
+    progress = accept(
+      progress,
+      visualizationEvent(progress, "trace-chart", "work-above-reference"),
+    );
     progress = advanceGuidedLesson(FIRST_GUIDED_LESSON, progress);
 
     progress = acceptSourceChange(progress, FIRST_ALGORITHM_SKELETON_FINGERPRINT);
@@ -195,6 +292,14 @@ describe("guided lesson state machine", () => {
       sourceVerifiedEvent(progress, "maximum-complete", "maximum-update-inserted", true),
     );
     progress = accept(progress, runEvent(progress, MAXIMUM_SCENARIO_ID, "normal", "8\n"));
+    progress = advanceGuidedLesson(FIRST_GUIDED_LESSON, progress);
+
+    progress = accept(progress, benchmarkEvent(progress, [8, 32, 128], 3));
+    progress = accept(progress, visualizationEvent(progress, "analysis-chart", "larger-variation"));
+    progress = accept(
+      progress,
+      visualizationEvent(progress, "analysis-chart", "supports-not-proves"),
+    );
     progress = advanceGuidedLesson(FIRST_GUIDED_LESSON, progress);
 
     progress = acceptSourceChange(progress, FIRST_ALGORITHM_BUG_FINGERPRINT);
@@ -242,7 +347,9 @@ describe("guided lesson state machine", () => {
     expect(progress.completedMissionIds).toEqual([
       "mission.run",
       "mission.observe",
+      "mission.read-trace-chart",
       "mission.complete",
+      "mission.read-analysis-chart",
       "mission.debug",
       "mission.migrate",
     ]);
@@ -390,6 +497,14 @@ function accept(
   return acceptResult(recordGuidedLessonEvidence(FIRST_GUIDED_LESSON, progress, event)).progress;
 }
 
+function acceptFor(
+  definition: GuidedLessonDefinition,
+  progress: GuidedLessonProgress,
+  event: LearningEvidenceEvent,
+): GuidedLessonProgress {
+  return acceptResult(recordGuidedLessonEvidence(definition, progress, event)).progress;
+}
+
 function acceptResult(
   result: ReturnType<typeof recordGuidedLessonEvidence>,
 ): Extract<ReturnType<typeof recordGuidedLessonEvidence>, { status: "accepted" }> {
@@ -468,6 +583,32 @@ function traceEvent(
   });
 }
 
+function benchmarkEvent(
+  progress: GuidedLessonProgress,
+  sizes: readonly number[],
+  repetitions: number,
+): LearningEvidenceEvent {
+  return Object.freeze({
+    type: "benchmark-completed",
+    binding: binding(progress, MAXIMUM_SCENARIO_ID),
+    sizes: Object.freeze([...sizes]),
+    repetitions,
+  });
+}
+
+function visualizationEvent(
+  progress: GuidedLessonProgress,
+  visualizationId: "trace-chart" | "analysis-chart",
+  answerId: string,
+): LearningEvidenceEvent {
+  return Object.freeze({
+    type: "visualization-answer",
+    binding: binding(progress, null),
+    visualizationId,
+    answerId,
+  });
+}
+
 function sourceChangedEvent(
   progress: GuidedLessonProgress,
   nextFingerprint: string,
@@ -516,5 +657,54 @@ function connectionEvent(progress: GuidedLessonProgress): LearningEvidenceEvent 
     binding: binding(progress, null),
     presetId: MAXIMUM_UPDATE_PRESET_ID,
     cfgAccepted: true,
+  });
+}
+
+function evidenceLesson(): GuidedLessonDefinition {
+  return defineGuidedLesson({
+    id: "lesson.evidence-gates",
+    version: "1.0.0",
+    title: "证据门禁",
+    summary: "验证 Benchmark 与图表理解证据。",
+    initialSource: FIRST_ALGORITHM_SOURCE,
+    initialScenarioId: MAXIMUM_SCENARIO_ID,
+    initialScenarioVersion: FIRST_ALGORITHM_SCENARIO_VERSION,
+    initialCaseId: "normal",
+    missions: [
+      {
+        id: "mission.evidence",
+        title: "证据",
+        instruction: "完成真实性能运行并解释图表。",
+        why: "防止旧源码或错误图表答案冒充完成。",
+        hints: ["检查源码。", "检查规模。", "检查答案。"],
+        locateTargetId: "analysis-chart",
+        stages: [
+          {
+            id: "mission.evidence.collect",
+            title: "收集并解释",
+            instruction: "运行三组规模并回答分析图问题。",
+            requirements: [
+              {
+                id: "mission.evidence.benchmark",
+                kind: "benchmark-series",
+                label: "完成三组真实 Benchmark",
+                scenarioId: MAXIMUM_SCENARIO_ID,
+                scenarioVersion: FIRST_ALGORITHM_SCENARIO_VERSION,
+                expectedSourceFingerprint: FIRST_ALGORITHM_SOURCE_FINGERPRINT,
+                sizes: [8, 32, 128],
+                minRepetitions: 3,
+              },
+              {
+                id: "mission.evidence.answer",
+                kind: "visualization-answer",
+                label: "正确解释分析图",
+                visualizationId: "analysis-chart",
+                answerId: "supports-not-proves",
+              },
+            ],
+          },
+        ],
+      },
+    ],
   });
 }

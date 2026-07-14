@@ -1,6 +1,6 @@
 {
   "name": "c-block-algorithm-panel",
-  "version": "0.1.0-beta.12",
+  "version": "0.0.1",
   "description": "A local, source-authoritative C algorithm learning and visual assembly workbench.",
   "private": true,
   "license": "MIT",
@@ -27,15 +27,19 @@
     "build:renderer": "vite build",
     "postbuild:renderer": "npm run verify:wasm-assets",
     "build:electron": "tsc -p tsconfig.electron.json && npm run build:preload",
-    "build:preload": "vite build --mode electron-preload",
+    "build:preload": "vite build --mode electron-preload && vite build --mode electron-ai-preload",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --config build/electron-builder.beta.json --dir --publish never",
-    "dist:mac": "npm run dist:mac:beta",
+    "pack": "npm run build && electron-builder --config build/electron-builder.release.json --dir --publish never",
+    "dist:mac": "npm run build && electron-builder --config build/electron-builder.release.json --mac --publish never",
     "dist:mac:beta": "npm run build && electron-builder --config build/electron-builder.beta.json --mac --publish never",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run deps:check",
     "test:unit": "vitest run",
     "test:watch": "vitest",
+    "benchmark:ux": "vitest run tests/ux/ux-interaction-benchmark.test.ts",
+    "benchmark:ux:ab": "vitest run tests/ux/ux-agent-ab-protocol.test.ts tests/ux/ux-agent-ab-results.test.ts",
+    "notices:generate": "node scripts/generate-third-party-notices.mjs",
+    "notices:check": "node scripts/generate-third-party-notices.mjs --check",
     "fuzz": "node scripts/fuzz.mjs",
     "fuzz:m4": "node scripts/generator-fuzz.mjs --runs 5000",
     "deps:prepare": "tsc -p tsconfig.deps.json",
@@ -101,7 +105,7 @@
     "web-tree-sitter": "0.26.10"
   },
   "build": {
-    "extends": "file:build/electron-builder.beta.json",
+    "extends": "file:build/electron-builder.release.json",
     "mac": {
       "icon": "build/icon.icns"
     }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createResizableLayoutSnapshot,
   resolveSplitterKeyboardSize,
+  splitterAriaLabel,
 } from "../../src/ui/resizable-layout.js";
 
 describe("M6 resizable layout contracts", () => {
@@ -54,5 +55,12 @@ describe("M6 resizable layout contracts", () => {
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.sizes)).toBe(true);
     expect(() => createResizableLayoutSnapshot("horizontal", { bad: 0 })).toThrow(/正数/u);
+  });
+
+  it("uses locale-safe splitter accessibility labels", () => {
+    expect(splitterAriaLabel("code", "en")).toBe("code size");
+    expect(splitterAriaLabel("代码", "en")).toBe("Panel size");
+    expect(splitterAriaLabel("代码", "en")).not.toMatch(/[\p{Script=Han}]/u);
+    expect(splitterAriaLabel("代码", "zh-CN")).toBe("代码 尺寸");
   });
 });

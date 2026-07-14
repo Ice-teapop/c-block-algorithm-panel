@@ -11,6 +11,7 @@ const managerSource = readFileSync(
   new URL("../../src/ui/block-library-manager.ts", import.meta.url),
   "utf8",
 );
+const styleSource = readFileSync(new URL("../../src/style.css", import.meta.url), "utf8");
 
 describe("block library manager", () => {
   it("renders builtin, active, deprecated and retired entries with distinct controls", () => {
@@ -151,6 +152,136 @@ describe("block library manager", () => {
     expect(managerSource).toContain("textContent = entry.label");
     expect(managerSource).not.toContain("innerHTML");
   });
+
+  it("renders English chrome, empty states, and lifecycle operations without translating user data", async () => {
+    const catalog = createLearningCatalog({
+      stages: [
+        {
+          id: "c.basics",
+          version: "1.0.0",
+          label: "C 基础",
+          order: 1,
+          prerequisites: [],
+          description: "基础阶段",
+        },
+      ],
+      builtinTemplates: [],
+    });
+    const userLabel = "用户积木";
+    const userSource = "/* 中文源码 */ value++;";
+    catalog.createCustom({
+      id: "custom.user-content",
+      version: "1.0.0",
+      label: userLabel,
+      category: "practice",
+      stage: "c.basics",
+      source: userSource,
+      description: "用户说明",
+      fragmentKind: "statement",
+    });
+    const confirmRetire = vi.fn<BlockLibraryManagerCallbacks["confirmRetire"]>(() => true);
+    const { manager } = createFixtureManager(catalog, { locale: "en", confirmRetire });
+    const root = manager.element as unknown as FakeElement;
+
+    expect(root.getAttribute("aria-label")).toBe("Custom block management");
+    expect(field(root, "Block name").placeholder).toBe("For example: Swap two variables");
+    expect(field(root, "Learning stage").children[0]?.textContent).toBe("C Basics");
+    expect(field(root, "C source fragment").placeholder).toBe("For example: swap(&a, &b);");
+    expect(status(root).textContent).toBe("Catalog ready.");
+    expect(action(root, "custom.user-content", "deprecate").textContent).toBe("Deprecate");
+    expect(treeText(byEntryId(root, "custom.user-content"))).toContain(userLabel);
+    expect(treeText(byEntryId(root, "custom.user-content"))).toContain(userSource);
+
+    expectWithoutUserContent(visibleInterfaceStrings(root), [userLabel, userSource]);
+
+    action(root, "custom.user-content", "deprecate").click();
+    expect(status(root).textContent).toBe(`Deprecated “${userLabel}”.`);
+    expect(action(root, "custom.user-content", "reactivate").textContent).toBe("Reactivate");
+    expect(action(root, "custom.user-content", "retire").textContent).toBe("Retire");
+    expectWithoutUserContent(visibleInterfaceStrings(root), [userLabel, userSource]);
+
+    action(root, "custom.user-content", "retire").click();
+    await flushMicrotasks();
+
+    expect(confirmRetire).toHaveBeenCalledWith(
+      `Retire “${userLabel}”? This removes the custom block definition but keeps generated C source.`,
+      expect.objectContaining({ id: "custom.user-content" }),
+    );
+    expect(status(root).textContent).toBe(
+      `Retired “${userLabel}”; generated C source remains unchanged.`,
+    );
+    expect(treeText(byEntryId(root, "custom.user-content"))).toContain(
+      "Definition removed; generated C source remains unchanged.",
+    );
+    expectWithoutUserContent(visibleInterfaceStrings(root), [userLabel]);
+  });
+
+  it("localizes form validation and creation while keeping submitted names and source verbatim", () => {
+    const catalog = createFixtureCatalog();
+    const userLabel = "中文名称";
+    const userSource = "/* 中文注释 */ count++;";
+    const { manager } = createFixtureManager(catalog, {
+      locale: "en",
+      idFactory: () => "English Form",
+    });
+    const root = manager.element as unknown as FakeElement;
+
+    form(root).dispatch("submit");
+    expect(status(root).textContent).toBe(
+      "Complete the name, stage, category, and C source fields.",
+    );
+
+    field(root, "Block name").value = userLabel;
+    field(root, "Learning stage").value = "c.basics";
+    field(root, "Category").value = "practice";
+    field(root, "C source fragment").value = userSource;
+    form(root).dispatch("submit");
+
+    expect(status(root).textContent).toBe(`Created “${userLabel}”.`);
+    expect(catalog.getEntry("custom.english-form")).toMatchObject({
+      label: userLabel,
+      source: userSource,
+      description: `Custom block: ${userLabel}`,
+    });
+    expect(treeText(byEntryId(root, "custom.english-form"))).toContain(userLabel);
+    expect(treeText(byEntryId(root, "custom.english-form"))).toContain(userSource);
+  });
+
+  it("relocalizes generated status and controls while preserving literal external status", () => {
+    const catalog = createFixtureCatalog();
+    createCustom(catalog, "custom.locale", "保留名称");
+    const { host, manager } = createFixtureManager(catalog);
+    const root = manager.element as unknown as FakeElement;
+
+    action(root, "custom.locale", "deprecate").click();
+    expect(status(root).textContent).toBe("已弃用“保留名称”。");
+
+    host.dataset.locale = "en";
+    host.dispatch("workbench-locale-change");
+    expect(status(root).textContent).toBe("Deprecated “保留名称”.");
+    expect(root.getAttribute("aria-label")).toBe("Custom block management");
+    expect(action(root, "custom.locale", "reactivate").textContent).toBe("Reactivate");
+
+    manager.setStatus("外部状态原文", "ready");
+    host.dataset.locale = "zh-CN";
+    host.dispatch("workbench-locale-change");
+    host.dataset.locale = "en";
+    host.dispatch("workbench-locale-change");
+    expect(status(root).textContent).toBe("外部状态原文");
+  });
+
+  it("uses semantic theme tokens for every block manager surface", () => {
+    const start = styleSource.indexOf(".block-library-manager {");
+    const end = styleSource.indexOf("@media (max-width: 1000px)", start);
+    const managerStyles = styleSource.slice(start, end);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(managerStyles).toContain("background: var(--surface);");
+    expect(managerStyles).toContain("background: var(--input-surface);");
+    expect(managerStyles).toContain("background: var(--surface-raised);");
+    expect(managerStyles).not.toMatch(/(?:background|color|border-color):\s*(?:#|rgb|hsl)/u);
+  });
 });
 
 function createFixtureCatalog(): LearningCatalog {
@@ -198,11 +329,13 @@ interface FixtureOverrides {
   readonly confirmRetire?: BlockLibraryManagerCallbacks["confirmRetire"];
   readonly onCatalogChange?: BlockLibraryManagerCallbacks["onCatalogChange"];
   readonly idFactory?: BlockLibraryManagerCallbacks["idFactory"];
+  readonly locale?: "zh-CN" | "en";
 }
 
 function createFixtureManager(catalog: LearningCatalog, overrides: FixtureOverrides = {}) {
   const ownerDocument = new FakeDocument();
   const host = ownerDocument.createElement("div");
+  host.dataset.locale = overrides.locale ?? "zh-CN";
   const manager = createBlockLibraryManager(host as unknown as HTMLElement, catalog, {
     validateSource: overrides.validateSource ?? (() => ({ fragmentKind: "statement" })),
     confirmRetire: overrides.confirmRetire ?? (() => false),
@@ -350,6 +483,22 @@ function treeText(root: FakeElement): string {
   return walk(root)
     .map((element) => element.textContent)
     .join(" ");
+}
+
+function visibleInterfaceStrings(root: FakeElement): readonly string[] {
+  return walk(root).flatMap((element) =>
+    [element.textContent, element.placeholder, element.getAttribute("aria-label") ?? ""].filter(
+      (value) => value.length > 0,
+    ),
+  );
+}
+
+function expectWithoutUserContent(values: readonly string[], userContent: readonly string[]): void {
+  const staticText = userContent.reduce(
+    (text, content) => text.replaceAll(content, ""),
+    values.join("\n"),
+  );
+  expect(staticText).not.toMatch(/[\u3400-\u9fff]/u);
 }
 
 async function flushMicrotasks(): Promise<void> {

@@ -1,60 +1,133 @@
 # Privacy
 
-Last updated: 2026-07-12
+Last updated: July 14, 2026
 
-C 积木算法面板 is local-first software. The current beta does not include
-telemetry, analytics, advertising, accounts, cloud synchronization, or a live
-AI provider. It does not upload source code, traces, scenarios, diagnostics, or
-execution results.
+C 积木算法面板 is local-first software. It does not include telemetry,
+behavioral analytics, advertising, user accounts, or cloud synchronization.
+Projects, source, traces, run history, lesson progress, and AI conversations
+remain on the device unless you explicitly send selected context to a network
+AI provider.
 
 ## Data stored locally
 
-- Managed projects are stored under `~/Documents/C Algorithm Workbench/`.
-- `main.c` is the authoritative program source. `entry.json` stores workspace
-  metadata.
-- `flow-view.json` may store source fingerprints, node coordinates, viewport,
-  drafts, checkpoints, and panel layout. It is view state, not a second program.
-- `scenarios.json` may store local inputs, expected output, branch targets, and
-  size generators.
-- `run-history.json` may store up to 100 bounded run summaries. Teaching
-  simulations are excluded from real performance history.
-- Workspace preferences, theme, and interface state may be stored in the
-  Electron application data directory.
-- Compilation, diagnostics, shadow-source traces, and tests create bounded
-  temporary files. Cleanup is best effort after completion, cancellation, or
-  failure.
+Managed projects are stored under `~/Documents/C Algorithm Workbench/`.
 
-Sidecars are created only when the corresponding project feature is saved. A
-damaged, unsupported, or stale sidecar is reset or ignored without modifying
-`main.c`.
+- `main.c` is the authoritative program source.
+- `entry.json` stores workspace metadata.
+- `flow-view.json` may store source fingerprints, node coordinates, viewport,
+  drafts, checkpoints, selections, and panel layout.
+- `scenarios.json` may store local input, expected output, branch targets, and
+  size generators.
+- `run-history.json` may store up to 100 bounded real-run summaries. Teaching
+  simulations are excluded from real performance history.
+- `tutorial-progress.json` may store the guided lesson version, current mission,
+  satisfied requirements, and explicit source checkpoints.
+- `ai-project.json` may store one bounded AI Project for the workspace,
+  including multiple conversation titles and message text. It does not store
+  API credentials, request headers, absolute paths, or arbitrary endpoints.
+- Custom presets, interface preferences, locale, theme, window geometry, and
+  other application settings may be stored locally.
+
+AI Project storage is limited to 4 MiB, 64 conversations, 256 messages per
+conversation, and 2,048 messages per project. Individual messages are bounded.
+These limits prevent unbounded local growth; they are not a promise that a
+third-party AI provider deletes its own copy of a request.
+
+Compilation, diagnostics, shadow-source traces, memory checks, and tests create
+bounded temporary files. Cleanup is best effort after completion,
+cancellation, or failure.
+
+Sidecars are created only when the corresponding feature is used. A damaged,
+unsupported, or stale sidecar is ignored or reset without modifying `main.c`.
+
+## API credentials
+
+If you connect an AI provider, the application stores the API key in the
+Electron application-data directory using Electron `safeStorage`. The encrypted
+credential is bound to the selected provider. Renderer code receives only
+public configuration such as provider, model, connection state, and
+`hasCredential`; it cannot read the plaintext key or encrypted bytes.
+
+If operating-system encryption is unavailable, the application does not
+silently downgrade to plaintext storage. A legacy provider configuration that
+cannot prove its provider binding becomes reconnect-required. You must enter
+the key again before the app can use it.
+
+## Optional network AI
+
+Network AI is disabled until you provide a key and connect a provider. The
+application supports:
+
+- OpenAI;
+- Anthropic;
+- Gemini;
+- OpenRouter;
+- DeepSeek;
+- Zhipu GLM;
+- Kimi China; and
+- Kimi Global.
+
+The Electron main process sends requests over HTTPS only to the registered
+official host for the provider you selected. The application does not test a
+key against multiple providers, silently switch providers, follow a request to
+an arbitrary endpoint, or expose the key to project code.
+
+When you send an AI message, the default request may include:
+
+- your prompt;
+- the current C function;
+- bounded static-diagnostic and control-flow summaries;
+- bounded run evidence; and
+- a limited number of recent messages from the active conversation.
+
+File paths, stdin, program arguments, fixtures, and API credentials are not
+included in the AI context. Read-only mode does not send the complete `main.c`.
+When you explicitly switch the AI Assistant to Review changes or Agent mode,
+each request in that mode includes the complete `main.c` so the model can
+produce a source-bound proposal. The AI window displays this disclosure beside
+the permission control; switch back to Read only before sending if you do not
+want to transmit the complete source.
+
+The selected provider processes the transmitted content under its own terms,
+privacy policy, retention policy, and account settings. Do not send source or
+conversation content that you are not authorized to disclose. Disconnecting a
+provider removes the local provider configuration; it cannot delete data that
+the provider may already have received.
+
+## AI source changes
+
+AI source editing is disabled by default. In read-only mode, responses are
+advice and cannot modify project source. If you explicitly enable Review
+changes or Agent mode, the model may return a structured source-change
+proposal. Review changes requires your approval for every proposal. Agent mode
+may apply a proposal automatically only after the local validation gates below
+pass.
+
+The application binds each proposal to the current workspace revision and
+source fingerprint, shows or records an exact diff, creates a checkpoint, and
+requires the normal source-authority, reparse, lossless-round-trip, and CFG
+validation path. A stale, ambiguous, malformed, raw, partial, or unsafe proposal
+is rejected. AI Project or provider data never becomes a second source of
+truth.
 
 ## Local execution
 
-The app invokes local system tools such as Apple clang and executes C programs
-selected by the user. Those processes can access data according to effective
-macOS permissions and the isolation mode shown by the app. Runtime stdin,
-arguments, fixtures, stdout, stderr, resource measurements, and trace events
-remain on the device.
-
-## AI boundary
-
-The beta's `LocalEvidenceMentor` and scenario provider are deterministic and
-local. They inspect local static-analysis facts, program structure, real path
-evidence, and run history to produce suggestions. They do not contact an
-external model, upload data, automatically edit source, or claim that a hint is
-proof.
-
-Any future network AI provider must be disabled by default, identify the
-provider and destination, explain exactly what data would leave the device, and
-obtain explicit authorization in Settings before transmission.
+The application invokes local system tools such as Apple clang and executes C
+programs selected by you. Those processes can access data according to the
+effective macOS permissions and the isolation mode shown by the app. Runtime
+stdin, arguments, fixtures, stdout, stderr, resource measurements, and Trace
+events remain on the device unless you copy them into an AI prompt yourself.
 
 ## Deletion and retention
 
-Run history is capped at 100 entries per managed project. Trace sessions are
-bounded by event and byte limits and are not a permanent source of truth.
+- Delete an AI conversation or project in the application to remove its local
+  conversation data.
+- Disconnect an AI provider to remove its local provider configuration and
+  encrypted credential.
+- Delete a managed project through the application or Finder to remove its
+  source and sidecars, subject to normal filesystem recovery behavior.
+- Uninstalling the application does not automatically delete projects stored
+  in Documents.
+- Retiring a custom preset does not delete C already generated into a project.
 
-Deleting the application does not automatically delete managed projects in the
-Documents folder. Users can inspect, back up, or remove those project folders
-through Finder. Before deleting a project or custom template, verify whether an
-existing project still depends on its source snapshot; retiring a template does
-not delete C already generated into a project.
+Back up `main.c` and any project data you want to keep before deleting files.

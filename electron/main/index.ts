@@ -22,6 +22,11 @@ import type {
   SourceImportResult,
 } from "../../src/shared/api.js";
 import {
+  isInterfaceLocale,
+  resolveSystemInterfaceLocale,
+  type InterfaceLocale,
+} from "../../src/shared/interface-locale.js";
+import {
   learningCatalogStoreFailure,
   type LearningCatalogReadResult,
   type LearningCatalogSaveResult,
@@ -67,8 +72,14 @@ import { createAiProviderConfigStore } from "./ai-provider-store.js";
 import { registerAiProviderIpcHandlers } from "./ai-provider-ipc.js";
 import { createAiProviderClient } from "./ai-provider-client.js";
 import { createAiMentorController } from "./ai-mentor-controller.js";
+import { createAiProjectStore } from "./ai-project-store.js";
+import { registerAiProjectIpcHandlers } from "./ai-project-ipc.js";
+import { registerNativeAiWindow } from "./ai-window-native.js";
+import type { AiWindowManager } from "./ai-window-manager.js";
 
 const IPC_CHANNELS = Object.freeze({
+  getSystemLocale: "panel:system-locale",
+  setInterfaceLocale: "panel:set-interface-locale",
   openSource: "panel:open-source",
   openDroppedSource: "panel:open-dropped-source",
   capabilities: "panel:capabilities",
@@ -84,7 +95,9 @@ const IPC_CHANNELS = Object.freeze({
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const preloadPath = resolve(currentDirectory, "../../preload/index.cjs");
+const aiWindowPreloadPath = resolve(currentDirectory, "../../preload/ai-window.cjs");
 const rendererFilePath = join(app.getAppPath(), "dist", "index.html");
+const aiWindowRendererFilePath = join(app.getAppPath(), "dist", "ai-window.html");
 const developmentIconPath = join(app.getAppPath(), "build", "icon.png");
 const developmentServerUrl = parseDevelopmentServerUrl(process.env.VITE_DEV_SERVER_URL);
 let isShuttingDown = false;
@@ -103,10 +116,20 @@ interface WorkspaceCloseState {
 }
 
 const workspaceCloseStates = new WeakMap<BrowserWindow, WorkspaceCloseState>();
+const interfaceLocales = new WeakMap<BrowserWindow, InterfaceLocale>();
+const mainWindows = new WeakSet<BrowserWindow>();
+let aiWindowManager: AiWindowManager | null = null;
 
 type PanelBrowserWindow = BrowserWindow & {
   readonly panelSecurityPreferences: Readonly<WebPreferences>;
 };
+
+function interfaceLocaleFor(window: BrowserWindow): InterfaceLocale {
+  return (
+    interfaceLocales.get(window) ??
+    resolveSystemInterfaceLocale(app.getPreferredSystemLanguages()[0], app.getLocale())
+  );
+}
 
 function parseDevelopmentServerUrl(value: string | undefined): URL | null {
   if (value === undefined) {
@@ -149,6 +172,12 @@ function requireTrustedSenderWindow(event: IpcMainInvokeEvent | IpcMainEvent): B
     throw new Error("拒绝来自非主应用页面的 IPC 请求");
   }
   return senderWindow;
+}
+
+function requireTrustedMainWindow(event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow {
+  const window = requireTrustedSenderWindow(event);
+  if (!mainWindows.has(window)) throw new Error("拒绝来自非工作台窗口的 IPC 请求");
+  return window;
 }
 
 function isCurrentRequestContext(
@@ -393,25 +422,38 @@ async function authorizeTrustedFallback(
 
   let response = 0;
   try {
+    const english = interfaceLocaleFor(senderWindow) === "en";
     const result = await dialog.showMessageBox(senderWindow, {
       type: "warning",
-      title: "确认仅执行这一次",
+      title: english ? "Allow This Run Once" : "确认仅执行这一次",
       message:
         operation === "compile"
-          ? "嵌套沙箱不可用。是否编译这份可信代码？"
+          ? english
+            ? "The nested sandbox is unavailable. Compile this trusted code?"
+            : "嵌套沙箱不可用。是否编译这份可信代码？"
           : operation === "run"
-            ? "嵌套沙箱不可用。是否运行这个可信程序？"
+            ? english
+              ? "The nested sandbox is unavailable. Run this trusted program?"
+              : "嵌套沙箱不可用。是否运行这个可信程序？"
             : operation === "diagnose"
-              ? "嵌套沙箱不可用。是否执行这一次完整可信诊断？"
-              : "嵌套沙箱不可用。是否执行这一次临时影子 Trace？",
+              ? english
+                ? "The nested sandbox is unavailable. Run this full trusted diagnostic once?"
+                : "嵌套沙箱不可用。是否执行这一次完整可信诊断？"
+              : english
+                ? "The nested sandbox is unavailable. Run this temporary shadow Trace once?"
+                : "嵌套沙箱不可用。是否执行这一次临时影子 Trace？",
       detail: [
-        "trusted-only 没有 Seatbelt 文件与网络隔离，只能用于你确认可信的代码。",
+        english
+          ? "trusted-only has no Seatbelt file or network isolation. Use it only for code you trust."
+          : "trusted-only 没有 Seatbelt 文件与网络隔离，只能用于你确认可信的代码。",
         "",
         ...summary.detailLines,
         "",
-        "授权仅绑定上述请求摘要，使用一次后立即失效。",
+        english
+          ? "This authorization is bound to the request summary above and expires after one use."
+          : "授权仅绑定上述请求摘要，使用一次后立即失效。",
       ].join("\n"),
-      buttons: ["取消", "仅允许这一次"],
+      buttons: english ? ["Cancel", "Allow Once"] : ["取消", "仅允许这一次"],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -440,6 +482,22 @@ async function authorizeTrustedFallback(
 }
 
 function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): void {
+  ipcMain.handle(IPC_CHANNELS.getSystemLocale, (event, ...args) => {
+    requireTrustedSenderWindow(event);
+    if (args.length !== 0) throw new TypeError("系统语言请求不接受参数");
+    return resolveSystemInterfaceLocale(app.getPreferredSystemLanguages()[0], app.getLocale());
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setInterfaceLocale, (event, ...args) => {
+    const senderWindow = requireTrustedSenderWindow(event);
+    if (args.length !== 1 || !isInterfaceLocale(args[0])) {
+      throw new TypeError("界面语言请求无效");
+    }
+    const locale = args[0];
+    interfaceLocales.set(senderWindow, locale);
+    senderWindow.setTitle(locale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板");
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.readLearningCatalog,
     async (event, ...args): Promise<LearningCatalogReadResult> => {
@@ -495,10 +553,11 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
     try {
       let result: Awaited<ReturnType<typeof dialog.showOpenDialog>>;
       try {
+        const english = interfaceLocaleFor(senderWindow) === "en";
         result = await dialog.showOpenDialog(senderWindow, {
-          title: "导入 C 源文件",
+          title: english ? "Import C Source File" : "导入 C 源文件",
           properties: ["openFile"],
-          filters: [{ name: "C 源文件", extensions: ["c"] }],
+          filters: [{ name: english ? "C Source Files" : "C 源文件", extensions: ["c"] }],
         });
       } catch {
         return sourceDialogFailure();
@@ -694,6 +753,10 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
 }
 
 function createMainWindow(): BrowserWindow {
+  const initialLocale = resolveSystemInterfaceLocale(
+    app.getPreferredSystemLanguages()[0],
+    app.getLocale(),
+  );
   const webPreferences = Object.freeze({
     preload: preloadPath,
     contextIsolation: true,
@@ -711,10 +774,12 @@ function createMainWindow(): BrowserWindow {
     minWidth: 860,
     minHeight: 600,
     show: true,
-    backgroundColor: "#f1f1ee",
-    title: "C 积木算法面板",
+    backgroundColor: "#ffffff",
+    title: initialLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板",
     webPreferences,
   }) as PanelBrowserWindow;
+  mainWindows.add(mainWindow);
+  interfaceLocales.set(mainWindow, initialLocale);
 
   Object.defineProperty(mainWindow, "panelSecurityPreferences", {
     configurable: false,
@@ -765,16 +830,30 @@ void app.whenReady().then(() => {
     }),
     client: aiProviderClient,
     mentor: createAiMentorController(aiProviderClient),
-    authorize: (event) => requireTrustedSenderWindow(event),
+    authorize: (event) => requireTrustedMainWindow(event),
+    isShuttingDown: () => isShuttingDown,
+  });
+  registerAiProjectIpcHandlers({
+    ipcMain,
+    store: createAiProjectStore(workspaceRoot),
+    authorize: (event) => void requireTrustedMainWindow(event),
     isShuttingDown: () => isShuttingDown,
   });
   registerWorkspaceIpcHandlers({
     ipcMain,
     store: createWorkspaceStore(workspaceRoot),
-    authorize: (event) => void requireTrustedSenderWindow(event),
+    authorize: (event) => void requireTrustedMainWindow(event),
     isShuttingDown: () => isShuttingDown,
   });
   registerWorkspaceCloseResponses();
+  aiWindowManager = registerNativeAiWindow({
+    ipcMain,
+    preloadPath: aiWindowPreloadPath,
+    rendererFilePath: aiWindowRendererFilePath,
+    developmentServerUrl,
+    authorizeHost: (event) => requireTrustedMainWindow(event),
+    isShuttingDown: () => isShuttingDown,
+  });
   createMainWindow();
 });
 
@@ -788,6 +867,7 @@ app.on("before-quit", (event) => {
   if (cleanupComplete) return;
   event.preventDefault();
   quitRequested = true;
+  aiWindowManager?.closeAll();
   const windows = BrowserWindow.getAllWindows();
   if (windows.length === 0) {
     beginShutdownCleanup();

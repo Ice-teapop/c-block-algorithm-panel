@@ -65,6 +65,48 @@ export interface LibraryTutorial {
   readonly completionChecks: readonly string[];
 }
 
+/** Optional reviewed copy for a rendered code/example surface. Source code may be omitted. */
+export interface LibraryCodeExampleLocalization {
+  readonly caption?: string | undefined;
+  readonly code?: string | undefined;
+}
+
+export interface LibraryTutorialStepLocalization {
+  readonly title?: string | undefined;
+  readonly instruction?: string | undefined;
+  readonly artifactExamples?: readonly LibraryCodeExampleLocalization[] | undefined;
+  readonly featureLinkLabel?: string | undefined;
+  readonly check?: string | undefined;
+}
+
+export interface LibraryTutorialLocalization {
+  readonly learningGoals?: readonly string[] | undefined;
+  readonly steps?: Readonly<Record<string, LibraryTutorialStepLocalization>> | undefined;
+  readonly completionChecks?: readonly string[] | undefined;
+}
+
+/**
+ * Reviewed locale data is additive so old catalogs remain valid. Missing fields use a safe,
+ * locale-native fallback; the renderer never exposes another locale as an implicit fallback.
+ */
+export interface LibraryEntryLocalization {
+  readonly title?: string | undefined;
+  readonly summary?: string | undefined;
+  readonly details?: readonly string[] | undefined;
+  readonly aliases?: readonly string[] | undefined;
+  readonly keywords?: readonly string[] | undefined;
+  readonly example?: LibraryCodeExampleLocalization | null | undefined;
+  readonly syntax?: LibraryCodeExampleLocalization | null | undefined;
+  readonly complexity?: string | null | undefined;
+  readonly pitfalls?: readonly string[] | undefined;
+  readonly featureLinkLabel?: string | undefined;
+  readonly tutorial?: LibraryTutorialLocalization | null | undefined;
+}
+
+export interface LibraryEntryLocalizations {
+  readonly en?: LibraryEntryLocalization | undefined;
+}
+
 export interface LibraryEntry {
   readonly id: string;
   readonly branchId: LibraryBranchId;
@@ -86,6 +128,8 @@ export interface LibraryEntry {
   readonly pitfalls?: readonly string[] | undefined;
   /** Optional guided path. Dictionary-only entries remain valid without it. */
   readonly tutorial?: LibraryTutorial | null | undefined;
+  /** Reviewed locale-specific presentation copy. */
+  readonly localizations?: LibraryEntryLocalizations | undefined;
 }
 
 export interface LibraryEntryInput {
@@ -104,6 +148,7 @@ export interface LibraryEntryInput {
   readonly complexity?: string | null | undefined;
   readonly pitfalls?: readonly string[] | undefined;
   readonly tutorial?: LibraryTutorial | null | undefined;
+  readonly localizations?: LibraryEntryLocalizations | undefined;
 }
 
 export interface LibrarySearchResult {

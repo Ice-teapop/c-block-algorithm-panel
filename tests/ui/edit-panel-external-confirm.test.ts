@@ -26,6 +26,31 @@ describe("edit panel external diff confirmation", () => {
     expect(fixture.root.findByClass("edit-panel__confirmation")?.showModalCount).toBe(0);
     expect(fixture.root.findByClass("edit-panel__status")?.textContent).toMatch(/已取消/u);
   });
+
+  it("relabels the open editor and exact diff in place while preserving external text", async () => {
+    const fixture = fakeHost();
+    const panel = createEditPanel(fixture.host as unknown as HTMLElement, inertCallbacks());
+    panel.setStatus({ kind: "error", message: "gcc 原始诊断" });
+    const decision = panel.confirmExternal(confirmationPlan());
+
+    fixture.root.dataset.locale = "en";
+    fixture.root.dispatch("workbench-locale-change");
+
+    const values = fixture.root.textValues();
+    expect(fixture.root.findByClass("edit-panel")?.getAttribute("aria-label")).toBe(
+      "Edit inspector",
+    );
+    expect(values).toContain("Undo");
+    expect(values).toContain("Redo");
+    expect(values).toContain("Confirm Changes");
+    expect(values).toContain("Before [10, 19)");
+    expect(values).toContain("After [10, 10)");
+    expect(values).toContain("return 0;");
+    expect(values).toContain("gcc 原始诊断");
+
+    fixture.root.findByClass("edit-panel__confirmation")?.close("cancel");
+    await expect(decision).resolves.toBe(false);
+  });
 });
 
 function confirmationPlan(): EditConfirmationPlan {
@@ -105,6 +130,10 @@ class FakeElement {
     this.attributes.set(name, value);
   }
 
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
     const invoke =
       typeof listener === "function"
@@ -145,9 +174,20 @@ class FakeElement {
     return [this.textContent, ...this.children.flatMap((child) => child.textValues())];
   }
 
-  private dispatch(type: string): void {
+  dispatch(type: string): void {
     const event = new FakeEvent();
     for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  closest<T extends FakeElement = FakeElement>(selector: string): T | null {
+    let current: FakeElement | null = this;
+    while (current !== null) {
+      if (selector.includes("[data-locale]") && current.dataset.locale !== undefined) {
+        return current as T;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   private find(predicate: (element: FakeElement) => boolean): FakeElement | undefined {
@@ -167,6 +207,7 @@ class FakeEvent {
 function fakeHost(): { readonly root: FakeElement; readonly host: FakeElement } {
   const document = new FakeDocument();
   const root = document.createElement("main");
+  root.dataset.locale = "zh-CN";
   const host = document.createElement("div");
   root.append(host);
   return { root, host };

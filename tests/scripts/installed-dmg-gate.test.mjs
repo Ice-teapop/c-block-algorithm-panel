@@ -54,7 +54,7 @@ describe("installed DMG release gate", () => {
         protocol: "file:",
         startupHidden: true,
         dashboardVisible: true,
-        dockLabels: ["设置", "预设块", "Library", "面板预览"],
+        dockLabels: ["设置", "积木", "Library", "布局"],
         parserState: "ready",
         analysisState: "complete",
         flowNodeCount: 5,
@@ -81,10 +81,12 @@ describe("installed DMG release gate", () => {
       validateAsarEntries(
         [
           "/dist/index.html",
+          "/dist/ai-window.html",
           "/dist/assets/tree-sitter-c-a.wasm",
           "/dist/assets/web-tree-sitter-b.wasm",
           "/dist/assets/program-analysis-worker-c.js",
           "/dist-electron/preload/index.cjs",
+          "/dist-electron/preload/ai-window.cjs",
           "/dist-electron/electron/main/index.js",
         ].join("\n"),
       ),
@@ -95,7 +97,7 @@ describe("installed DMG release gate", () => {
   it("requires build, installed check, checksum and publication in that order", () => {
     expect(() =>
       assertReleaseGateOrder(`
-run: npm run dist:mac:beta
+run: npm run dist:mac
 run: npm run verify:installed-dmg
 shasum -a 256
 - name: Upload verified build artifact
@@ -106,7 +108,7 @@ gh release create
     expect(() =>
       assertReleaseGateOrder(`
 run: npm run verify:installed-dmg
-run: npm run dist:mac:beta
+run: npm run dist:mac
 shasum -a 256
 - name: Upload verified build artifact
 uses: actions/upload-artifact@v4

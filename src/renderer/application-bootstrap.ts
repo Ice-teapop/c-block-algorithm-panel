@@ -36,6 +36,16 @@ export async function initializeWorkbenchApplication(
   options: ApplicationBootstrapOptions,
 ): Promise<void> {
   const { elements, startupLoader, sourceImport } = options;
+  const localized = (zh: string, en: string): string =>
+    elements.shell.dataset.locale === "en" ? en : zh;
+  const parserReadyCopy = Object.freeze({
+    zh: "C 解析器已加载 · 等待打开工作区条目",
+    en: "C parser loaded · waiting for a workspace entry",
+  });
+  const importReadyCopy = Object.freeze({
+    zh: "可新建本地条目，或打开、拖入、粘贴现有 .c 文件。",
+    en: "Create a local entry, or open, drop, or paste an existing .c file.",
+  });
   let parser: CParser | null = null;
   let catalogStorage: LoadedLearningCatalogStorage | null = null;
   try {
@@ -65,18 +75,42 @@ export async function initializeWorkbenchApplication(
     startupLoader.advance("parser-ready");
     sourceImport.setEnabled(true);
     startupLoader.advance("source");
-    elements.parserStatus.textContent = "C 解析器已加载 · 等待打开工作区条目";
+    elements.parserStatus.textContent = localized(parserReadyCopy.zh, parserReadyCopy.en);
     elements.parserStatus.dataset.state = "ready";
     await options.workspace.initialize();
     if (options.isDestroyed()) return;
-    sourceImport.setStatus("可新建本地条目，或打开、拖入、粘贴现有 .c 文件。", "ready");
+    sourceImport.setStatus(localized(importReadyCopy.zh, importReadyCopy.en), "ready");
+    const onLocaleChange = (): void => {
+      if (
+        elements.parserStatus.textContent === parserReadyCopy.zh ||
+        elements.parserStatus.textContent === parserReadyCopy.en
+      ) {
+        elements.parserStatus.textContent = localized(parserReadyCopy.zh, parserReadyCopy.en);
+      }
+      if (
+        elements.importStatus.textContent === importReadyCopy.zh ||
+        elements.importStatus.textContent === importReadyCopy.en
+      ) {
+        sourceImport.setStatus(localized(importReadyCopy.zh, importReadyCopy.en), "ready");
+      }
+    };
+    elements.shell.addEventListener("workbench-locale-change", onLocaleChange, { once: false });
     startupLoader.complete();
   } catch (error: unknown) {
-    const detail = error instanceof Error ? error.message : "未知错误";
-    startupLoader.fail(`启动失败：${detail}`);
-    elements.parserStatus.textContent = `C 解析器不可用：${detail}`;
+    const detail = error instanceof Error ? error.message : localized("未知错误", "unknown error");
+    startupLoader.fail(localized(`启动失败：${detail}`, `Startup failed: ${detail}`));
+    elements.parserStatus.textContent = localized(
+      `C 解析器不可用：${detail}`,
+      `C parser unavailable: ${detail}`,
+    );
     elements.parserStatus.dataset.state = "error";
-    sourceImport.setStatus("解析器初始化失败，源码工作台已停用。", "error");
+    sourceImport.setStatus(
+      localized(
+        "解析器初始化失败，源码工作台已停用。",
+        "Parser initialization failed; the source workbench is disabled.",
+      ),
+      "error",
+    );
   } finally {
     parser?.dispose();
     catalogStorage?.destroy();

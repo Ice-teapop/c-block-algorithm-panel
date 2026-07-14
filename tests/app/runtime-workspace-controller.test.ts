@@ -7,6 +7,7 @@ import type {
 } from "../../src/mentor/index.js";
 import {
   createRuntimeWorkspaceController,
+  scenarioCatalogSummaryLabel,
   type RuntimeLearningObservation,
   type RuntimeWorkspaceControllerOptions,
 } from "../../src/app/runtime-workspace-controller.js";
@@ -35,9 +36,15 @@ const FINGERPRINT = fingerprintSource(SOURCE);
 afterEach(() => vi.unstubAllGlobals());
 
 describe("runtime workspace controller", () => {
+  it("localizes the case-management disclosure", () => {
+    expect(scenarioCatalogSummaryLabel(false)).toBe("管理案例");
+    expect(scenarioCatalogSummaryLabel(true)).toBe("Manage Cases");
+  });
+
   it("mounts all runtime surfaces and keeps teaching simulation out of real APIs", async () => {
     const harness = setup();
 
+    harness.controller.scenario.selectScenario("scenario.test.branch");
     await harness.controller.scenario.simulateForTeaching();
 
     expect(harness.elements.scenarioHost.children).toHaveLength(1);
@@ -57,6 +64,7 @@ describe("runtime workspace controller", () => {
   it("passes the exact scenario input to Trace and enables only the branch actually observed", async () => {
     const harness = setup({ traceBranches: [true, false] });
     await harness.controller.setWorkspaceEntry("project-a", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const firstRun = harness.controller.scenario.runReal();
     await driveTrace(harness.scheduler);
@@ -137,6 +145,7 @@ describe("runtime workspace controller", () => {
   it("reports a wrong real output as teaching evidence before rejecting history", async () => {
     const harness = setup({ runStdout: "wrong\n" });
     await harness.controller.setWorkspaceEntry("tutorial-a", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const run = harness.controller.scenario.runReal();
     await driveTrace(harness.scheduler);
@@ -163,14 +172,29 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
-  it("reports a fully mapped Trace started directly from the Trace panel", async () => {
+  it("runs an unbound project before offering a fully mapped manual Trace", async () => {
     const harness = setup();
     await harness.controller.setWorkspaceEntry("tutorial-trace", FINGERPRINT);
+    await flushAsync();
 
+    expect(() =>
+      findElement(harness.elements.traceHost, (element) => element.textContent === "观察路径"),
+    ).toThrow(/element not found/u);
+    expect(harness.controller.scenario.hasScenarioBinding()).toBe(false);
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("运行");
+    harness.elements.tracePrimaryButton.click();
+    expect(harness.api.run).not.toHaveBeenCalled();
     findElement(
-      harness.elements.traceHost,
-      (element) => element.textContent === "观察路径",
+      harness.elements.manualRunInputHost,
+      (element) => element.textContent === "无输入运行",
     ).click();
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+    expect(harness.api.startTrace).not.toHaveBeenCalled();
+    expect(harness.api.run).toHaveBeenCalledWith(expect.objectContaining({ stdin: "", args: [] }));
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("观察路径");
+
+    harness.elements.tracePrimaryButton.click();
+    expect(harness.elements.focusPanel).toHaveBeenCalledWith("runtime");
     await driveTrace(harness.scheduler);
     await waitFor(() => harness.learningObservations.length === 1);
 
@@ -179,20 +203,123 @@ describe("runtime workspace controller", () => {
         type: "trace-completed",
         workspaceId: "tutorial-trace",
         sourceFingerprint: FINGERPRINT,
-        scenarioId: "scenario.test.branch",
+        scenarioId: "manual.current-source",
         scenarioVersion: "1.0.0",
         size: 1,
         branchKinds: ["branch-true"],
       }),
     ]);
-    expect(harness.api.compile).not.toHaveBeenCalled();
-    expect(harness.api.run).not.toHaveBeenCalled();
+    expect(harness.api.compile).toHaveBeenCalledOnce();
+    expect(harness.api.run).toHaveBeenCalledOnce();
+    await harness.controller.destroy();
+  });
+
+  it("persists confirmed manual input for the same source and invalidates it after edits", async () => {
+    const first = setup();
+    await first.controller.setWorkspaceEntry("manual-persist", FINGERPRINT);
+    first.elements.tracePrimaryButton.click();
+    findElement(
+      first.elements.manualRunInputHost,
+      (element) => element.textContent === "无输入运行",
+    ).click();
+    await waitFor(() => first.api.run.mock.calls.length === 1);
+    await first.controller.flush();
+    const serialized = first.saved
+      .filter((request) => request.kind === "scenarios")
+      .at(-1)?.serialized;
+    expect(JSON.parse(serialized ?? "null")).toMatchObject({
+      sourceFingerprint: FINGERPRINT,
+      manualInput: { sourceFingerprint: FINGERPRINT, stdin: "", arguments: [] },
+    });
+    await first.controller.destroy();
+
+    const restored = setup({ scenarioSidecar: serialized });
+    await restored.controller.setWorkspaceEntry("manual-persist", FINGERPRINT);
+    await flushAsync();
+    restored.elements.tracePrimaryButton.click();
+    expect(
+      findElement(
+        restored.elements.manualRunInputHost,
+        (element) => element.className === "manual-run-input__editor",
+      ).hidden,
+    ).toBe(true);
+    await waitFor(() => restored.api.run.mock.calls.length === 1);
+    expect(restored.api.run).toHaveBeenCalledWith(expect.objectContaining({ stdin: "", args: [] }));
+
+    restored.source.value = `${SOURCE}\n`;
+    restored.controller.invalidateSource();
+    await restored.controller.flush();
+    const afterEdit = restored.saved
+      .filter((request) => request.kind === "scenarios")
+      .at(-1)?.serialized;
+    expect(JSON.parse(afterEdit ?? "null")).toMatchObject({ manualInput: null });
+    await restored.controller.destroy();
+  });
+
+  it("cycles certain findings with the primary action and F8 shortcuts", async () => {
+    const analysis = analysisWithCertainFindings();
+    const harness = setup({ analysis });
+    await harness.controller.setWorkspaceEntry("problem-cycle", FINGERPRINT);
+    harness.controller.setAnalysis(analysis);
+
+    harness.elements.tracePrimaryButton.click();
+    findElement(
+      harness.elements.manualRunInputHost,
+      (element) => element.textContent === "无输入运行",
+    ).click();
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 1/2");
+    harness.elements.tracePrimaryButton.click();
+    expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(1, 2));
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 2/2");
+
+    const next = keyboardEvent("F8");
+    harness.elements.shell.dispatch("keydown", next);
+    expect(next.preventDefault).toHaveBeenCalledOnce();
+    expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(3, 4));
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 1/2");
+
+    const previous = keyboardEvent("F8", true);
+    harness.elements.shell.dispatch("keydown", previous);
+    expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(3, 4));
+    await harness.controller.destroy();
+  });
+
+  it("publishes one frozen benchmark completion only after every real run succeeds", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("benchmark-project", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
+    harness.controller.scenario.configureBenchmark([1, 2, 3], 3);
+
+    const benchmark = harness.controller.scenario.runBenchmark();
+    for (let run = 0; run < 9; run += 1) await driveTrace(harness.scheduler);
+    await benchmark;
+
+    const completed = harness.learningObservations.filter(
+      (observation) => observation.type === "benchmark-completed",
+    );
+    expect(completed).toEqual([
+      {
+        type: "benchmark-completed",
+        workspaceId: "benchmark-project",
+        sourceFingerprint: FINGERPRINT,
+        scenarioId: "scenario.test.branch",
+        scenarioVersion: "1.0.0",
+        sizes: [1, 2, 3],
+        repetitions: 3,
+      },
+    ]);
+    expect(Object.isFrozen(completed[0])).toBe(true);
+    expect(Object.isFrozen(completed[0]?.sizes)).toBe(true);
     await harness.controller.destroy();
   });
 
   it("stops a real benchmark immediately after the source changes", async () => {
     const secondCompile = deferred<CompileResult>();
     const harness = setup({ deferCompileCall: 2, deferredCompile: secondCompile });
+    await harness.controller.setWorkspaceEntry("benchmark-stale", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
     harness.controller.scenario.configureBenchmark([1, 2, 3], 3);
 
     const benchmark = harness.controller.scenario.runBenchmark();
@@ -206,6 +333,11 @@ describe("runtime workspace controller", () => {
     await expect(benchmark).rejects.toThrow(/失效|改变/u);
     expect(harness.api.run).toHaveBeenCalledOnce();
     expect(harness.api.compile).toHaveBeenCalledTimes(2);
+    expect(
+      harness.learningObservations.some(
+        (observation) => observation.type === "benchmark-completed",
+      ),
+    ).toBe(false);
     await harness.controller.destroy();
   });
 
@@ -231,6 +363,8 @@ interface SetupOptions {
   readonly deferCompileCall?: number;
   readonly deferredCompile?: Deferred<CompileResult>;
   readonly damagedScenarioSidecar?: boolean;
+  readonly scenarioSidecar?: string | undefined;
+  readonly analysis?: import("../../src/analysis/index.js").ProgramAnalysisSnapshot | null;
 }
 
 function setup(config: SetupOptions = {}) {
@@ -240,6 +374,8 @@ function setup(config: SetupOptions = {}) {
   const source = { value: SOURCE };
   const paths: FlowCanvasActivePath[] = [];
   const learningObservations: RuntimeLearningObservation[] = [];
+  const onFocusNode = vi.fn();
+  const onRevealRange = vi.fn();
   const saved: Array<{ kind: string; serialized: string }> = [];
   const traceBranches = [...(config.traceBranches ?? [true])];
   const traceSessions = new Map<string, { branch: boolean; reads: number }>();
@@ -293,6 +429,18 @@ function setup(config: SetupOptions = {}) {
           },
         };
       }
+      if (request.kind === "scenarios" && config.scenarioSidecar !== undefined) {
+        return {
+          status: "ready" as const,
+          document: {
+            kind: "scenarios" as const,
+            revision: 0,
+            sourceFingerprint: FINGERPRINT,
+            serialized: config.scenarioSidecar,
+            updatedAt: "2026-07-12T00:00:00.000Z",
+          },
+        };
+      }
       return { status: "missing" as const, kind: request.kind };
     }),
     saveWorkspaceSidecar: vi.fn(
@@ -326,11 +474,11 @@ function setup(config: SetupOptions = {}) {
     getSource: () => source.value,
     getAnalyzedSource: () => source.value,
     getDisplayName: () => "main.c",
-    getAnalysis: () => null,
+    getAnalysis: () => config.analysis ?? null,
     getProjection: () => (source.value === SOURCE ? projection() : null),
     onSetActivePath: (path) => paths.push(path),
-    onFocusNode: vi.fn(),
-    onRevealRange: vi.fn(),
+    onFocusNode,
+    onRevealRange,
     onLearningObservation: (observation) => learningObservations.push(observation),
     scenarioProvider: provider(),
     traceScheduler: scheduler,
@@ -346,6 +494,69 @@ function setup(config: SetupOptions = {}) {
     paths,
     learningObservations,
     saved,
+    onFocusNode,
+    onRevealRange,
+  };
+}
+
+function analysisWithCertainFindings(): import("../../src/analysis/index.js").ProgramAnalysisSnapshot {
+  return {
+    revision: 1,
+    sourceLength: SOURCE.length,
+    sourceFingerprint: FINGERPRINT,
+    functions: Object.freeze([]),
+    defUse: Object.freeze([]),
+    memoryEvents: Object.freeze([]),
+    memoryTypestate: Object.freeze([]),
+    findings: Object.freeze([
+      {
+        id: "finding.first",
+        functionId: "function.main",
+        ruleId: "uninitialized-read",
+        reason: "no-reaching-definition",
+        confidence: "certain",
+        primaryRange: textRange(1, 2),
+        ownerNodeId: "start",
+        subject: null,
+        subjectVariableId: null,
+        evidence: Object.freeze([]),
+      },
+      {
+        id: "finding.hint",
+        functionId: "function.main",
+        ruleId: "uninitialized-read",
+        reason: "no-reaching-definition",
+        confidence: "likely",
+        primaryRange: textRange(2, 3),
+        ownerNodeId: "start",
+        subject: null,
+        subjectVariableId: null,
+        evidence: Object.freeze([]),
+      },
+      {
+        id: "finding.second",
+        functionId: "function.main",
+        ruleId: "uninitialized-read",
+        reason: "no-reaching-definition",
+        confidence: "certain",
+        primaryRange: textRange(3, 4),
+        ownerNodeId: "start",
+        subject: null,
+        subjectVariableId: null,
+        evidence: Object.freeze([]),
+      },
+    ]),
+  };
+}
+
+function keyboardEvent(key: string, shiftKey = false) {
+  return {
+    key,
+    shiftKey,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    preventDefault: vi.fn(),
   };
 }
 
@@ -637,8 +848,11 @@ function deferred<T>(): Deferred<T> {
 
 function workbenchElements(document: FakeDocument) {
   const hosts = {
+    shell: document.createElement("div"),
     scenarioHost: document.createElement("div"),
     traceHost: document.createElement("div"),
+    tracePrimaryButton: document.createElement("button"),
+    manualRunInputHost: document.createElement("div"),
     metricsHost: document.createElement("div"),
     mentorHost: document.createElement("div"),
     analysisHost: document.createElement("div"),
@@ -647,6 +861,7 @@ function workbenchElements(document: FakeDocument) {
   return {
     ...hosts,
     getInspectorHost: () => hosts.runHost,
+    focusPanel: vi.fn(),
   };
 }
 
@@ -700,6 +915,10 @@ class FakeElement {
     this.attributes.set(name, value);
   }
 
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
   addEventListener(type: string, listener: () => void): void {
     const listeners = this.listeners.get(type) ?? new Set();
     listeners.add(listener);
@@ -712,6 +931,12 @@ class FakeElement {
 
   click(): void {
     for (const listener of this.listeners.get("click") ?? []) listener();
+  }
+
+  dispatch(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      (listener as (next: unknown) => void)(event);
+    }
   }
 
   cloneNode(deep: boolean): FakeElement {

@@ -1,3 +1,5 @@
+import type { InterfaceLocale } from "../shared/interface-locale.js";
+
 export type ResizableLayoutAxis = "horizontal" | "vertical";
 
 export interface ResizablePaneDefinition {
@@ -21,6 +23,7 @@ export interface ResizableLayoutOptions {
   readonly axis: ResizableLayoutAxis;
   readonly panes: readonly ResizablePaneDefinition[];
   readonly keyboardStep?: number | undefined;
+  readonly localeHost?: HTMLElement | undefined;
   readonly onResize?:
     ((snapshot: ResizableLayoutSnapshot, reason: ResizableLayoutChangeReason) => void) | undefined;
   readonly onPersist?:
@@ -70,6 +73,9 @@ export function createResizableLayout(
 ): ResizableLayoutController {
   assertOptions(options);
   const ownerDocument = host.ownerDocument;
+  const localeHost = options.localeHost ?? host;
+  const currentLocale = (): InterfaceLocale =>
+    localeHost.dataset.locale === "en" ? "en" : "zh-CN";
   const panes: MountedPane[] = options.panes.map((definition) => ({
     definition,
     element: definition.element,
@@ -100,7 +106,11 @@ export function createResizableLayout(
         "aria-orientation",
         options.axis === "horizontal" ? "vertical" : "horizontal",
       );
-      splitter.setAttribute("aria-label", `${pane.definition.label ?? pane.definition.id} 尺寸`);
+      splitter.setAttribute(
+        "aria-label",
+        splitterAriaLabel(pane.definition.label ?? pane.definition.id, currentLocale()),
+      );
+      splitter.title = splitterPointerTitle(currentLocale());
       splitter.setAttribute("aria-controls", pane.element.id || pane.definition.id);
       updateSplitterAria(splitter, pane);
       host.append(splitter);
@@ -162,15 +172,26 @@ export function createResizableLayout(
     setPaneSize(activeResize.paneIndex, activeResize.originSize + delta, "drag");
   };
 
-  const finishPointerResize = (event: PointerEvent): void => {
-    if (destroyed || activeResize === null || event.pointerId !== activeResize.pointerId) return;
-    const splitter = splitters.find((item) => item.paneIndex === activeResize?.paneIndex);
-    splitter?.element.classList.remove("is-resizing");
-    splitter?.element.releasePointerCapture?.(event.pointerId);
+  const finishActiveResize = (pointerId: number | null): void => {
+    if (
+      destroyed ||
+      activeResize === null ||
+      (pointerId !== null && pointerId !== activeResize.pointerId)
+    ) {
+      return;
+    }
+    const completed = activeResize;
     activeResize = null;
+    const splitter = splitters.find((item) => item.paneIndex === completed.paneIndex);
+    splitter?.element.classList.remove("is-resizing");
+    if (splitter?.element.hasPointerCapture?.(completed.pointerId) === true) {
+      splitter.element.releasePointerCapture(completed.pointerId);
+    }
     host.classList.remove("is-resizing");
     options.onPersist?.(snapshot(), "drag-end");
   };
+  const finishPointerResize = (event: PointerEvent): void => finishActiveResize(event.pointerId);
+  const onWindowBlur = (): void => finishActiveResize(null);
 
   const onKeydown = (event: KeyboardEvent): void => {
     if (destroyed) return;
@@ -192,12 +213,26 @@ export function createResizableLayout(
     setPaneSize(splitter.paneIndex, resolution.size, "keyboard");
     options.onPersist?.(snapshot(), "keyboard");
   };
+  const onLocaleChange = (): void => {
+    for (const splitter of splitters) {
+      const pane = panes[splitter.paneIndex];
+      if (pane === undefined) continue;
+      splitter.element.setAttribute(
+        "aria-label",
+        splitterAriaLabel(pane.definition.label ?? pane.definition.id, currentLocale()),
+      );
+      splitter.element.title = splitterPointerTitle(currentLocale());
+    }
+  };
 
   host.addEventListener("pointerdown", onPointerDown);
   host.addEventListener("keydown", onKeydown);
+  host.addEventListener("lostpointercapture", finishPointerResize);
   ownerDocument.addEventListener("pointermove", onPointerMove);
   ownerDocument.addEventListener("pointerup", finishPointerResize);
   ownerDocument.addEventListener("pointercancel", finishPointerResize);
+  ownerDocument.defaultView?.addEventListener("blur", onWindowBlur);
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
 
   return Object.freeze({
     element: host,
@@ -225,8 +260,16 @@ export function createResizableLayout(
     },
     destroy(): void {
       if (destroyed) return;
-      destroyed = true;
+      const pendingResize = activeResize;
       activeResize = null;
+      if (pendingResize !== null) {
+        const splitter = splitters.find((item) => item.paneIndex === pendingResize.paneIndex);
+        splitter?.element.classList.remove("is-resizing");
+        if (splitter?.element.hasPointerCapture?.(pendingResize.pointerId) === true) {
+          splitter.element.releasePointerCapture(pendingResize.pointerId);
+        }
+      }
+      destroyed = true;
       host.classList.remove("is-resizing", "resizable-layout");
       delete host.dataset.resizableAxis;
       host.style.removeProperty("display");
@@ -234,13 +277,27 @@ export function createResizableLayout(
       host.style.removeProperty("overflow");
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("keydown", onKeydown);
+      host.removeEventListener("lostpointercapture", finishPointerResize);
       ownerDocument.removeEventListener("pointermove", onPointerMove);
       ownerDocument.removeEventListener("pointerup", finishPointerResize);
       ownerDocument.removeEventListener("pointercancel", finishPointerResize);
+      ownerDocument.defaultView?.removeEventListener("blur", onWindowBlur);
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       for (const splitter of splitters) splitter.element.remove();
       for (const pane of panes) clearPanePreparation(pane.element, options.axis);
     },
   });
+}
+
+export function splitterAriaLabel(label: string, locale: InterfaceLocale): string {
+  if (locale === "en") {
+    return /[\p{Script=Han}]/u.test(label) ? "Panel size" : `${label} size`;
+  }
+  return `${label} 尺寸`;
+}
+
+function splitterPointerTitle(locale: InterfaceLocale): string {
+  return locale === "en" ? "Drag to resize adjacent panels" : "拖动调整相邻面板";
 }
 
 export interface SplitterKeyboardInput {

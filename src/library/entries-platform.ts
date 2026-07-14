@@ -135,6 +135,24 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       related: ["onboarding.library", "extension.registry"],
     },
   ),
+  e(
+    "manual.ai-assistant",
+    "manual",
+    "AI 助手",
+    "AI 助手把本地确定性检查与用户自带模型的对话分开，用于识别和解释算法、查找可能的边界缺口、比较设计与优化方案并规划下一步实验。",
+    [
+      "“本地检查”无需 API，会根据静态诊断、真实 Trace 路径和运行历史给出可定位的证据提示；单击提示可以回到对应代码或节点。",
+      "“AI 对话”需要在设置中连接模型。可以直接输入、按 Enter 发送，或单击解释算法、设计测试、分析复杂度等常用问题；最多最近 6 轮只保留在当前窗口，用于连续追问。",
+      "默认只发送 main / 首个可分析函数、诊断、控制流摘要和运行证据；完整 main.c 必须在“发送范围”中手动选择。源码更新后旧对话仍可查看，但不会继续作为新版本的上下文。",
+      "分析页的 AI 证据复核会结合当前证据寻找语义缺口、边界遗漏和下一步实验，但确定性测试、真实输出和复杂度证据仍应由用户验证。",
+    ],
+    {
+      aliases: ["AI 提示", "模型对话", "本地检查", "算法助手"],
+      keywords: ["API", "优化", "边界", "运行证据", "隐私", "完成度"],
+      featureLink: link("打开 AI 助手", "build", "mentor-hints"),
+      related: ["manual.inspectors", "manual.source-authority", "execution.metrics"],
+    },
+  ),
 
   e(
     "canvas.free-layout",

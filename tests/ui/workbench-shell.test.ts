@@ -31,6 +31,11 @@ describe("M6 workbench shell behavior", () => {
     expect(app.innerHTML).not.toMatch(/[⌂◇]/u);
     expect(app.innerHTML).toContain(">项目</button>");
     expect(app.innerHTML).toContain(">工作区</button>");
+    expect(app.innerHTML).toContain(">打开 AI 助手</button>");
+    expect(app.innerHTML).toContain('id="ai-assistant-button" class="runtime-ai-action"');
+    expect(app.innerHTML).not.toContain(
+      'class="workspace-switcher__button" type="button" aria-label="打开 AI 助手"',
+    );
     expect(app.innerHTML).toContain(">打开</button>");
     expect(app.innerHTML).toContain(">粘贴</button>");
     expect(shell.startupProgress.id).toBe("startup-progress");
@@ -48,6 +53,7 @@ describe("M6 workbench shell behavior", () => {
     expect(pagePanel("block-library").hidden).toBe(true);
     expect(shell.blockPalette.id).toBe("block-palette");
     expect(shell.flowCanvas.id).toBe("flow-canvas");
+    expect(shell.tracePrimaryButton.id).toBe("trace-primary-action");
     expect(shell.getPageHost("block-library").id).toBe("block-library-host");
     expect(shell.getPageHost("software-library").id).toBe("software-library-host");
     expect(shell.getInspectorHost("edit").id).toBe("edit-host");
@@ -75,6 +81,34 @@ describe("M6 workbench shell behavior", () => {
     expect(shell.currentPage).toBe("build");
     expect(app.require("edit-panel").hidden).toBe(false);
     expect(app.require("explanation-panel").hidden).toBe(true);
+  });
+
+  it("routes command actions through the same settings and layout path as the Dock", () => {
+    const shell = mount();
+    shell.executeMenuAction("settings", "general");
+    expect(app.require("workbench-drawer").hidden).toBe(false);
+    expect(app.require("general-settings").hidden).toBe(false);
+
+    shell.executeMenuAction("panels", "minimal");
+    expect(shell.currentPage).toBe("build");
+    expect((shell.shell as unknown as FakeElement).dataset.layoutPreset).toBe("minimal");
+    expect(app.require("presets-pane").hidden).toBe(true);
+    shell.focusPanel("presets");
+    expect(app.require("presets-pane").hidden).toBe(false);
+    expect(() => shell.executeMenuAction("settings", "missing")).toThrow(/未知工作台菜单/u);
+  });
+
+  it("does not let a delayed background layout restore close the active Library page", () => {
+    const shell = mount();
+
+    shell.showPage("software-library");
+    shell.applyLayoutPreset("minimal", { activateWorkspace: false });
+
+    expect(shell.currentPage).toBe("software-library");
+    expect(pagePanel("software-library").hidden).toBe(false);
+    expect(pagePanel("build").hidden).toBe(true);
+    expect((shell.shell as unknown as FakeElement).dataset.layoutPreset).toBe("minimal");
+    expect(app.require("presets-pane").hidden).toBe(true);
   });
 
   it("removes menu and view listeners during idempotent teardown", () => {
@@ -149,6 +183,18 @@ class FakeElement {
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string | undefined> = {};
   readonly classList = {
+    add: (...classNames: string[]): void => {
+      const classes = new Set(this.className.split(/\s+/u).filter(Boolean));
+      for (const className of classNames) classes.add(className);
+      this.className = [...classes].join(" ");
+    },
+    remove: (...classNames: string[]): void => {
+      const removed = new Set(classNames);
+      this.className = this.className
+        .split(/\s+/u)
+        .filter((className) => className.length > 0 && !removed.has(className))
+        .join(" ");
+    },
     toggle: (className: string, force: boolean): void => {
       const classes = new Set(this.className.split(/\s+/u).filter(Boolean));
       if (force) classes.add(className);
@@ -331,6 +377,8 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const palette = element(document, "div", "block-palette", "block-palette");
   const tree = element(document, "div", "block-tree", "block-tree");
   const flowCanvas = element(document, "div", "flow-canvas", "flow-canvas-host");
+  const tracePrimaryButton = identified(document.createElement("button"), "trace-primary-action");
+  const manualRunInputHost = element(document, "div", "manual-run-input-host");
   const code = element(document, "div", "code-pane", "code-pane");
   const explanationPanel = element(document, "section", "explanation-panel");
   const explanationHost = element(document, "div", "explanation-host");
@@ -355,7 +403,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   presetsPane.append(palette);
   outlinePane.append(tree);
   leftPane.append(presetsPane, outlinePane);
-  centerCanvasPane.append(flowCanvas);
+  centerCanvasPane.append(tracePrimaryButton, manualRunInputHost, flowCanvas);
   bottomPane.append(runPanel, metricsPanel, diagnosticsPanel, mentorPanel);
   centerPane.append(centerCanvasPane);
   codePanel.append(code);
@@ -403,6 +451,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
     identified(document.createElement("button"), "dashboard-tab"),
     identified(document.createElement("button"), "build-tab"),
     identified(document.createElement("button"), "analysis-tab"),
+    identified(document.createElement("button"), "ai-assistant-button"),
     identified(document.createElement("button"), "explanation-tab"),
     identified(document.createElement("button"), "edit-tab"),
     identified(document.createElement("button"), "run-tab"),

@@ -35,20 +35,31 @@ describe("first guided algorithm fixtures", () => {
     parser.dispose();
   });
 
-  it("defines five immutable missions with debug and completion sub-stages", () => {
+  it("defines seven immutable missions including evidence-chart practice", () => {
     expect(FIRST_GUIDED_LESSON.missions.map((mission) => mission.id)).toEqual([
       "mission.run",
       "mission.observe",
+      "mission.read-trace-chart",
       "mission.complete",
+      "mission.read-analysis-chart",
       "mission.debug",
       "mission.migrate",
     ]);
     expect(FIRST_GUIDED_LESSON.missions.map((mission) => mission.stages.length)).toEqual([
-      1, 1, 2, 2, 1,
+      1, 1, 2, 2, 3, 2, 1,
     ]);
     expect(Object.isFrozen(FIRST_GUIDED_LESSON)).toBe(true);
     expect(Object.isFrozen(FIRST_GUIDED_LESSON.missions)).toBe(true);
-    expect(Object.isFrozen(FIRST_GUIDED_LESSON.missions[2]?.stages[1]?.requirements)).toBe(true);
+    expect(Object.isFrozen(FIRST_GUIDED_LESSON.missions[3]?.stages[1]?.requirements)).toBe(true);
+    expect(FIRST_GUIDED_LESSON.missions[2]?.stages[0]?.requirements[0]).toMatchObject({
+      kind: "visualization-answer",
+      visualizationId: "trace-chart",
+    });
+    expect(FIRST_GUIDED_LESSON.missions[4]?.stages[0]?.requirements[0]).toMatchObject({
+      kind: "benchmark-series",
+      sizes: [8, 32, 128],
+      minRepetitions: 3,
+    });
     expect(FIRST_GUIDED_LESSON.initialSource).toBe(FIRST_ALGORITHM_SOURCE);
   });
 

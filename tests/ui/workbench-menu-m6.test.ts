@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   WORKBENCH_MENU_DEFINITIONS,
   moveRovingIndex,
+  workbenchMenuBranchLabel,
   workbenchMenuDefinitionsFromRegistry,
+  workbenchMenuLabel,
 } from "../../src/ui/workbench-menu.js";
 import { createBuiltinWorkbenchRegistry } from "../../src/workbench/builtin-modules.js";
 
@@ -71,5 +73,16 @@ describe("M6 workbench menu contracts", () => {
       WORKBENCH_MENU_DEFINITIONS.map((menu) => menu.branches.map((branch) => branch.id)),
     );
     expect(definitions[3]?.branches.at(-1)?.id).toBe("reset-layout");
+  });
+
+  it("provides English-only visible Dock labels", () => {
+    const labels = [
+      ...WORKBENCH_MENU_DEFINITIONS.map((item) => workbenchMenuLabel(item.id, "en")),
+      ...WORKBENCH_MENU_DEFINITIONS.flatMap((item) =>
+        item.branches.map((branch) => workbenchMenuBranchLabel(item.id, branch.id, "en")),
+      ),
+    ];
+    expect(labels).toContain("AI Assistant");
+    expect(labels.join(" ")).not.toMatch(/[\p{Script=Han}]/u);
   });
 });

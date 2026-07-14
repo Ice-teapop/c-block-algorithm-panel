@@ -1,0 +1,22 @@
+<!doctype html>
+<html class="ai-window-root" lang="en" data-ready="false">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
+    <meta name="description" content="C Block Algorithm Panel AI Assistant" />
+    <link rel="icon" href="./app-icon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+    <!-- Keep the child-window stylesheet external: its strict CSP intentionally rejects
+         Vite's development-time inline style injection. -->
+    <link rel="stylesheet" href="/src/ui/ai-workspace-window.css" />
+    <title>AI</title>
+  </head>
+  <body class="ai-window-body">
+    <div id="ai-window-app"></div>
+    <script type="module" src="/src/ai-window-main.ts"></script>
+  </body>
+</html>

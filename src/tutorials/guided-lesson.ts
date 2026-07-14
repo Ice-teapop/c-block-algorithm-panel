@@ -7,6 +7,9 @@ const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const MAX_TEXT_LENGTH = 16_384;
 const MAX_SOURCE_LENGTH = 1024 * 1024;
 const MAX_CHECKPOINTS = 8;
+const MAX_BENCHMARK_SIZES = 64;
+const MAX_BENCHMARK_SIZE = 1_000_000;
+const MAX_BENCHMARK_REPETITIONS = 10_000;
 
 export interface GuidedLessonScenarioBinding {
   readonly scenarioId: string | null;
@@ -90,6 +93,23 @@ export interface GuidedRealTraceRequirement extends GuidedRequirementBase {
   readonly allowTruncated: boolean;
 }
 
+export interface GuidedBenchmarkSeriesRequirement extends GuidedRequirementBase {
+  readonly kind: "benchmark-series";
+  readonly scenarioId: string;
+  readonly scenarioVersion: string;
+  readonly expectedSourceFingerprint: string;
+  readonly sizes: readonly number[];
+  readonly minRepetitions: number;
+}
+
+export type GuidedVisualizationId = "trace-chart" | "analysis-chart";
+
+export interface GuidedVisualizationAnswerRequirement extends GuidedRequirementBase {
+  readonly kind: "visualization-answer";
+  readonly visualizationId: GuidedVisualizationId;
+  readonly answerId: string;
+}
+
 export type GuidedRequirement =
   | GuidedWorkspaceRequirement
   | GuidedProjectionRequirement
@@ -97,7 +117,9 @@ export type GuidedRequirement =
   | GuidedPresetRequirement
   | GuidedConnectionRequirement
   | GuidedRealRunRequirement
-  | GuidedRealTraceRequirement;
+  | GuidedRealTraceRequirement
+  | GuidedBenchmarkSeriesRequirement
+  | GuidedVisualizationAnswerRequirement;
 
 export interface GuidedMissionStageDefinition {
   readonly id: string;
@@ -181,6 +203,16 @@ export type LearningEvidenceEvent =
         readonly role: GuidedTraceBranchRole;
         readonly outcome: "true" | "false";
       }[];
+    })
+  | (LearningEvidenceBase & {
+      readonly type: "benchmark-completed";
+      readonly sizes: readonly number[];
+      readonly repetitions: number;
+    })
+  | (LearningEvidenceBase & {
+      readonly type: "visualization-answer";
+      readonly visualizationId: GuidedVisualizationId;
+      readonly answerId: string;
     })
   | (LearningEvidenceBase & {
       readonly type: "source-changed";
@@ -678,6 +710,21 @@ function requirementMatches(
           ),
         )
       );
+    case "benchmark-series":
+      return (
+        event.type === "benchmark-completed" &&
+        event.binding.scenarioId === requirement.scenarioId &&
+        event.binding.scenarioVersion === requirement.scenarioVersion &&
+        event.binding.sourceFingerprint === requirement.expectedSourceFingerprint &&
+        event.repetitions >= requirement.minRepetitions &&
+        requirement.sizes.every((size) => event.sizes.includes(size))
+      );
+    case "visualization-answer":
+      return (
+        event.type === "visualization-answer" &&
+        event.visualizationId === requirement.visualizationId &&
+        event.answerId === requirement.answerId
+      );
   }
 }
 
@@ -879,6 +926,21 @@ function satisfactionMatchesRequirement(
         satisfaction.binding.scenarioVersion === requirement.scenarioVersion &&
         satisfaction.caseId === requirement.caseId
       );
+    case "benchmark-series":
+      return (
+        satisfaction.eventType === "benchmark-completed" &&
+        satisfaction.binding.sourceFingerprint === requirement.expectedSourceFingerprint &&
+        satisfaction.binding.scenarioId === requirement.scenarioId &&
+        satisfaction.binding.scenarioVersion === requirement.scenarioVersion &&
+        satisfaction.caseId === null
+      );
+    case "visualization-answer":
+      return (
+        satisfaction.eventType === "visualization-answer" &&
+        satisfaction.binding.scenarioId === null &&
+        satisfaction.binding.scenarioVersion === null &&
+        satisfaction.caseId === null
+      );
   }
 }
 
@@ -898,6 +960,8 @@ function normalizeSatisfactions(value: unknown): readonly GuidedRequirementSatis
           "connection-committed",
           "real-run",
           "trace-completed",
+          "benchmark-completed",
+          "visualization-answer",
         ] as const,
         "eventType",
       );
@@ -981,11 +1045,27 @@ function assertEvidenceEvent(event: LearningEvidenceEvent): void {
       throw new TypeError("Trace 分支证据无效");
     }
   }
+  if (event.type === "benchmark-completed") {
+    assertBenchmarkSizes(event.sizes, "benchmark.sizes");
+    assertPositiveInteger(event.repetitions, "benchmark.repetitions");
+  }
+  if (event.type === "visualization-answer") {
+    assertOneOf(
+      event.visualizationId,
+      ["trace-chart", "analysis-chart"] as const,
+      "visualizationId",
+    );
+    assertStableId(event.answerId, "answerId");
+  }
 }
 
 function assertEvidenceScenarioPolicy(event: LearningEvidenceEvent): boolean {
   const hasScenario = event.binding.scenarioId !== null;
-  return event.type === "real-run" || event.type === "trace-completed" ? hasScenario : !hasScenario;
+  return event.type === "real-run" ||
+    event.type === "trace-completed" ||
+    event.type === "benchmark-completed"
+    ? hasScenario
+    : !hasScenario;
 }
 
 function validateDefinition(definition: GuidedLessonDefinition): void {
@@ -1029,11 +1109,21 @@ function validateDefinition(definition: GuidedLessonDefinition): void {
 }
 
 function validateRequirement(requirement: GuidedRequirement): void {
-  if (requirement.kind === "real-run" || requirement.kind === "real-trace") {
+  if (
+    requirement.kind === "real-run" ||
+    requirement.kind === "real-trace" ||
+    requirement.kind === "benchmark-series"
+  ) {
     assertStableId(requirement.scenarioId, "requirement.scenarioId");
     assertSemver(requirement.scenarioVersion, "requirement.scenarioVersion");
-    assertStableId(requirement.caseId, "requirement.caseId");
-    if (requirement.kind === "real-trace" || requirement.expectedSourceFingerprint !== null) {
+    if (requirement.kind !== "benchmark-series") {
+      assertStableId(requirement.caseId, "requirement.caseId");
+    }
+    if (
+      requirement.kind === "real-trace" ||
+      requirement.kind === "benchmark-series" ||
+      requirement.expectedSourceFingerprint !== null
+    ) {
       assertFingerprint(requirement.expectedSourceFingerprint);
     }
   }
@@ -1056,6 +1146,18 @@ function validateRequirement(requirement: GuidedRequirement): void {
   if (requirement.kind === "preset-inserted" || requirement.kind === "connection-committed") {
     assertStableId(requirement.presetId, "requirement.presetId");
   }
+  if (requirement.kind === "benchmark-series") {
+    assertBenchmarkSizes(requirement.sizes, "requirement.sizes");
+    assertPositiveInteger(requirement.minRepetitions, "requirement.minRepetitions");
+  }
+  if (requirement.kind === "visualization-answer") {
+    assertOneOf(
+      requirement.visualizationId,
+      ["trace-chart", "analysis-chart"] as const,
+      "requirement.visualizationId",
+    );
+    assertStableId(requirement.answerId, "requirement.answerId");
+  }
 }
 
 function freezeDefinition(definition: GuidedLessonDefinition): GuidedLessonDefinition {
@@ -1076,6 +1178,9 @@ function freezeDefinition(definition: GuidedLessonDefinition): GuidedLessonDefin
                       ...requirement,
                       ...(requirement.kind === "real-trace"
                         ? { requiredOutcomes: Object.freeze([...requirement.requiredOutcomes]) }
+                        : {}),
+                      ...(requirement.kind === "benchmark-series"
+                        ? { sizes: Object.freeze([...requirement.sizes]) }
                         : {}),
                     }),
                   ),
@@ -1126,6 +1231,36 @@ function normalizeIdArray(value: unknown, label: string): readonly string[] {
   const ids = value.map((item) => assertStableId(item, label));
   if (new Set(ids).size !== ids.length) throw new TypeError(`${label} 包含重复项`);
   return Object.freeze(ids);
+}
+
+function assertBenchmarkSizes(value: unknown, label: string): asserts value is readonly number[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BENCHMARK_SIZES) {
+    throw new TypeError(`${label} 无效`);
+  }
+  if (
+    value.some(
+      (size) =>
+        typeof size !== "number" ||
+        !Number.isSafeInteger(size) ||
+        size < 1 ||
+        size > MAX_BENCHMARK_SIZE,
+    ) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new TypeError(`${label} 必须是不重复的正整数`);
+  }
+}
+
+function assertPositiveInteger(value: unknown, label: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MAX_BENCHMARK_REPETITIONS
+  ) {
+    throw new TypeError(`${label} 无效`);
+  }
+  return value;
 }
 
 function validScenarioTuple(value: GuidedLessonScenarioBinding): boolean {

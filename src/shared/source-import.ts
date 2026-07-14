@@ -52,6 +52,11 @@ export function validateSourceText(source: string): SourceTextValidation {
   return Object.freeze({ ok: true, byteLength: bytes.byteLength });
 }
 
+export function assertValidSourceText(source: string): void {
+  const validation = validateSourceText(source);
+  if (!validation.ok) throw new Error(`${validation.code}：${validation.message}`);
+}
+
 export function importPastedSource(source: string): SourceImportResult {
   const validation = validateSourceText(source);
   if (!validation.ok) {

@@ -12,7 +12,6 @@ import {
   type StatementEditTarget,
   type TextPatch,
 } from "../core/index.js";
-import type { ProgramAnalysisSnapshot } from "../analysis/index.js";
 import {
   createFlowProjection,
   planFlowConnection,
@@ -25,6 +24,7 @@ import type { FlowCanvasDraftConnectionIntent } from "../ui/flow-canvas.js";
 import { planFlowDraftConnection } from "./flow-draft-connection.js";
 import { planFlowPresetSlotReplacement } from "./flow-preset-slot.js";
 import { analyzeProgramSnapshot, type ReadySession } from "./program-analysis-session.js";
+import { assertNoCompleteCfgRegression } from "./source-edit-safety.js";
 
 export interface FlowSourceEditorOptions {
   readonly getSession: () => ReadySession | null;
@@ -49,6 +49,16 @@ export interface FlowSourceEditor {
   deleteNodes(nodes: readonly FlowNode[]): void;
   connectNodes(intent: ConnectionIntent): boolean;
   connectDraft(intent: FlowCanvasDraftConnectionIntent): boolean;
+}
+
+export class FlowSourceCommitError extends Error {
+  readonly sourceChanged = true;
+
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`源码已写入，但提交后的界面刷新失败：${detail}`);
+    this.name = "FlowSourceCommitError";
+  }
 }
 
 export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSourceEditor {
@@ -94,13 +104,17 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
     if (!changed || options.getEditorSource() !== candidateSource) {
       throw new Error("CodeMirror 未能精确应用候选补丁");
     }
-    options.resetProjection();
-    options.adopt(
-      Object.freeze({ ...current.imported, source: candidateSource }),
-      candidateAnalysis,
-      null,
-    );
-    options.onCommitted("画布修改已提交到 main.c；可使用撤销恢复。");
+    try {
+      options.resetProjection();
+      options.adopt(
+        Object.freeze({ ...current.imported, source: candidateSource }),
+        candidateAnalysis,
+        null,
+      );
+      options.onCommitted("画布修改已提交到 main.c；可使用撤销恢复。");
+    } catch (error: unknown) {
+      throw new FlowSourceCommitError(error);
+    }
   };
 
   return Object.freeze({
@@ -187,6 +201,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         ) {
           throw new Error("分支连线已经过期或不属于可重排的结构化控制节点");
         }
+        if (currentTarget.id === toNode.id) throw new Error("插头仍位于原端口，无需改接");
         const branchMove = planBranchSuccessorMove(
           parser,
           current.imported.source,
@@ -231,6 +246,12 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         if (verifiedEdges.length !== 1) {
           throw new Error("重解析后的 CFG 未精确出现请求的分支边");
         }
+        assertDisplacedEdgeAbsent(
+          candidateProjection,
+          candidateFrom[0]!,
+          currentTarget,
+          intent.kind,
+        );
         const patch = minimalReplacementPatch(current.imported.source, branchMove.source);
         if (
           !options.confirm(
@@ -247,7 +268,18 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       }
       const fromNode = projection.nodes.find((node) => node.id === intent.fromNodeId);
       const toNode = projection.nodes.find((node) => node.id === intent.toNodeId);
-      if (fromNode === undefined || toNode === undefined) throw new Error("连线节点已经过期");
+      const displacedId = graphPlan.displacedEdgeIds[0];
+      const displaced = projection.edges.find((edge) => edge.id === displacedId);
+      const currentTarget = projection.nodes.find((node) => node.id === displaced?.to.nodeId);
+      if (
+        fromNode === undefined ||
+        toNode === undefined ||
+        displaced === undefined ||
+        currentTarget === undefined
+      ) {
+        throw new Error("连线节点或被拔出的原连接已经过期");
+      }
+      if (currentTarget.id === toNode.id) throw new Error("插头仍位于原端口，无需改接");
       if (fromNode.kind !== "statement" || toNode.kind !== "statement") {
         throw new Error("安全相邻改线首版只交换普通表达式语句，不移动声明或控制结构");
       }
@@ -323,6 +355,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       if (candidateEdge.length !== 1) {
         throw new Error("重解析后的 CFG 未精确出现请求的顺序边");
       }
+      assertDisplacedEdgeAbsent(candidateProjection, fromMatches[0]!, currentTarget, "next");
       const preview = statementPlan.patches
         .map(
           (patch) =>
@@ -544,24 +577,6 @@ function mapBoundary(offset: number, diffs: readonly EditDiff[]): number {
   return offset + delta;
 }
 
-/** Existing partial functions may remain locked, but no previously complete function may degrade. */
-function assertNoCompleteCfgRegression(
-  before: ProgramAnalysisSnapshot,
-  after: ProgramAnalysisSnapshot,
-): void {
-  const occurrenceByName = new Map<string, number>();
-  for (const previous of before.functions) {
-    const occurrence = occurrenceByName.get(previous.name) ?? 0;
-    occurrenceByName.set(previous.name, occurrence + 1);
-    if (previous.partial) continue;
-    const candidates = after.functions.filter((candidate) => candidate.name === previous.name);
-    const candidate = candidates[occurrence];
-    if (candidate === undefined || candidate.partial) {
-      throw new Error(`候选源码会把完整函数“${previous.name}”降级为 partial CFG`);
-    }
-  }
-}
-
 interface PlannedBranchMove {
   readonly source: string;
   readonly analysis: CAnalysisSnapshot;
@@ -669,6 +684,31 @@ function uniqueStatementByText(
     (target) => source.slice(target.range.from, target.range.to) === text,
   );
   return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function assertDisplacedEdgeAbsent(
+  candidate: FlowProjection,
+  candidateFrom: FlowNode,
+  previousTarget: FlowNode,
+  kind: ConnectionIntent["kind"],
+): void {
+  const oldTargetMatches = candidate.nodes.filter(
+    (node) =>
+      node.functionId === candidateFrom.functionId &&
+      node.kind === previousTarget.kind &&
+      node.nodeType === previousTarget.nodeType &&
+      node.sourceText === previousTarget.sourceText,
+  );
+  if (oldTargetMatches.length !== 1) {
+    throw new Error("改线后无法唯一确认原插头目标仍被保留");
+  }
+  const oldEdgeStillExists = candidate.edges.some(
+    (edge) =>
+      edge.from.nodeId === candidateFrom.id &&
+      edge.to.nodeId === oldTargetMatches[0]!.id &&
+      edge.kind === kind,
+  );
+  if (oldEdgeStillExists) throw new Error("重解析后的 CFG 仍包含被替换的原连接");
 }
 
 function minimalReplacementPatch(before: string, after: string): TextPatch {

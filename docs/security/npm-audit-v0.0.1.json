@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.0.1",
+  "auditedAt": "2026-07-14T10:43:44Z",
+  "command": "npm audit --audit-level=high --json",
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "dependencies": {
+    "prod": 1,
+    "dev": 462,
+    "optional": 76,
+    "peer": 13,
+    "peerOptional": 0,
+    "total": 462
+  }
+}

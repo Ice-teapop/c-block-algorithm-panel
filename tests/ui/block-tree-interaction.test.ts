@@ -237,6 +237,55 @@ describe("block tree interaction gate", () => {
     expect(host.querySelectorAll<FakeElement>(".block-card__diagnostic")).toEqual([]);
   });
 
+  it("switches tree structure labels, diagnostics, empty state and ARIA without changing source", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    host.dataset.locale = "zh-CN";
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn());
+    tree.setDocument(document, index);
+    const selected = entryFor(index, buttonFor(host, "expression_statement"));
+    tree.select(selected);
+    tree.setDiagnostics([
+      { range: selected.range, severity: "error", message: "user diagnostic text" },
+    ]);
+
+    expect(flatTreeText(host)).toContain("变量声明");
+    expect(flatTreeText(host)).toContain("原始 C · 解析恢复");
+    expect(flatTreeText(host)).toContain("错误 1");
+    expect(flatTreeText(host)).toContain("total++;");
+    expect(
+      findTree(host, (element) => element.attribute("role") === "tree").attribute("aria-label"),
+    ).toBe("C 语句积木树");
+
+    host.dataset.locale = "en";
+    host.emit("workbench-locale-change", host);
+    expect(flatTreeText(host)).toContain("Variable Declaration");
+    expect(flatTreeText(host)).toContain("while Loop");
+    expect(flatTreeText(host)).toContain("Raw C · Parse recovery");
+    expect(flatTreeText(host)).toContain("Error 1");
+    expect(flatTreeText(host)).toContain("total++;");
+    expect(flatTreeText(host)).not.toContain("变量声明");
+    expect(
+      findTree(host, (element) => element.attribute("role") === "tree").attribute("aria-label"),
+    ).toBe("C statement block tree");
+    expect(buttonFor(host, "expression_statement").attribute("aria-selected")).toBe("true");
+    expect(tree.getSelectedEntry()).toBe(selected);
+    const diagnostic = buttonFor(host, "expression_statement").children.find((child) =>
+      child.classList.contains("block-card__diagnostic"),
+    );
+    expect(diagnostic?.title).toBe("user diagnostic text");
+
+    const emptyDocument: SourceDoc = { ...document, blocks: [] };
+    tree.setDocument(emptyDocument, createBlockIndex(emptyDocument));
+    expect(flatTreeText(host)).toContain("This file has no statement blocks to display");
+    host.dataset.locale = "zh-CN";
+    host.emit("workbench-locale-change", host);
+    expect(flatTreeText(host)).toContain("这份文件目前没有可显示的语句积木");
+
+    tree.destroy();
+    expect(host.removeCount("workbench-locale-change")).toBe(1);
+  });
+
   it("exposes the selected target for keyboard-accessible palette insertion", () => {
     const { document, index } = fixture();
     const host = fakeDocument.createElement("div");
@@ -554,7 +603,8 @@ class FakeElement {
       const matchesAssemblyTarget =
         selector === "[data-assembly-target-index]" &&
         candidate.dataset.assemblyTargetIndex !== undefined;
-      if (matchesBlock || matchesButton || matchesSlot || matchesAssemblyTarget) {
+      const matchesLocale = selector === "[data-locale]" && candidate.dataset.locale !== undefined;
+      if (matchesBlock || matchesButton || matchesSlot || matchesAssemblyTarget || matchesLocale) {
         return candidate as T;
       }
       candidate = candidate.parent;
@@ -673,4 +723,20 @@ class FakeElement {
   focus(): void {}
 
   scrollIntoView(): void {}
+}
+
+function findTree(root: FakeElement, predicate: (element: FakeElement) => boolean): FakeElement {
+  if (predicate(root)) return root;
+  for (const child of root.children) {
+    try {
+      return findTree(child, predicate);
+    } catch {
+      // Continue through sibling branches.
+    }
+  }
+  throw new Error("tree element not found");
+}
+
+function flatTreeText(root: FakeElement): string {
+  return [root.textContent, ...root.children.map(flatTreeText)].join(" ");
 }

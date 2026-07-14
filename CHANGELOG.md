@@ -3,6 +3,149 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+`0.0.1` intentionally resets the public version line. The earlier
+`0.1.0-beta.1` through `0.1.0-beta.12` tags are development snapshots, not
+upgrade predecessors. Future public releases continue from `0.0.1`.
+
+## [0.0.1] - 2026-07-14
+
+### Added
+
+- A source-authoritative local C17 algorithm workbench. `main.c` remains the
+  only executable source of truth while code is projected into compact,
+  freely positioned nodes and verified control-flow wires.
+- Lossless source import for arbitrary single-file C, including CRLF, BOM,
+  comments, and conservative raw regions, with code-to-block and block-to-code
+  navigation.
+- A free-position HTML/SVG canvas with pan, zoom, box selection, alignment,
+  copy, delete, undo, minimap, background dragging, and movable node details.
+- Cable-style control connections that can start from either compatible end,
+  support reconnection and insertion, and commit only after legal C generation,
+  full reparsing, and CFG postcondition validation.
+- Local Apple clang compile and run support, diagnostics, ASan/UBSan, bounded
+  `leaks` checks, shadow-source Trace, source-fingerprint invalidation, and
+  explicit trusted-only authorization when isolation is unavailable.
+- Evidence views for compile time, wall time, peak RSS, peak process count,
+  output bytes, executed nodes, operation counts, termination reason, and
+  repeated-run benchmark medians.
+- An analysis workspace that separates measured duration, operation growth,
+  reference workload, and completion evidence instead of presenting a
+  composite performance score.
+- Eighty versioned presets and 114 Library entries covering C syntax, the
+  standard library, data structures, common undergraduate algorithms,
+  complexity, examples, recovery, and workbench operation.
+- A v6 guided lesson for scanning a maximum value. The lesson uses a dedicated
+  sandbox and real evidence to teach execution, Trace, block insertion, chart
+  reading, debugging, regression cases, and migration to a minimum scan.
+- A pure-text Dock, Quick Open, a unified primary run action, independent
+  scrolling and resizable workbench regions, movable tool windows, and a
+  white-first industrial interface.
+- Chinese and English interfaces. First launch follows the macOS preferred
+  language, and users can change the language and background in Settings.
+- Optional network AI providers for OpenAI, Anthropic, Gemini, OpenRouter,
+  DeepSeek, Zhipu GLM, Kimi China, and Kimi Global.
+- OS-backed encrypted API-key storage. Renderer code can read only public
+  provider metadata and whether a credential exists; it cannot read plaintext
+  or ciphertext.
+- One bounded local AI Project per managed workspace, with multiple persistent
+  conversations, optimistic revision checks, atomic storage, and no filesystem
+  path or credential data in conversation files.
+- Explicit AI source-edit permissions. Read-only is the default; review or
+  controlled-execution modes still require structured proposals, current
+  workspace revision and source fingerprint, an exact diff, a checkpoint,
+  reparsing, lossless round-trip validation, and CFG safety checks.
+
+### Changed
+
+- Replaced the earlier long overlay onboarding tour with a Dashboard entry and
+  a state-driven task rail. Mission progress now requires matching workspace,
+  source, case, run, and Trace evidence rather than repeated Next clicks.
+- Reduced persistent buttons and decorative borders. Run, input, diagnostics,
+  analysis, and AI controls now use progressive disclosure and one primary
+  action per context.
+- Changed node interaction to single-click selection, drag after movement,
+  and double-click or Enter for details. Active, inactive, locked, and
+  real-path nodes now have distinct states.
+- Reworked Library as a focused searchable reference surface. Internal terms
+  such as renderer IDs and storage revisions no longer appear in ordinary
+  learner search results.
+- Changed remote AI context to current-function scope by default. File paths,
+  stdin, and program arguments are never sent. Read-only mode excludes complete
+  source; explicitly enabling Review changes or Agent mode sends complete
+  `main.c` with each request while the AI window displays that disclosure.
+- Changed AI conversations from renderer-only temporary state to bounded,
+  project-scoped local storage. Provider credentials remain in a separate
+  OS-encrypted global store.
+- Made project rows open directly, kept root scrolling locked, and made each
+  meaningful panel boundary independently adjustable by mouse or keyboard.
+- Made `flow-view.json` v2 use structural and text anchors instead of temporary
+  projection IDs. Legacy v1 layouts migrate lazily and ambiguous anchors reset
+  only the affected view state.
+
+### Fixed
+
+- Fixed runtime and diagnostic regions that could become effectively
+  immovable when Trace was idle. Splitters remain discoverable when their
+  adjacent panel is open and release pointer capture on cancellation or blur.
+- Kept movable node and AI detail windows inside the available viewport after
+  drag, resize, language change, and window resize.
+- Removed remaining mixed-language strings from the guided lesson, analysis,
+  Library, runtime, and AI surfaces, and synchronized dialogs with the selected
+  theme and locale.
+- Prevented Library and AI surfaces from becoming blocked by stale projection,
+  CFG, or request state.
+- Rebound analysis evidence to the latest source fingerprint after edits so a
+  new CFG cannot be rejected against the previous revision and remain pending.
+- Clarified empty Trace and analysis states so an isolated vertical line is not
+  presented as a meaningful performance chart.
+
+### Security
+
+- Network requests execute only in the Electron main process over HTTPS and
+  only to the selected provider's registered official host. The app does not
+  probe multiple providers with one key, allow arbitrary endpoints, or expose
+  credentials through preload.
+- AI credentials use Electron `safeStorage` and provider-bound envelopes.
+  Legacy provider configuration migrates to reconnect-required instead of
+  guessing which service owns an old ciphertext.
+- AI source changes remain subordinate to the source-authoritative edit path.
+  Stale, ambiguous, raw, partial, malformed, or unsafe proposals fail closed.
+- AI Project files use opaque workspace IDs, strict schemas, bounded messages,
+  optimistic revisions, temporary files, `fsync`, and atomic rename. Project
+  or conversation corruption cannot modify `main.c`.
+- The application contains no telemetry, advertising, account system, or cloud
+  synchronization. Network AI sends data only after the user configures a
+  provider and starts a request.
+- The exact v0.0.1 lockfile returned zero known vulnerabilities in an npm audit
+  performed on 2026-07-14; the timestamped report is retained under
+  `docs/security/` and does not claim immunity from future advisories.
+- The packaged application now includes a generated inventory and reproduced
+  license or NOTICE texts for all 462 locked dependency entries.
+
+### Migration
+
+- Existing managed projects open without rewriting `main.c`.
+- `flow-view.json` v1 migrates lazily to anchor-based v2. An ambiguous node may
+  lose its saved position, selection, or detail state; source remains intact.
+- Scenario, run-history, tutorial-progress, and AI Project sidecars are created
+  only when the corresponding feature is used. Unsupported or damaged sidecars
+  are ignored or reset without changing source.
+- AI Provider configuration v1 becomes reconnect-required. Users must enter
+  the key again so the new encrypted envelope can bind it to one provider.
+- Older application builds ignore the new `ai-project.json`; conversations are
+  unavailable after downgrade, but source and other project files still work.
+
+### Distribution warning
+
+- `v0.0.1` is the first normal GitHub Release in the reset public version line;
+  it is not marked as a prerelease.
+- The Universal macOS DMG is still unsigned and unnotarized. Verify
+  `SHA256SUMS.txt` before opening. Gatekeeper may require Control-click → Open
+  or explicit approval in System Settings → Privacy & Security.
+- Do not disable Gatekeeper globally. A later signed distribution requires a
+  Developer ID, Hardened Runtime, minimal entitlements, notarization, and
+  stapling.
+
 ## [0.1.0-beta.12] - 2026-07-12
 
 ### Fixed

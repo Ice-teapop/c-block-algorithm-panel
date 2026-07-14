@@ -1,9 +1,15 @@
+import type { AiSourceEditProposal } from "./ai-edit.js";
+import { isInterfaceLocale, type InterfaceLocale } from "./interface-locale.js";
+
 export const AI_PROVIDER_CONFIG_SCHEMA_VERSION = 2 as const;
 export const AI_PROVIDER_CONFIG_MAX_BYTES = 64 * 1024;
 export const AI_PROVIDER_API_KEY_MAX_LENGTH = 16 * 1024;
 export const AI_PROVIDER_MODEL_MAX_LENGTH = 256;
 export const AI_MENTOR_PROMPT_MAX_LENGTH = 8 * 1024;
 export const AI_MENTOR_CONTEXT_MAX_LENGTH = 768 * 1024;
+export const AI_MENTOR_HISTORY_MAX_TURNS = 12;
+export const AI_MENTOR_HISTORY_MAX_LENGTH = 24 * 1024;
+export const AI_MENTOR_TURN_MAX_LENGTH = 4 * 1024;
 
 export const AI_PROVIDER_IDS = Object.freeze([
   "openai",
@@ -19,6 +25,7 @@ export const AI_PROVIDER_IDS = Object.freeze([
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 export type KimiRegion = "cn" | "global";
 export type AiMentorContextMode = "current-function" | "full-source";
+export type AiMentorIntent = "chat" | "propose-edit";
 
 export const AI_PROVIDER_IPC_CHANNELS = Object.freeze({
   getConfig: "ai-provider:get-config",
@@ -89,12 +96,23 @@ export interface AiMentorEvidenceContext {
   readonly fullSource?: string | undefined;
 }
 
+export interface AiMentorTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
 export interface StartAiMentorRequest {
   readonly sourceFingerprint: string;
   readonly sourceRevision: number;
   readonly providerRevision: number;
   readonly contextMode: AiMentorContextMode;
+  /** Omitted by existing callers and normalized to chat at the main-process boundary. */
+  readonly intent?: AiMentorIntent | undefined;
+  /** Required so the main process never guesses the response language. */
+  readonly locale: InterfaceLocale;
   readonly prompt: string;
+  /** Completed turns included in this request; optional local history lives in the separate AI Project store. */
+  readonly history: readonly AiMentorTurn[];
   readonly context: AiMentorEvidenceContext;
 }
 
@@ -107,11 +125,21 @@ export interface CancelAiMentorRequest {
   readonly sessionId: string;
 }
 
-export interface AiMentorEvent {
+export interface AiMentorTextEvent {
   readonly sequence: number;
   readonly kind: "answer" | "notice";
   readonly text: string;
 }
+
+export interface AiMentorProposalEvent {
+  readonly sequence: number;
+  readonly kind: "proposal";
+  /** Human-readable proposal summary; never interpreted as source. */
+  readonly text: string;
+  readonly proposal: AiSourceEditProposal;
+}
+
+export type AiMentorEvent = AiMentorTextEvent | AiMentorProposalEvent;
 
 export type AiProviderErrorCode =
   | "AI_PROVIDER_INVALID_REQUEST"
@@ -305,26 +333,32 @@ export function validateDisconnectAiProviderRequest(
 }
 
 export function validateStartAiMentorRequest(value: unknown): StartAiMentorRequest | null {
-  if (
-    !isExactObject(value, [
-      "sourceFingerprint",
-      "sourceRevision",
-      "providerRevision",
-      "contextMode",
-      "prompt",
-      "context",
-    ])
-  ) {
+  const keys = [
+    "sourceFingerprint",
+    "sourceRevision",
+    "providerRevision",
+    "contextMode",
+    "locale",
+    "prompt",
+    "history",
+    "context",
+  ];
+  if (hasOwn(value, "intent")) keys.push("intent");
+  if (!isExactObject(value, keys)) {
     return null;
   }
   const input = value as Record<string, unknown>;
   const context = validateMentorContext(input.context, input.contextMode);
+  const history = validateMentorHistory(input.history);
   if (
     !validFingerprint(input.sourceFingerprint) ||
     !validRevision(input.sourceRevision) ||
     !validRevision(input.providerRevision) ||
     (input.contextMode !== "current-function" && input.contextMode !== "full-source") ||
+    (input.intent !== undefined && input.intent !== "chat" && input.intent !== "propose-edit") ||
+    !isInterfaceLocale(input.locale) ||
     !validBoundedText(input.prompt, 1, AI_MENTOR_PROMPT_MAX_LENGTH) ||
+    history === null ||
     context === null
   ) {
     return null;
@@ -334,9 +368,16 @@ export function validateStartAiMentorRequest(value: unknown): StartAiMentorReque
     sourceRevision: input.sourceRevision,
     providerRevision: input.providerRevision,
     contextMode: input.contextMode,
+    intent: (input.intent ?? "chat") as AiMentorIntent,
+    locale: input.locale,
     prompt: input.prompt,
+    history,
     context,
   }) as StartAiMentorRequest;
+}
+
+function hasOwn(value: unknown, key: string): boolean {
+  return typeof value === "object" && value !== null && Object.hasOwn(value, key);
 }
 
 export function validateReadAiMentorRequest(value: unknown): ReadAiMentorRequest | null {
@@ -355,6 +396,31 @@ export function validateCancelAiMentorRequest(value: unknown): CancelAiMentorReq
 
 export function validAiProviderModel(value: unknown): value is string {
   return validModel(value);
+}
+
+function validateMentorHistory(value: unknown): readonly AiMentorTurn[] | null {
+  if (
+    !Array.isArray(value) ||
+    value.length > AI_MENTOR_HISTORY_MAX_TURNS ||
+    value.length % 2 !== 0
+  ) {
+    return null;
+  }
+  const turns: AiMentorTurn[] = [];
+  let totalLength = 0;
+  for (const [index, turn] of value.entries()) {
+    if (!isExactObject(turn, ["role", "content"])) return null;
+    const expectedRole = index % 2 === 0 ? "user" : "assistant";
+    const role = (turn as Record<string, unknown>).role;
+    const content = (turn as Record<string, unknown>).content;
+    if (role !== expectedRole || !validBoundedText(content, 1, AI_MENTOR_TURN_MAX_LENGTH)) {
+      return null;
+    }
+    totalLength += content.length;
+    if (totalLength > AI_MENTOR_HISTORY_MAX_LENGTH) return null;
+    turns.push(Object.freeze({ role: expectedRole, content }));
+  }
+  return Object.freeze(turns);
 }
 
 function validateMentorContext(

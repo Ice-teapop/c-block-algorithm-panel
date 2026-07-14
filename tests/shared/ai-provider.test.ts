@@ -83,7 +83,9 @@ describe("AI Provider shared boundary v2", () => {
       sourceFingerprint: "fnv64:abc",
       sourceRevision: 3,
       providerRevision: 1,
+      locale: "en",
       prompt: "Explain this loop",
+      history: [],
       context: {
         currentFunction: "int main(void){return 0;}",
         diagnosticSummary: ["no findings"],
@@ -94,6 +96,43 @@ describe("AI Provider shared boundary v2", () => {
     expect(
       validateStartAiMentorRequest({ ...base, contextMode: "current-function" }),
     ).not.toBeNull();
+    expect(
+      validateStartAiMentorRequest({ ...base, locale: undefined, contextMode: "current-function" }),
+    ).toBeNull();
+    expect(
+      validateStartAiMentorRequest({ ...base, locale: "fr", contextMode: "current-function" }),
+    ).toBeNull();
+    expect(
+      validateStartAiMentorRequest({
+        ...base,
+        contextMode: "current-function",
+        intent: "propose-edit",
+      }),
+    ).toMatchObject({ intent: "propose-edit" });
+    expect(
+      validateStartAiMentorRequest({
+        ...base,
+        contextMode: "current-function",
+        intent: "run-command",
+      }),
+    ).toBeNull();
+    expect(
+      validateStartAiMentorRequest({
+        ...base,
+        contextMode: "current-function",
+        history: [
+          { role: "user", content: "What does it do?" },
+          { role: "assistant", content: "It returns zero." },
+        ],
+      }),
+    ).not.toBeNull();
+    expect(
+      validateStartAiMentorRequest({
+        ...base,
+        contextMode: "current-function",
+        history: [{ role: "assistant", content: "invalid first turn" }],
+      }),
+    ).toBeNull();
     expect(
       validateStartAiMentorRequest({
         ...base,

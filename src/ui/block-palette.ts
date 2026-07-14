@@ -3,8 +3,69 @@ import type {
   LearningCatalog,
   LearningCatalogSnapshot,
 } from "../learning/index.js";
+import {
+  ENGLISH_BUILTIN_PRESET_PRESENTATIONS,
+  presentPresetBlock,
+} from "./builtin-preset-presentations.js";
 
 export type LearningStageFilter = "all" | string;
+type BlockPaletteLocale = "zh-CN" | "en";
+
+interface BlockPaletteCopy {
+  readonly rootAria: string;
+  readonly stageLabel: string;
+  readonly searchLabel: string;
+  readonly searchPlaceholder: string;
+  readonly listAria: string;
+  readonly allStages: string;
+  readonly empty: string;
+  readonly dragPrefix: string;
+  readonly virtualSource: string;
+  readonly dragToCanvas: string;
+  readonly insertAtSelection: string;
+  readonly virtualRole: string;
+  readonly sourceRole: string;
+  dragAria(label: string, virtual: boolean): string;
+}
+
+const BLOCK_PALETTE_COPY: Readonly<Record<BlockPaletteLocale, BlockPaletteCopy>> = Object.freeze({
+  "zh-CN": Object.freeze({
+    rootAria: "可拖拽积木库",
+    stageLabel: "学习阶段",
+    searchLabel: "筛选积木",
+    searchPlaceholder: "筛选积木",
+    listAria: "可用积木",
+    allStages: "全部阶段",
+    empty: "当前筛选下没有可用积木。",
+    dragPrefix: "拖拽",
+    virtualSource: "虚拟控制节点 · 不改变 C 语义",
+    dragToCanvas: "拖到画布",
+    insertAtSelection: "插入所选位置",
+    virtualRole: "可拖拽虚拟流程节点",
+    sourceRole: "可拖拽 C 积木",
+    dragAria: (label: string, virtual: boolean) =>
+      virtual ? `${label}，可拖到自由画布，不生成 C 源码` : `${label}，可拖到组装插槽或自由画布`,
+  }),
+  en: Object.freeze({
+    rootAria: "Draggable block library",
+    stageLabel: "Learning stage",
+    searchLabel: "Filter blocks",
+    searchPlaceholder: "Filter blocks",
+    listAria: "Available blocks",
+    allStages: "All stages",
+    empty: "No blocks match the current filters.",
+    dragPrefix: "Drag",
+    virtualSource: "Virtual control node · Does not change C semantics",
+    dragToCanvas: "Drag to Canvas",
+    insertAtSelection: "Insert at Selection",
+    virtualRole: "draggable virtual flow node",
+    sourceRole: "draggable C block",
+    dragAria: (label: string, virtual: boolean) =>
+      virtual
+        ? `${label}, drag to the free canvas; does not generate C source`
+        : `${label}, drag to an assembly slot or the free canvas`,
+  }),
+});
 export interface BlockPaletteCompatibilityFilter {
   readonly direction: "input" | "output";
   readonly channel: "control" | "data";
@@ -41,6 +102,7 @@ export interface BlockPalette {
   setInsertEnabled(enabled: boolean): void;
   setCompatibilityFilter(filter: BlockPaletteCompatibilityFilter | null): void;
   focusSearch(): void;
+  revealPreset(presetId: string): void;
   destroy(): void;
 }
 
@@ -67,9 +129,20 @@ export function filterLearningTemplates(
         return false;
       }
       if (normalizedQuery.length === 0) return true;
-      return [template.label, template.description, template.category, template.source ?? ""].some(
-        (value) => value.toLocaleLowerCase("zh-CN").includes(normalizedQuery),
-      );
+      const englishPresentation =
+        template.origin === "builtin"
+          ? ENGLISH_BUILTIN_PRESET_PRESENTATIONS[template.id]
+          : undefined;
+      return [
+        template.id,
+        template.label,
+        template.description,
+        englishPresentation?.label ?? "",
+        englishPresentation?.description ?? "",
+        template.category,
+        template.stage,
+        template.source ?? "",
+      ].some((value) => value.toLocaleLowerCase("zh-CN").includes(normalizedQuery));
     }),
   );
 }
@@ -81,25 +154,29 @@ export function createBlockPalette(
 ): BlockPalette {
   assertCallbacks(callbacks);
   const ownerDocument = host.ownerDocument;
+  const localeHost =
+    typeof host.closest === "function"
+      ? (host.closest<HTMLElement>("[data-locale]") ?? host)
+      : host;
+  const documentElement = ownerDocument.documentElement;
+  let locale = resolveBlockPaletteLocale(
+    localeHost.dataset.locale ?? documentElement?.dataset.locale ?? documentElement?.lang,
+  );
+  const copy = (): BlockPaletteCopy => BLOCK_PALETTE_COPY[locale];
   const root = ownerDocument.createElement("section");
   root.className = "block-palette";
-  root.setAttribute("aria-label", "可拖拽积木库");
 
   const filters = ownerDocument.createElement("div");
   filters.className = "block-palette__filters";
   const stageLabel = ownerDocument.createElement("label");
   stageLabel.className = "visually-hidden";
-  stageLabel.textContent = "学习阶段";
   const stageSelect = ownerDocument.createElement("select");
   stageSelect.className = "block-palette__select";
-  stageSelect.setAttribute("aria-label", "学习阶段");
   stageLabel.htmlFor = "block-palette-stage";
   stageSelect.id = "block-palette-stage";
   const search = ownerDocument.createElement("input");
   search.className = "block-palette__search";
   search.type = "search";
-  search.placeholder = "筛选积木";
-  search.setAttribute("aria-label", "筛选积木");
   filters.append(stageLabel, stageSelect, search);
 
   const list = ownerDocument.createElement("div");
@@ -116,6 +193,16 @@ export function createBlockPalette(
   let visibleTemplates = new Map<string, CatalogPresetBlock>();
   let activeDragSurface: HTMLElement | null = null;
 
+  const renderStaticLocale = (): void => {
+    const value = copy();
+    root.setAttribute("aria-label", value.rootAria);
+    stageLabel.textContent = value.stageLabel;
+    stageSelect.setAttribute("aria-label", value.stageLabel);
+    search.placeholder = value.searchPlaceholder;
+    search.setAttribute("aria-label", value.searchLabel);
+    list.setAttribute("aria-label", value.listAria);
+  };
+
   const finishActiveDrag = (): void => {
     if (activeDragSurface === null) return;
     activeDragSurface.classList.remove("is-dragging");
@@ -127,7 +214,8 @@ export function createBlockPalette(
     assertActive(destroyed);
     finishActiveDrag();
     const snapshot = catalog.snapshot();
-    renderStageOptions(stageSelect, snapshot, stageId);
+    renderStaticLocale();
+    renderStageOptions(stageSelect, snapshot, stageId, copy(), locale);
     const templates = filterLearningTemplates(
       snapshot,
       stageId,
@@ -143,12 +231,12 @@ export function createBlockPalette(
     if (templates.length === 0) {
       const empty = ownerDocument.createElement("p");
       empty.className = "block-palette__empty";
-      empty.textContent = "当前筛选下没有可用积木。";
+      empty.textContent = copy().empty;
       list.append(empty);
       return;
     }
     for (const template of templates) {
-      list.append(renderTemplateRow(ownerDocument, template, insertEnabled));
+      list.append(renderTemplateRow(ownerDocument, template, insertEnabled, copy(), locale));
     }
   };
 
@@ -196,6 +284,28 @@ export function createBlockPalette(
   list.addEventListener("dragstart", onDragStart);
   list.addEventListener("dragend", onDragEnd);
   list.addEventListener("click", onClick);
+  const onLocaleChange = (event?: Event): void => {
+    if (destroyed) return;
+    const eventLocale = (event as CustomEvent<{ readonly locale?: unknown }> | undefined)?.detail
+      ?.locale;
+    locale = resolveBlockPaletteLocale(
+      eventLocale ??
+        localeHost.dataset.locale ??
+        documentElement?.dataset.locale ??
+        documentElement?.lang,
+    );
+    render();
+  };
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver;
+  const localeObserver =
+    MutationObserverConstructor === undefined || documentElement === undefined
+      ? null
+      : new MutationObserverConstructor(() => onLocaleChange());
+  localeObserver?.observe(documentElement, {
+    attributes: true,
+    attributeFilter: ["data-locale", "lang"],
+  });
   render();
 
   return Object.freeze({
@@ -252,6 +362,23 @@ export function createBlockPalette(
       search.focus({ preventScroll: true });
       search.select();
     },
+    revealPreset(presetId: string): void {
+      assertActive(destroyed);
+      const preset = catalog.getPreset(presetId);
+      if (preset === null || preset.lifecycle !== "active") {
+        throw new RangeError(`未知或不可用的预设积木：${presetId}`);
+      }
+      compatibility = null;
+      category = "search";
+      stageId = "all";
+      search.value = preset.id;
+      render();
+      const target = [...list.querySelectorAll<HTMLElement>("[data-template-id]")].find(
+        (element) => element.dataset.templateId === preset.id && element.tabIndex >= 0,
+      );
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
@@ -262,6 +389,8 @@ export function createBlockPalette(
       list.removeEventListener("dragstart", onDragStart);
       list.removeEventListener("dragend", onDragEnd);
       list.removeEventListener("click", onClick);
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
+      localeObserver?.disconnect();
       root.remove();
       visibleTemplates.clear();
     },
@@ -341,17 +470,19 @@ function renderStageOptions(
   select: HTMLSelectElement,
   snapshot: LearningCatalogSnapshot,
   selected: LearningStageFilter,
+  copy: BlockPaletteCopy,
+  locale: BlockPaletteLocale,
 ): void {
   const ownerDocument = select.ownerDocument;
   select.replaceChildren();
   const all = ownerDocument.createElement("option");
   all.value = "all";
-  all.textContent = "全部阶段";
+  all.textContent = copy.allStages;
   select.append(all);
   for (const stage of snapshot.stages) {
     const option = ownerDocument.createElement("option");
     option.value = stage.id;
-    option.textContent = stage.label;
+    option.textContent = stageLabel(stage.id, stage.label, locale);
     select.append(option);
   }
   select.value = selected;
@@ -361,8 +492,11 @@ function renderTemplateRow(
   ownerDocument: Document,
   template: CatalogPresetBlock,
   insertEnabled: boolean,
+  copy: BlockPaletteCopy,
+  locale: BlockPaletteLocale,
 ): HTMLElement {
   const visualKind = template.fragmentKind ?? "virtual";
+  const presentation = presentPresetBlock(template, locale);
   const row = ownerDocument.createElement("article");
   row.className = "block-palette__item";
   row.dataset.templateId = template.id;
@@ -383,35 +517,33 @@ function renderTemplateRow(
   dragSurface.tabIndex = 0;
   dragSurface.setAttribute(
     "aria-label",
-    template.source === null
-      ? `${template.label}，可拖到自由画布，不生成 C 源码`
-      : `${template.label}，可拖到组装插槽或自由画布`,
+    copy.dragAria(presentation.label, template.source === null),
   );
   dragSurface.setAttribute(
     "aria-roledescription",
-    template.source === null ? "可拖拽虚拟流程节点" : "可拖拽 C 积木",
+    template.source === null ? copy.virtualRole : copy.sourceRole,
   );
 
   const heading = ownerDocument.createElement("div");
   heading.className = "block-palette__item-heading";
   const label = ownerDocument.createElement("strong");
-  label.textContent = template.label;
+  label.textContent = presentation.label;
   const category = ownerDocument.createElement("span");
-  category.textContent = template.category;
+  category.textContent = `${copy.dragPrefix} · ${categoryLabel(template.category, locale)}`;
   heading.append(label, category);
   const source = ownerDocument.createElement("code");
   source.className = "block-palette__source";
   source.textContent =
-    template.source === null ? "虚拟控制节点 · 不改变 C 语义" : compactSource(template.source);
+    template.source === null ? copy.virtualSource : compactSource(template.source);
   const description = ownerDocument.createElement("p");
   description.className = "block-palette__description";
-  description.textContent = template.description;
+  description.textContent = presentation.description;
   const insert = ownerDocument.createElement("button");
   insert.className = "block-palette__insert";
   insert.type = "button";
   insert.dataset.templateAction = "insert";
   insert.dataset.templateId = template.id;
-  insert.textContent = template.source === null ? "拖到画布" : "插入所选位置";
+  insert.textContent = template.source === null ? copy.dragToCanvas : copy.insertAtSelection;
   insert.disabled = template.source === null || !insertEnabled;
   dragSurface.append(heading, source);
   row.append(dragSurface, description, insert);
@@ -421,6 +553,84 @@ function renderTemplateRow(
 function compactSource(source: string): string {
   const compact = source.replaceAll(/\s+/gu, " ").trim();
   return compact.length <= 72 ? compact : `${compact.slice(0, 69)}…`;
+}
+
+const ENGLISH_STAGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  "c.basics": "C Basics",
+  "c.control-flow": "Control Flow",
+  "c.functions-arrays": "Functions and Arrays",
+  "algorithms.search": "Search",
+  "algorithms.sort": "Sorting",
+  "algorithms.recursion": "Recursion",
+  "data-structures.linear": "Linear Structures",
+  "data-structures.trees": "Trees and Graphs",
+  "analysis.correctness-complexity": "Correctness and Complexity",
+});
+
+const CATEGORY_LABELS: Readonly<Record<BlockPaletteLocale, Readonly<Record<string, string>>>> =
+  Object.freeze({
+    "zh-CN": Object.freeze({
+      "flow-control": "控制流",
+      control: "控制流",
+      "c-basics": "C 基础",
+      declaration: "声明",
+      assignment: "赋值",
+      "functions-io": "函数与 I/O",
+      "function-call": "函数调用",
+      "function-control": "函数控制",
+      io: "输入输出",
+      "arrays-strings": "数组与字符串",
+      array: "数组",
+      "pointers-memory": "指针与内存",
+      "data-structures": "数据结构",
+      "linear-structure": "线性结构",
+      tree: "树",
+      "algorithm-patterns": "算法模式",
+      search: "搜索",
+      sort: "排序",
+      recursion: "递归",
+      complexity: "复杂度",
+      "testing-analysis": "测试与分析",
+      correctness: "正确性",
+      custom: "自定义",
+    }),
+    en: Object.freeze({
+      "flow-control": "Flow Control",
+      control: "Flow Control",
+      "c-basics": "C Basics",
+      declaration: "Declarations",
+      assignment: "Assignments",
+      "functions-io": "Functions and I/O",
+      "function-call": "Function Calls",
+      "function-control": "Function Control",
+      io: "Input and Output",
+      "arrays-strings": "Arrays and Strings",
+      array: "Arrays",
+      "pointers-memory": "Pointers and Memory",
+      "data-structures": "Data Structures",
+      "linear-structure": "Linear Structures",
+      tree: "Trees",
+      "algorithm-patterns": "Algorithm Patterns",
+      search: "Search",
+      sort: "Sorting",
+      recursion: "Recursion",
+      complexity: "Complexity",
+      "testing-analysis": "Testing and Analysis",
+      correctness: "Correctness",
+      custom: "Custom",
+    }),
+  });
+
+function stageLabel(id: string, fallback: string, locale: BlockPaletteLocale): string {
+  return locale === "en" ? (ENGLISH_STAGE_LABELS[id] ?? fallback) : fallback;
+}
+
+function categoryLabel(category: string, locale: BlockPaletteLocale): string {
+  return CATEGORY_LABELS[locale][category] ?? category;
+}
+
+function resolveBlockPaletteLocale(value: unknown): BlockPaletteLocale {
+  return typeof value === "string" && value.toLowerCase().startsWith("en") ? "en" : "zh-CN";
 }
 
 function templateDragSurfaceForEvent(event: Event): HTMLElement | null {

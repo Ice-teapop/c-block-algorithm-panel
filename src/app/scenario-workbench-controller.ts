@@ -12,6 +12,7 @@ import {
 export interface ScenarioWorkbenchControllerOptions {
   readonly host: HTMLElement;
   readonly provider?: ScenarioProvider | undefined;
+  readonly onScenarioChange?: (() => void) | undefined;
   /** The caller must run a real trace and reject an unmet target branch. */
   readonly onRealRunRequested: (request: RealScenarioRunRequest) => void | Promise<void>;
   /** Simulation is deliberately routed separately and must never enter run history. */
@@ -25,6 +26,8 @@ export interface ScenarioWorkbenchControllerOptions {
 export interface ScenarioWorkbenchController {
   readonly panel: ScenarioPanel;
   readonly provider: ScenarioProvider;
+  hasScenarioBinding(): boolean;
+  clearScenarioBinding(): void;
   selectScenario(scenarioId: string): void;
   setInputSize(size: number): void;
   setBranchTargets(targets: readonly ScenarioBranchTarget[]): void;
@@ -47,6 +50,9 @@ export function createScenarioWorkbenchController(
 
   const panel = createScenarioPanel(options.host, {
     provider,
+    ...(options.onScenarioChange === undefined
+      ? {}
+      : { onScenarioChange: options.onScenarioChange }),
     onRealRun: (request) => options.onRealRunRequested(request),
     onTeachingSimulation: (request) => options.onTeachingSimulationRequested(request),
     onBenchmark: (request) => options.onBenchmarkRequested(request),
@@ -59,6 +65,14 @@ export function createScenarioWorkbenchController(
   return Object.freeze({
     panel,
     provider,
+    hasScenarioBinding(): boolean {
+      assertAlive();
+      return panel.hasScenarioBinding();
+    },
+    clearScenarioBinding(): void {
+      assertAlive();
+      panel.clearScenarioBinding();
+    },
     selectScenario(scenarioId: string): void {
       assertAlive();
       panel.selectScenario(scenarioId);

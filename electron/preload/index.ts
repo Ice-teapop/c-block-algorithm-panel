@@ -10,6 +10,7 @@ import type {
   RunResult,
   SourceImportResult,
 } from "../../src/shared/api.js";
+import { isInterfaceLocale, type InterfaceLocale } from "../../src/shared/interface-locale.js";
 import type {
   TraceBatch,
   TraceCancelResult,
@@ -53,8 +54,34 @@ import {
   type SelectAiProviderModelRequest,
   type StartAiMentorRequest,
 } from "../../src/shared/ai-provider.js";
+import {
+  AI_PROJECT_IPC_CHANNELS,
+  type AiConversationCreateResult,
+  type AiConversationDeleteResult,
+  type AiConversationMessageAppendResult,
+  type AiConversationReadResult,
+  type AiConversationUpdateResult,
+  type AiProjectOpenResult,
+  type AppendAiConversationMessageRequest,
+  type CreateAiConversationRequest,
+  type DeleteAiConversationRequest,
+  type OpenAiProjectRequest,
+  type ReadAiConversationRequest,
+  type RenameAiConversationRequest,
+  type SetAiConversationArchivedRequest,
+} from "../../src/shared/ai-project.js";
+import {
+  AI_WINDOW_IPC_CHANNELS,
+  validateAiWindowIntent,
+  validateAiWindowStateEnvelope,
+  type AiWindowCommandResult,
+  type AiWindowIntent,
+  type AiWindowStateEnvelope,
+} from "../../src/shared/ai-window.js";
 
 const IPC_CHANNELS = Object.freeze({
+  getSystemLocale: "panel:system-locale",
+  setInterfaceLocale: "panel:set-interface-locale",
   openSource: "panel:open-source",
   openDroppedSource: "panel:open-dropped-source",
   listWorkspaceDocuments: "workspace:list",
@@ -104,6 +131,41 @@ function copyCapabilitiesSnapshot(value: Capabilities): Capabilities {
 }
 
 const panelApi: PanelApi = Object.freeze({
+  openAiWindow: async (): Promise<AiWindowCommandResult> =>
+    (await ipcRenderer.invoke(AI_WINDOW_IPC_CHANNELS.open)) as AiWindowCommandResult,
+  toggleAiWindow: async (): Promise<AiWindowCommandResult> =>
+    (await ipcRenderer.invoke(AI_WINDOW_IPC_CHANNELS.toggle)) as AiWindowCommandResult,
+  publishAiWindowState: async (value: AiWindowStateEnvelope): Promise<AiWindowCommandResult> => {
+    const state = validateAiWindowStateEnvelope(value);
+    if (state === null) return Object.freeze({ status: "failed", code: "INVALID_PAYLOAD" });
+    return (await ipcRenderer.invoke(
+      AI_WINDOW_IPC_CHANNELS.publishState,
+      state,
+    )) as AiWindowCommandResult;
+  },
+  onAiWindowIntent: (handler: (intent: AiWindowIntent) => void): (() => void) => {
+    if (typeof handler !== "function") throw new TypeError("AI window intent handler is invalid");
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+      const intent = validateAiWindowIntent(value);
+      if (intent !== null) handler(intent);
+    };
+    ipcRenderer.on(AI_WINDOW_IPC_CHANNELS.intent, listener);
+    return () => ipcRenderer.removeListener(AI_WINDOW_IPC_CHANNELS.intent, listener);
+  },
+  onAiWindowClosed: (handler: () => void): (() => void) => {
+    if (typeof handler !== "function") throw new TypeError("AI window close handler is invalid");
+    const listener = (): void => handler();
+    ipcRenderer.on(AI_WINDOW_IPC_CHANNELS.closed, listener);
+    return () => ipcRenderer.removeListener(AI_WINDOW_IPC_CHANNELS.closed, listener);
+  },
+  getSystemLocale: async (): Promise<InterfaceLocale> => {
+    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.getSystemLocale);
+    return isInterfaceLocale(result) ? result : "en";
+  },
+  setInterfaceLocale: async (locale: InterfaceLocale): Promise<void> => {
+    if (!isInterfaceLocale(locale)) throw new TypeError("界面语言无效");
+    await ipcRenderer.invoke(IPC_CHANNELS.setInterfaceLocale, locale);
+  },
   openSource: async (): Promise<SourceImportResult> =>
     (await ipcRenderer.invoke(IPC_CHANNELS.openSource)) as SourceImportResult,
   openDroppedSource: async (file: File): Promise<SourceImportResult> => {
@@ -171,10 +233,55 @@ const panelApi: PanelApi = Object.freeze({
     )) as LearningCatalogSaveResult,
   getAiProviderConfig: async (): Promise<AiProviderReadResult> =>
     (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.getConfig)) as AiProviderReadResult,
-  connectAiProvider: async (
-    request: ConnectAiProviderRequest,
-  ): Promise<AiProviderConnectResult> =>
-    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.connect, request)) as AiProviderConnectResult,
+  openAiProject: async (request: OpenAiProjectRequest): Promise<AiProjectOpenResult> =>
+    (await ipcRenderer.invoke(AI_PROJECT_IPC_CHANNELS.open, request)) as AiProjectOpenResult,
+  createAiConversation: async (
+    request: CreateAiConversationRequest,
+  ): Promise<AiConversationCreateResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.createConversation,
+      request,
+    )) as AiConversationCreateResult,
+  readAiConversation: async (
+    request: ReadAiConversationRequest,
+  ): Promise<AiConversationReadResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.readConversation,
+      request,
+    )) as AiConversationReadResult,
+  renameAiConversation: async (
+    request: RenameAiConversationRequest,
+  ): Promise<AiConversationUpdateResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.renameConversation,
+      request,
+    )) as AiConversationUpdateResult,
+  setAiConversationArchived: async (
+    request: SetAiConversationArchivedRequest,
+  ): Promise<AiConversationUpdateResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.setConversationArchived,
+      request,
+    )) as AiConversationUpdateResult,
+  deleteAiConversation: async (
+    request: DeleteAiConversationRequest,
+  ): Promise<AiConversationDeleteResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.deleteConversation,
+      request,
+    )) as AiConversationDeleteResult,
+  appendAiConversationMessage: async (
+    request: AppendAiConversationMessageRequest,
+  ): Promise<AiConversationMessageAppendResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROJECT_IPC_CHANNELS.appendMessage,
+      request,
+    )) as AiConversationMessageAppendResult,
+  connectAiProvider: async (request: ConnectAiProviderRequest): Promise<AiProviderConnectResult> =>
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.connect,
+      request,
+    )) as AiProviderConnectResult,
   listAiProviderModels: async (
     request: ListAiProviderModelsRequest,
   ): Promise<AiProviderModelsResult> =>
@@ -197,7 +304,10 @@ const panelApi: PanelApi = Object.freeze({
       request,
     )) as AiProviderDisconnectResult,
   startAiMentor: async (request: StartAiMentorRequest): Promise<AiMentorStartResult> =>
-    (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.startMentor, request)) as AiMentorStartResult,
+    (await ipcRenderer.invoke(
+      AI_PROVIDER_IPC_CHANNELS.startMentor,
+      request,
+    )) as AiMentorStartResult,
   readAiMentor: async (request: ReadAiMentorRequest): Promise<AiMentorReadResult> =>
     (await ipcRenderer.invoke(AI_PROVIDER_IPC_CHANNELS.readMentor, request)) as AiMentorReadResult,
   cancelAiMentor: async (request: CancelAiMentorRequest): Promise<AiMentorCancelResult> =>

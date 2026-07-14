@@ -1,11 +1,18 @@
 import {
   aiProviderFailure,
   type AiMentorEvidenceContext,
+  type AiMentorIntent,
+  type AiMentorTurn,
   type AiProviderFailure,
   type AiProviderId,
   type AiProviderModel,
   type AiProviderModelsResult,
 } from "../../src/shared/ai-provider.js";
+import {
+  parseAiMentorEditEnvelopeJson,
+  type AiSourceEditProposal,
+} from "../../src/shared/ai-edit.js";
+import type { InterfaceLocale } from "../../src/shared/interface-locale.js";
 import {
   assertRegisteredAiProviderUrl,
   getAiProviderRegistration,
@@ -46,10 +53,22 @@ export interface AiProviderClient {
     credential: string,
     model: string,
     prompt: string,
+    history: readonly AiMentorTurn[],
     context: AiMentorEvidenceContext,
     signal: AbortSignal,
-  ): Promise<{ readonly status: "completed"; readonly text: string } | AiProviderFailure>;
+    intent: AiMentorIntent,
+    locale: InterfaceLocale,
+  ): Promise<AiProviderMentorResult>;
 }
+
+export type AiProviderMentorResult =
+  | { readonly status: "completed"; readonly text: string }
+  | {
+      readonly status: "completed";
+      readonly text: string;
+      readonly proposal: AiSourceEditProposal | null;
+    }
+  | AiProviderFailure;
 
 export function createAiProviderClient(
   network: AiProviderNetworkAdapter = createFetchAiProviderNetworkAdapter(),
@@ -110,9 +129,12 @@ export function createAiProviderClient(
       credential: string,
       model: string,
       prompt: string,
+      history: readonly AiMentorTurn[],
       context: AiMentorEvidenceContext,
       signal: AbortSignal,
-    ): Promise<{ readonly status: "completed"; readonly text: string } | AiProviderFailure> {
+      intent: AiMentorIntent = "chat",
+      locale: InterfaceLocale,
+    ): Promise<AiProviderMentorResult> {
       const registration = getAiProviderRegistration(providerId);
       try {
         const url = assertRegisteredAiProviderUrl(providerId, registration.mentorUrl(model));
@@ -120,7 +142,7 @@ export function createAiProviderClient(
           url: url.href,
           method: "POST",
           headers: providerHeaders(providerId, credential, true),
-          body: mentorBody(registration, model, prompt, context),
+          body: mentorBody(registration, model, prompt, history, context, intent, locale),
           timeoutMs: MENTOR_TIMEOUT_MS,
           maxResponseBytes: MENTOR_RESPONSE_MAX_BYTES,
           signal,
@@ -128,11 +150,25 @@ export function createAiProviderClient(
         const failure = responseFailure(response);
         if (failure !== null) return failure;
         const parsed = parseJsonObject(response);
-        const text = parseMentorText(registration, parsed);
-        if (text.length === 0 || text.length > MAX_ANSWER_LENGTH) {
+        const rawText = parseMentorText(registration, parsed);
+        if (rawText.length === 0 || rawText.length > MAX_ANSWER_LENGTH) {
           return aiProviderFailure("AI_PROVIDER_INVALID_RESPONSE", "AI 返回了无效或过长的回答。");
         }
-        return Object.freeze({ status: "completed", text });
+        if (intent === "propose-edit") {
+          const envelope = parseAiMentorEditEnvelopeJson(rawText);
+          if (envelope === null) {
+            return aiProviderFailure(
+              "AI_PROVIDER_INVALID_RESPONSE",
+              "AI 改码提案不是受支持的严格 JSON，源码未修改。",
+            );
+          }
+          return Object.freeze({
+            status: "completed",
+            text: envelope.answer,
+            proposal: envelope.proposal,
+          });
+        }
+        return Object.freeze({ status: "completed", text: rawText });
       } catch (error: unknown) {
         return networkFailure(error);
       }
@@ -230,37 +266,72 @@ function mentorBody(
   registration: RegisteredAiProvider,
   model: string,
   prompt: string,
+  history: readonly AiMentorTurn[],
   context: AiMentorEvidenceContext,
+  intent: AiMentorIntent,
+  locale: InterfaceLocale,
 ): string {
-  const system =
-    "你是 C 算法学习工作台的只读导师。只依据给定代码与证据回答；区分事实、推断和建议；不得声称已修改源码；不要索取 API 密钥、路径、stdin 或个人信息。";
-  const user = `${prompt}\n\n工作台证据（可能为空）：\n${JSON.stringify(context)}`;
+  const system = mentorSystemPrompt(intent, locale);
+  const evidenceLead =
+    locale === "en" ? "Workbench evidence (may be empty):" : "工作台证据（可能为空）：";
+  const user = `${prompt}\n\n${evidenceLead}\n${JSON.stringify(context)}`;
   if (registration.protocol === "anthropic-messages") {
     return JSON.stringify({
       model,
       max_tokens: 2_048,
       system,
-      messages: [{ role: "user", content: user }],
+      messages: [...history, { role: "user", content: user }],
     });
   }
   if (registration.protocol === "gemini-content") {
     return JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: user }] }],
+      contents: [
+        ...history.map((turn) => ({
+          role: turn.role === "assistant" ? "model" : "user",
+          parts: [{ text: turn.content }],
+        })),
+        { role: "user", parts: [{ text: user }] },
+      ],
       generationConfig: { maxOutputTokens: 2_048 },
     });
   }
   return JSON.stringify({
     model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
+    messages: [{ role: "system", content: system }, ...history, { role: "user", content: user }],
     stream: false,
   });
 }
 
-function parseModels(providerId: AiProviderId, value: Record<string, unknown>): readonly AiProviderModel[] {
+function mentorSystemPrompt(intent: AiMentorIntent, locale: InterfaceLocale): string {
+  if (intent === "chat") {
+    return locale === "en"
+      ? "You are the read-only tutor in a C algorithm workbench. Answer only from the supplied code and evidence; distinguish facts, inferences, and suggestions; never claim that you changed the source; do not request API keys, paths, stdin, or personal information. Reply in English."
+      : "你是 C 算法学习工作台的只读导师。只依据给定代码与证据回答；区分事实、推断和建议；不得声称已修改源码；不要索取 API 密钥、路径、stdin 或个人信息。使用中文回答。";
+  }
+  return locale === "en"
+    ? [
+        "You are the source-change proposal engine in a C algorithm workbench. You cannot modify files directly.",
+        "Return exactly one bare JSON object, with no Markdown, code fence, surrounding explanation, or extra fields.",
+        'Use this fixed structure: {"schemaVersion":1,"answer":"brief explanation for the user","proposal":null or {"schemaVersion":1,"summary":"change summary","replacements":[{"expectedText":"non-empty text that is character-for-character identical and unique in the current C source","newText":"replacement C text"}]}}.',
+        "You may propose only text replacements inside the current main.c. Do not return paths, file operations, commands, terminal calls, network operations, or credentials.",
+        "expectedText must come from the supplied source and be specific enough to match exactly once. If a safe change is uncertain, proposal must be null.",
+        "Write answer and summary in English.",
+      ].join("\n")
+    : [
+        "你是 C 算法学习工作台的源码修改提案器。你不能直接修改文件。",
+        "只返回一个裸 JSON 对象，不要 Markdown、代码围栏、前后说明或额外字段。",
+        '固定结构：{"schemaVersion":1,"answer":"给用户的简短说明","proposal":null 或 {"schemaVersion":1,"summary":"修改摘要","replacements":[{"expectedText":"当前 C 源码中逐字符完全一致且唯一的非空文本","newText":"替换后的 C 文本"}]}}。',
+        "只能提出当前 main.c 内的文本替换；不得返回路径、文件操作、命令、终端调用、网络操作或密钥。",
+        "expectedText 必须来自所给源码且足够具体以唯一命中；不能确定安全修改时 proposal 必须为 null。",
+        "answer 与 summary 使用中文。",
+      ].join("\n");
+}
+
+function parseModels(
+  providerId: AiProviderId,
+  value: Record<string, unknown>,
+): readonly AiProviderModel[] {
   const source = providerId === "gemini" ? value.models : value.data;
   if (!Array.isArray(source) || source.length > MAX_MODELS * 2) throw invalidResponseError();
   const models = new Map<string, AiProviderModel>();
@@ -341,10 +412,7 @@ function responseFailure(response: AiProviderNetworkResponse): AiProviderFailure
     );
   }
   if (response.status === 404) {
-    return aiProviderFailure(
-      "AI_PROVIDER_MODEL_UNAVAILABLE",
-      "所选模型或官方接口当前不可用。",
-    );
+    return aiProviderFailure("AI_PROVIDER_MODEL_UNAVAILABLE", "所选模型或官方接口当前不可用。");
   }
   return aiProviderFailure(
     "AI_PROVIDER_NETWORK_FAILED",

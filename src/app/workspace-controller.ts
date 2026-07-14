@@ -2,9 +2,13 @@ import type { ImportedSource, PanelApi } from "../shared/api.js";
 import type {
   WorkspaceDocument,
   WorkspaceEntrySummary,
+  WorkspaceErrorCode,
   WorkspaceKind,
 } from "../shared/workspace.js";
-import { createWorkspacePersistence } from "./workspace-persistence.js";
+import {
+  createWorkspacePersistence,
+  type WorkspacePersistenceStatus,
+} from "./workspace-persistence.js";
 import { createWorkspaceDashboard, type WorkspaceDashboard } from "../ui/workspace-dashboard.js";
 
 export interface WorkspaceControllerOptions {
@@ -43,19 +47,49 @@ export function createWorkspaceController(
   assertOptions(options);
   let destroyed = false;
   let generation = 0;
+  const localeHost =
+    typeof options.host.closest === "function"
+      ? options.host.closest<HTMLElement>("[data-locale]")
+      : null;
+  const english = (): boolean => localeHost?.dataset.locale === "en";
+  let lastDashboardStatus: {
+    readonly zh: string;
+    readonly en: string;
+    readonly state: "ready" | "loading" | "success" | "error";
+  } | null = null;
+  let lastPersistenceStatus: WorkspacePersistenceStatus | null = null;
+
+  const renderPersistenceStatus = (status: WorkspacePersistenceStatus): void => {
+    lastPersistenceStatus = status;
+    options.saveStatus.dataset.state = status.state;
+    options.saveStatus.textContent = workspacePersistenceMessage(
+      status,
+      english() ? "en" : "zh-CN",
+    );
+    options.recoveryButton.hidden = status.recovery !== "reload-disk";
+  };
+
+  const setDashboardStatus = (
+    zh: string,
+    en: string,
+    state: "ready" | "loading" | "success" | "error" = "ready",
+  ): void => {
+    lastDashboardStatus = Object.freeze({ zh, en, state });
+    dashboard.setStatus(english() ? en : zh, state);
+  };
 
   const persistence = createWorkspacePersistence({
     save: (entryId, expectedRevision, source) =>
       options.api.saveWorkspaceDocument({ entryId, expectedRevision, source }),
-    onStatus(status) {
-      options.saveStatus.dataset.state = status.state;
-      options.saveStatus.textContent = status.message;
-      options.recoveryButton.hidden = status.recovery !== "reload-disk";
-    },
+    onStatus: renderPersistenceStatus,
   });
 
   const setFailure = (code: string, message: string): void => {
-    dashboard.setStatus(`${code}：${message}`, "error");
+    setDashboardStatus(
+      `${code}：${message}`,
+      `${code}: ${safeWorkspaceErrorMessage(code, message)}`,
+      "error",
+    );
   };
 
   const adopt = (document: WorkspaceDocument): void => {
@@ -67,13 +101,17 @@ export function createWorkspaceController(
     });
     options.onActiveEntryChange?.(document.entry);
     options.enterWorkbench();
-    dashboard.setStatus(`已打开“${document.entry.title}”。`, "success");
+    setDashboardStatus(
+      `已打开“${document.entry.title}”。`,
+      `Opened “${document.entry.title}”.`,
+      "success",
+    );
   };
 
   const refresh = async (): Promise<void> => {
     if (destroyed) return;
     const requestGeneration = ++generation;
-    dashboard.setStatus("正在读取 Documents 工作区…", "loading");
+    setDashboardStatus("正在读取 Documents 工作区…", "Reading the Documents workspace…", "loading");
     try {
       const result = await options.api.listWorkspaceDocuments();
       if (destroyed || requestGeneration !== generation) return;
@@ -82,15 +120,18 @@ export function createWorkspaceController(
         return;
       }
       dashboard.setSnapshot(result.snapshot);
-      dashboard.setStatus(
+      setDashboardStatus(
         result.snapshot.entries.length === 0
           ? "工作区为空；新建条目后会立即写入 Documents。"
           : `已载入 ${String(result.snapshot.entries.length)} 个本地条目。`,
+        result.snapshot.entries.length === 0
+          ? "The workspace is empty. New entries are written to Documents immediately."
+          : `Loaded ${String(result.snapshot.entries.length)} local entries.`,
         "ready",
       );
     } catch {
       if (!destroyed && requestGeneration === generation) {
-        dashboard.setStatus("工作区 IPC 调用失败。", "error");
+        setDashboardStatus("工作区 IPC 调用失败。", "Workspace IPC request failed.", "error");
       }
     }
   };
@@ -101,7 +142,7 @@ export function createWorkspaceController(
     initialSource?: string,
   ): Promise<boolean> {
     const requestGeneration = ++generation;
-    dashboard.setStatus("正在创建本地条目…", "loading");
+    setDashboardStatus("正在创建本地条目…", "Creating a local entry…", "loading");
     try {
       await persistence.flush();
       const result = await options.api.createWorkspaceDocument({
@@ -119,7 +160,11 @@ export function createWorkspaceController(
       return true;
     } catch {
       if (!destroyed && requestGeneration === generation) {
-        dashboard.setStatus("创建条目的 IPC 调用失败。", "error");
+        setDashboardStatus(
+          "创建条目的 IPC 调用失败。",
+          "Create-entry IPC request failed.",
+          "error",
+        );
       }
       return false;
     }
@@ -129,7 +174,7 @@ export function createWorkspaceController(
     onCreate: createDocument,
     async onOpen(entryId: string): Promise<void> {
       const requestGeneration = ++generation;
-      dashboard.setStatus("正在打开本地条目…", "loading");
+      setDashboardStatus("正在打开本地条目…", "Opening the local entry…", "loading");
       try {
         await persistence.flush();
         const result = await options.api.openWorkspaceDocument({ entryId });
@@ -141,7 +186,11 @@ export function createWorkspaceController(
         adopt(result.document);
       } catch {
         if (!destroyed && requestGeneration === generation) {
-          dashboard.setStatus("打开条目的 IPC 调用失败。", "error");
+          setDashboardStatus(
+            "打开条目的 IPC 调用失败。",
+            "Open-entry IPC request failed.",
+            "error",
+          );
         }
       }
     },
@@ -155,7 +204,9 @@ export function createWorkspaceController(
     const ownerWindow = options.host.ownerDocument.defaultView;
     if (
       ownerWindow?.confirm(
-        "磁盘版本已更新。重新载入会放弃当前未保存修改；已保存的历史版本不受影响。继续吗？",
+        english()
+          ? "The disk version changed. Reloading discards current unsaved edits; saved history is unaffected. Continue?"
+          : "磁盘版本已更新。重新载入会放弃当前未保存修改；已保存的历史版本不受影响。继续吗？",
       ) !== true
     ) {
       return;
@@ -163,7 +214,7 @@ export function createWorkspaceController(
     const expectedSourceVersion = persistence.sourceVersion;
     const requestGeneration = ++generation;
     options.recoveryButton.disabled = true;
-    dashboard.setStatus("正在重新读取磁盘版本…", "loading");
+    setDashboardStatus("正在重新读取磁盘版本…", "Reloading the disk version…", "loading");
     try {
       const result = await options.api.openWorkspaceDocument({ entryId: entry.id });
       if (destroyed || requestGeneration !== generation) return;
@@ -172,7 +223,11 @@ export function createWorkspaceController(
         return;
       }
       if (persistence.sourceVersion !== expectedSourceVersion) {
-        dashboard.setStatus("源码在恢复期间再次变化；未放弃本地修改，请重新操作。", "error");
+        setDashboardStatus(
+          "源码在恢复期间再次变化；未放弃本地修改，请重新操作。",
+          "Source changed again during recovery. Local edits were kept; try again.",
+          "error",
+        );
         return;
       }
       options.load({
@@ -184,10 +239,18 @@ export function createWorkspaceController(
       persistence.adopt(result.document.entry);
       options.onActiveEntryChange?.(result.document.entry);
       options.enterWorkbench();
-      dashboard.setStatus(`已重新载入“${result.document.entry.title}”的磁盘版本。`, "success");
+      setDashboardStatus(
+        `已重新载入“${result.document.entry.title}”的磁盘版本。`,
+        `Reloaded the disk version of “${result.document.entry.title}”.`,
+        "success",
+      );
     } catch {
       if (!destroyed && requestGeneration === generation) {
-        dashboard.setStatus("重新载入磁盘版本失败；本地修改仍保留。", "error");
+        setDashboardStatus(
+          "重新载入磁盘版本失败；本地修改仍保留。",
+          "Failed to reload the disk version; local edits were kept.",
+          "error",
+        );
       }
     } finally {
       if (!destroyed) options.recoveryButton.disabled = false;
@@ -195,6 +258,15 @@ export function createWorkspaceController(
   };
   const onRecoverDiskVersion = (): void => void recoverDiskVersion();
   options.recoveryButton.addEventListener("click", onRecoverDiskVersion);
+  const onLocaleChange = (): void => {
+    if (destroyed) return;
+    if (lastDashboardStatus !== null) {
+      const current = lastDashboardStatus;
+      dashboard.setStatus(english() ? current.en : current.zh, current.state);
+    }
+    if (lastPersistenceStatus !== null) renderPersistenceStatus(lastPersistenceStatus);
+  };
+  localeHost?.addEventListener("workbench-locale-change", onLocaleChange);
 
   return Object.freeze({
     dashboard,
@@ -237,11 +309,64 @@ export function createWorkspaceController(
       destroyed = true;
       generation += 1;
       options.recoveryButton.removeEventListener("click", onRecoverDiskVersion);
+      localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
       options.onActiveEntryChange?.(null);
       persistence.destroy();
       dashboard.destroy();
     },
   });
+}
+
+export function workspacePersistenceMessage(
+  status: WorkspacePersistenceStatus,
+  locale: "zh-CN" | "en",
+): string {
+  if (locale !== "en") return status.message;
+  switch (status.message) {
+    case "正在同步到 Documents…":
+      return "Syncing to Documents…";
+    case "保存失败 · 工作区 IPC 不可用":
+      return "Save failed · workspace IPC unavailable";
+    case "已保存到 Documents":
+      return "Saved to Documents";
+    case "临时文档 · 未自动保存":
+      return "Temporary document · autosave off";
+    case "本地工作区未打开":
+      return "Local workspace not open";
+    case "有修改待保存":
+      return "Changes pending";
+    default: {
+      if (!containsHan(status.message)) return status.message;
+      const code = /^([A-Z][A-Z0-9_]+)/u.exec(status.message)?.[1];
+      return code === undefined
+        ? "Workspace status could not be displayed."
+        : `${code} · ${safeWorkspaceErrorMessage(code, status.message)}`;
+    }
+  }
+}
+
+export function safeWorkspaceErrorMessage(code: string, message: string): string {
+  if (!containsHan(message)) return message;
+  const copy: Partial<Record<WorkspaceErrorCode, string>> = {
+    WORKSPACE_CONFLICT: "The disk version changed. Reload the entry before saving again.",
+    WORKSPACE_CONTEXT_CLOSED: "The workspace request was cancelled because the app is closing.",
+    WORKSPACE_INVALID_REQUEST: "The workspace request is invalid.",
+    WORKSPACE_INVALID_SIDECAR: "The workspace view data is invalid.",
+    WORKSPACE_INVALID_SOURCE: "The C source is invalid.",
+    WORKSPACE_INVALID_TITLE: "The entry title is invalid.",
+    WORKSPACE_NOT_FOUND: "The workspace entry could not be found.",
+    WORKSPACE_NOT_REGULAR_FILE: "The selected item is not a regular file.",
+    WORKSPACE_READ_FAILED: "The workspace entry could not be read.",
+    WORKSPACE_ROOT_UNAVAILABLE: "The Documents workspace is unavailable.",
+    WORKSPACE_TOO_LARGE: "The C source exceeds the workspace size limit.",
+    WORKSPACE_SIDECAR_TOO_LARGE: "The workspace view data exceeds its size limit.",
+    WORKSPACE_WRITE_FAILED: "The workspace entry could not be saved.",
+  };
+  return copy[code as WorkspaceErrorCode] ?? "The workspace operation failed.";
+}
+
+function containsHan(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
 }
 
 function assertOptions(options: WorkspaceControllerOptions): void {

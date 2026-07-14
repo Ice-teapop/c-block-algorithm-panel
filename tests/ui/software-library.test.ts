@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { LIBRARY_ENTRIES } from "../../src/library/index.js";
 import { createSoftwareLibrary, SOFTWARE_FEATURES } from "../../src/ui/software-library.js";
 
 describe("software Library catalog", () => {
@@ -178,6 +179,145 @@ describe("software Library catalog", () => {
 
     library.destroy();
   });
+
+  it("rerenders Library chrome and details in place without losing query, filter or selection", () => {
+    const document = new FakeDocument();
+    const host = document.createElement("div");
+    host.dataset.locale = "zh-CN";
+    const library = createSoftwareLibrary(host as unknown as HTMLElement, {
+      onOpenFeature: vi.fn(),
+      onStartGuidedLesson: vi.fn(),
+    });
+
+    library.selectBranch("library.algorithms");
+    const search = walk(host).find((element) => element.type === "search");
+    if (search === undefined) throw new Error("fixture 缺少 Library 搜索框");
+    search.value = "binary search";
+    search.emit("input");
+    expect(library.selectedEntryId).toBe("algorithms.binary-search");
+
+    host.dataset.locale = "en";
+    host.emit("workbench-locale-change", { detail: { locale: "en" } });
+
+    expect(search.value).toBe("binary search");
+    expect(library.selectedBranchId).toBe("algorithms-complexity");
+    expect(library.selectedEntryId).toBe("algorithms.binary-search");
+    for (const heading of [
+      "Plain-language definition",
+      "Complexity",
+      "Common mistakes",
+      "Related concepts",
+    ]) {
+      expect(
+        walk(host).some((element) => element.textContent === heading),
+        heading,
+      ).toBe(true);
+    }
+    expect(walk(host).some((element) => element.textContent === "Binary Search")).toBe(true);
+    expect(search.placeholder).toBe("Search keywords, aliases or code");
+
+    search.value = "no-entry-can-match-this";
+    search.emit("input");
+    expect(
+      walk(host).some((element) => element.textContent === "No matching dictionary entries."),
+    ).toBe(true);
+    expect(library.selectedEntryId).toBe("algorithms.binary-search");
+
+    search.value = "";
+    search.emit("input");
+    library.selectBranch("examples");
+    for (const heading of [
+      "What you will complete",
+      "How completion is verified",
+      "Optional prerequisites",
+    ]) {
+      expect(
+        walk(host).some((element) => element.textContent === heading),
+        heading,
+      ).toBe(true);
+    }
+    expect(walk(host).some((element) => element.textContent === "Start interactive course")).toBe(
+      true,
+    );
+    library.selectEntry("tutorial.blocks-to-c");
+    expect(walk(host).some((element) => element.textContent === "Steps")).toBe(true);
+    expect(walk(host).some((element) => element.textContent === "Place the basic blocks")).toBe(
+      false,
+    );
+    expect(
+      walk(host).some((element) => element.textContent === "Step 1 · Place the basic blocks"),
+    ).toBe(true);
+    expect(walk(host).some((element) => element.textContent === "Completion checks")).toBe(true);
+
+    host.dataset.locale = "zh-CN";
+    host.emit("workbench-locale-change", { detail: { locale: "zh-CN" } });
+    expect(library.selectedEntryId).toBe("tutorial.blocks-to-c");
+    expect(walk(host).some((element) => element.textContent === "操作步骤")).toBe(true);
+    expect(walk(host).some((element) => element.textContent === "步骤 1 · 拖入基础积木")).toBe(
+      true,
+    );
+
+    library.destroy();
+  });
+
+  it("never exposes Chinese entry or tutorial copy through the English visible surface", () => {
+    const document = new FakeDocument();
+    const host = document.createElement("div");
+    host.dataset.locale = "en";
+    const library = createSoftwareLibrary(host as unknown as HTMLElement, {
+      onOpenFeature: vi.fn(),
+      onStartGuidedLesson: vi.fn(),
+    });
+
+    for (const entry of LIBRARY_ENTRIES) {
+      library.selectEntry(entry.id);
+      expect(visibleLibraryCopy(host), entry.id).not.toMatch(/[\u3400-\u9fff]/u);
+    }
+    for (const feature of SOFTWARE_FEATURES) {
+      library.select(feature.id);
+      expect(visibleLibraryCopy(host), feature.id).not.toMatch(/[\u3400-\u9fff]/u);
+    }
+
+    library.destroy();
+  });
+
+  it("ships complete reviewed English copy for every tutorial step and artifact", () => {
+    const tutorials = LIBRARY_ENTRIES.filter(
+      (entry): entry is typeof entry & { readonly tutorial: NonNullable<typeof entry.tutorial> } =>
+        entry.tutorial !== null && entry.tutorial !== undefined,
+    );
+    expect(tutorials).toHaveLength(8);
+
+    for (const entry of tutorials) {
+      const source = entry.tutorial;
+      const english = entry.localizations?.en;
+      const localizedTutorial = english?.tutorial;
+      expect(english?.title, `${entry.id}.title`).toBeTruthy();
+      expect(english?.summary, `${entry.id}.summary`).toBeTruthy();
+      expect(english?.details?.length, `${entry.id}.details`).toBeGreaterThanOrEqual(2);
+      expect(localizedTutorial?.learningGoals?.length, `${entry.id}.goals`).toBe(
+        source.learningGoals.length,
+      );
+      expect(localizedTutorial?.completionChecks?.length, `${entry.id}.checks`).toBe(
+        source.completionChecks.length,
+      );
+      for (const step of source.steps) {
+        const localizedStep = localizedTutorial?.steps?.[step.id];
+        expect(localizedStep?.title, `${entry.id}.${step.id}.title`).toBeTruthy();
+        expect(localizedStep?.instruction, `${entry.id}.${step.id}.instruction`).toBeTruthy();
+        expect(localizedStep?.check, `${entry.id}.${step.id}.check`).toBeTruthy();
+        expect(localizedStep?.artifactExamples?.length, `${entry.id}.${step.id}.artifacts`).toBe(
+          step.artifacts.length,
+        );
+        if (step.featureLink !== null) {
+          expect(
+            localizedStep?.featureLinkLabel,
+            `${entry.id}.${step.id}.featureLink`,
+          ).toBeTruthy();
+        }
+      }
+    }
+  });
 });
 
 class FakeClassList {
@@ -196,7 +336,7 @@ class FakeElement {
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string> = {};
   readonly classList = new FakeClassList();
-  readonly #listeners = new Map<string, Set<() => void>>();
+  readonly #listeners = new Map<string, Set<(event: unknown) => void>>();
   readonly #attributes = new Map<string, string>();
   parent: FakeElement | null = null;
   className = "";
@@ -234,18 +374,18 @@ class FakeElement {
     this.#attributes.set(name, value);
   }
 
-  addEventListener(type: string, listener: () => void): void {
+  addEventListener(type: string, listener: (event: unknown) => void): void {
     const listeners = this.#listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.#listeners.set(type, listeners);
   }
 
-  removeEventListener(type: string, listener: () => void): void {
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
     this.#listeners.get(type)?.delete(listener);
   }
 
-  emit(type: string): void {
-    for (const listener of this.#listeners.get(type) ?? []) listener();
+  emit(type: string, event: unknown = {}): void {
+    for (const listener of this.#listeners.get(type) ?? []) listener(event);
   }
 }
 
@@ -257,4 +397,10 @@ class FakeDocument {
 
 function walk(root: FakeElement): readonly FakeElement[] {
   return [root, ...root.children.flatMap((child) => walk(child))];
+}
+
+function visibleLibraryCopy(host: FakeElement): string {
+  return walk(host)
+    .flatMap((element) => [element.textContent, element.title, element.placeholder])
+    .join("\n");
 }

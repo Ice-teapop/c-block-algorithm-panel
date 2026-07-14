@@ -1,4 +1,7 @@
-export const EXPECTED_DOCK_LABELS = Object.freeze(["设置", "预设块", "Library", "面板预览"]);
+export const EXPECTED_DOCK_LABELS = Object.freeze([
+  Object.freeze(["设置", "积木", "Library", "布局"]),
+  Object.freeze(["Settings", "Blocks", "Library", "Layout"]),
+]);
 
 export function requireMacPlatform(platform) {
   if (platform !== "darwin") {
@@ -67,10 +70,13 @@ export function validateInstalledWorkbenchSnapshot(snapshot) {
   }
   if (
     !Array.isArray(snapshot.dockLabels) ||
-    snapshot.dockLabels.length !== EXPECTED_DOCK_LABELS.length ||
-    snapshot.dockLabels.some((label, index) => label !== EXPECTED_DOCK_LABELS[index])
+    !EXPECTED_DOCK_LABELS.some(
+      (expected) =>
+        snapshot.dockLabels.length === expected.length &&
+        snapshot.dockLabels.every((label, index) => label === expected[index]),
+    )
   ) {
-    failures.push(`Dock 必须严格包含：${EXPECTED_DOCK_LABELS.join("、")}`);
+    failures.push("Dock 必须严格包含当前中文或英文四入口");
   }
   if (failures.length > 0) throw new Error(failures.join("；"));
 }
@@ -89,10 +95,12 @@ export function validateAsarEntries(output) {
     .filter(Boolean);
   for (const requirement of [
     /\/dist\/index\.html$/u,
+    /\/dist\/ai-window\.html$/u,
     /\/dist\/assets\/tree-sitter-c-.*\.wasm$/u,
     /\/dist\/assets\/web-tree-sitter-.*\.wasm$/u,
     /\/dist\/assets\/program-analysis-worker-.*\.js$/u,
     /\/dist-electron\/preload\/index\.cjs$/u,
+    /\/dist-electron\/preload\/ai-window\.cjs$/u,
     /\/dist-electron\/electron\/main\/index\.js$/u,
   ]) {
     if (!entries.some((entry) => requirement.test(entry))) {
@@ -103,7 +111,7 @@ export function validateAsarEntries(output) {
 
 export function assertReleaseGateOrder(workflow) {
   const stages = Object.freeze([
-    Object.freeze({ label: "DMG 构建", fragment: "run: npm run dist:mac:beta" }),
+    Object.freeze({ label: "DMG 构建", fragment: "run: npm run dist:mac" }),
     Object.freeze({ label: "安装态 DMG 门禁", fragment: "run: npm run verify:installed-dmg" }),
     Object.freeze({ label: "SHA-256", fragment: "shasum -a 256" }),
     Object.freeze({

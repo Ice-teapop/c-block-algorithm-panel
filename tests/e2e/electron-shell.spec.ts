@@ -447,8 +447,10 @@ test("grants exactly one compile and one run after separate native confirmations
 });
 
 test("opens the local desktop shell with a narrow preload API", async () => {
-  await expect(page).toHaveTitle("C 积木算法面板");
-  await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toHaveCount(0);
+  const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
+  const expectedTitle = systemLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
+  await expect(page).toHaveTitle(expectedTitle);
+  await expect(page.getByRole("heading", { name: expectedTitle })).toHaveCount(0);
   await expect(page.locator("#startup-loader")).toBeHidden();
 
   const rendererBoundary = await page.evaluate(() => ({
@@ -462,30 +464,39 @@ test("opens the local desktop shell with a narrow preload API", async () => {
 
   expect(rendererBoundary).toEqual({
     apiKeys: [
+      "appendAiConversationMessage",
       "cancelAiMentor",
       "cancelTrace",
       "capabilities",
       "compile",
       "connectAiProvider",
+      "createAiConversation",
       "createWorkspaceDocument",
+      "deleteAiConversation",
       "diagnose",
       "disconnectAiProvider",
       "getAiProviderConfig",
+      "getSystemLocale",
       "listAiProviderModels",
       "listWorkspaceDocuments",
       "onWorkspaceCloseRequested",
+      "openAiProject",
       "openDroppedSource",
       "openSource",
       "openWorkspaceDocument",
+      "readAiConversation",
       "readAiMentor",
       "readLearningCatalog",
       "readTrace",
       "readWorkspaceSidecar",
+      "renameAiConversation",
       "run",
       "saveLearningCatalog",
       "saveWorkspaceDocument",
       "saveWorkspaceSidecar",
       "selectAiProviderModel",
+      "setAiConversationArchived",
+      "setInterfaceLocale",
       "startAiMentor",
       "startTrace",
     ],
@@ -493,6 +504,17 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     hasNodeProcess: false,
     hasNodeRequire: false,
   });
+
+  const alternateLocale: "zh-CN" | "en" = systemLocale === "en" ? "zh-CN" : "en";
+  await page.evaluate((locale) => window.panelApi.setInterfaceLocale?.(locale), alternateLocale);
+  await expect
+    .poll(() =>
+      getElectronApplication().evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.getTitle(),
+      ),
+    )
+    .toBe(alternateLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板");
+  await page.evaluate((locale) => window.panelApi.setInterfaceLocale?.(locale), systemLocale);
 
   const capabilitySnapshot = await page.evaluate(async () => {
     const first = await window.panelApi.capabilities();

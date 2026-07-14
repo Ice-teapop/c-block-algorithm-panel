@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "variant": "B",
+  "label": "contextual-wire-guidance-v1",
+  "capturedAt": "2026-07-13T17:10:30+08:00",
+  "files": {
+    "src/ui/workbench-shell.ts": "a7439713a90c2a9a1a3dcbc86d04828a822efce34767435adaae96778036fdeb",
+    "src/app/flow-workbench-controller.ts": "be5420252dfcc0b177c2da8ab59aeee3821260cbd1c7331c62d57c398e2d3957",
+    "src/app/runtime-workspace-controller.ts": "7e4a885fa12c377e4c1cccbe0010a30441b2d0a7ed203a0c2247a9bdeee2080f",
+    "src/ui/flow-canvas.ts": "b8ff6ad91717a55aa02ea1f44473c7d0b8b9eb705317e1395156c06961c529ba",
+    "src/style.css": "ac061f0a286bd1428b598cdf089787bfe8ddede3bc5843371c788e11a322c0f2"
+  }
+}

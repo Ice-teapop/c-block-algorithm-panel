@@ -8,6 +8,98 @@ import {
   type TextRange,
 } from "../core/index.js";
 
+type BlockTreeLocale = "zh-CN" | "en";
+
+interface BlockTreeCopy {
+  readonly treeAria: string;
+  readonly empty: string;
+  readonly error: string;
+  readonly warning: string;
+  readonly suspiciousParse: string;
+  readonly rawParseRecovery: string;
+  readonly rawUnsupported: string;
+  readonly raw: string;
+  readonly role: Readonly<
+    Record<"function" | "statement" | "declaration" | "preprocessor", string>
+  >;
+  readonly nodeTitles: Readonly<Record<string, string>>;
+}
+
+const BLOCK_TREE_COPY: Readonly<Record<BlockTreeLocale, BlockTreeCopy>> = Object.freeze({
+  "zh-CN": Object.freeze({
+    treeAria: "C 语句积木树",
+    empty: "这份文件目前没有可显示的语句积木。",
+    error: "错误",
+    warning: "警告",
+    suspiciousParse: "可疑解析",
+    rawParseRecovery: "原始 C · 解析恢复",
+    rawUnsupported: "原始 C · 暂不结构化",
+    raw: "原始 C",
+    role: Object.freeze({
+      function: "函数",
+      statement: "语句",
+      declaration: "声明",
+      preprocessor: "预处理",
+    }),
+    nodeTitles: Object.freeze({
+      function_definition: "函数",
+      declaration: "变量声明",
+      type_definition: "类型定义",
+      preproc_include: "包含头文件",
+      preproc_def: "对象宏",
+      preproc_ifdef: "条件编译",
+      if_statement: "条件判断",
+      for_statement: "for 循环",
+      while_statement: "while 循环",
+      do_statement: "do-while 循环",
+      switch_statement: "switch 分支",
+      case_statement: "case 分支",
+      labeled_statement: "标签",
+      expression_statement: "表达式",
+      return_statement: "返回",
+      break_statement: "跳出",
+      continue_statement: "继续下一轮",
+      goto_statement: "跳转",
+    }),
+  }),
+  en: Object.freeze({
+    treeAria: "C statement block tree",
+    empty: "This file has no statement blocks to display.",
+    error: "Error",
+    warning: "Warning",
+    suspiciousParse: "Uncertain parse",
+    rawParseRecovery: "Raw C · Parse recovery",
+    rawUnsupported: "Raw C · Not yet structured",
+    raw: "Raw C",
+    role: Object.freeze({
+      function: "Function",
+      statement: "Statement",
+      declaration: "Declaration",
+      preprocessor: "Preprocessor",
+    }),
+    nodeTitles: Object.freeze({
+      function_definition: "Function",
+      declaration: "Variable Declaration",
+      type_definition: "Type Definition",
+      preproc_include: "Header Include",
+      preproc_def: "Object Macro",
+      preproc_ifdef: "Conditional Compilation",
+      if_statement: "Conditional",
+      for_statement: "for Loop",
+      while_statement: "while Loop",
+      do_statement: "do-while Loop",
+      switch_statement: "switch Branch",
+      case_statement: "case Branch",
+      labeled_statement: "Label",
+      expression_statement: "Expression",
+      return_statement: "Return",
+      break_statement: "Break",
+      continue_statement: "Continue",
+      goto_statement: "Jump",
+    }),
+  }),
+});
+
 export interface BlockDiagnosticMarker {
   readonly range: TextRange;
   readonly severity: "warning" | "error";
@@ -38,6 +130,17 @@ export function createBlockTree(
   onMove?: (source: BlockIndexEntry, target: BlockIndexEntry) => void,
   onInsert?: (intent: AssemblyInsertIntent) => void,
 ): BlockTree {
+  const ownerDocument = host.ownerDocument;
+  const localeHost =
+    typeof host.closest === "function"
+      ? (host.closest<HTMLElement>("[data-locale]") ?? host)
+      : host;
+  const documentElement = ownerDocument.documentElement;
+  let locale = resolveBlockTreeLocale(
+    localeHost.dataset.locale ?? documentElement?.dataset.locale ?? documentElement?.lang,
+  );
+  const copy = (): BlockTreeCopy => BLOCK_TREE_COPY[locale];
+  let currentDocument: SourceDoc | null = null;
   let currentIndex: BlockIndex | null = null;
   let selectedEntry: BlockIndexEntry | null = null;
   let selectedButton: HTMLButtonElement | null = null;
@@ -260,39 +363,86 @@ export function createBlockTree(
     }
   };
 
+  const renderDocument = (): void => {
+    clearDragState();
+    clearTemplateDropTarget();
+    host.replaceChildren();
+    if (currentDocument === null || currentIndex === null) {
+      buttons = [];
+      return;
+    }
+    const byBlock = new Map<Block, BlockIndexEntry>();
+    for (const entry of currentIndex.entries) {
+      if (entry.block !== null) byBlock.set(entry.block, entry);
+    }
+    const tree = ownerDocument.createElement("ul");
+    tree.className = "block-tree-list";
+    tree.setAttribute("role", "tree");
+    tree.setAttribute("aria-label", copy().treeAria);
+    for (const block of currentDocument.blocks) {
+      tree.append(renderBlock(ownerDocument, currentDocument, block, byBlock, 1, copy()));
+    }
+    if (currentDocument.blocks.length === 0) {
+      const empty = ownerDocument.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = copy().empty;
+      host.append(empty);
+    } else {
+      host.append(tree);
+    }
+    buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button[data-block-index]"));
+    for (const [position, button] of buttons.entries()) {
+      button.tabIndex = position === 0 ? 0 : -1;
+    }
+    selectedButton =
+      selectedEntry === null
+        ? null
+        : host.querySelector<HTMLButtonElement>(
+            `button[data-block-index="${String(selectedEntry.index)}"]`,
+          );
+    if (selectedButton !== null) {
+      for (const button of buttons) button.tabIndex = button === selectedButton ? 0 : -1;
+      selectedButton.setAttribute("aria-selected", "true");
+      selectedButton.classList.add("is-selected");
+    }
+    refreshDraggability();
+    renderDiagnosticMarkers(host, currentIndex, diagnosticMarkers, copy());
+  };
+
+  const onLocaleChange = (event?: Event): void => {
+    if (destroyed) return;
+    const eventLocale = (event as CustomEvent<{ readonly locale?: unknown }> | undefined)?.detail
+      ?.locale;
+    locale = resolveBlockTreeLocale(
+      eventLocale ??
+        localeHost.dataset.locale ??
+        documentElement?.dataset.locale ??
+        documentElement?.lang,
+    );
+    renderDocument();
+  };
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver;
+  const localeObserver =
+    MutationObserverConstructor === undefined || documentElement === undefined
+      ? null
+      : new MutationObserverConstructor(() => onLocaleChange());
+  localeObserver?.observe(documentElement, {
+    attributes: true,
+    attributeFilter: ["data-locale", "lang"],
+  });
+
   return Object.freeze({
     setDocument(sourceDoc: SourceDoc, index: BlockIndex) {
       assertActive(destroyed);
       clearDragState();
+      clearTemplateDropTarget();
+      currentDocument = sourceDoc;
       currentIndex = index;
       diagnosticMarkers = Object.freeze([]);
       selectedEntry = null;
       selectedButton = null;
-      host.replaceChildren();
-      const byBlock = new Map<Block, BlockIndexEntry>();
-      for (const entry of index.entries) {
-        if (entry.block !== null) byBlock.set(entry.block, entry);
-      }
-      const tree = window.document.createElement("ul");
-      tree.className = "block-tree-list";
-      tree.setAttribute("role", "tree");
-      tree.setAttribute("aria-label", "C 语句积木树");
-      for (const block of sourceDoc.blocks) {
-        tree.append(renderBlock(sourceDoc, block, byBlock, 1));
-      }
-      if (sourceDoc.blocks.length === 0) {
-        const empty = window.document.createElement("p");
-        empty.className = "empty-state";
-        empty.textContent = "这份文件目前没有可显示的语句积木。";
-        host.append(empty);
-      } else {
-        host.append(tree);
-      }
-      buttons = Array.from(host.querySelectorAll<HTMLButtonElement>("button[data-block-index]"));
-      for (const [position, button] of buttons.entries()) {
-        button.tabIndex = position === 0 ? 0 : -1;
-      }
-      refreshDraggability();
+      renderDocument();
     },
     setInteractionEnabled(enabled: boolean) {
       assertActive(destroyed);
@@ -336,7 +486,7 @@ export function createBlockTree(
           }),
         ),
       );
-      renderDiagnosticMarkers(host, currentIndex, diagnosticMarkers);
+      renderDiagnosticMarkers(host, currentIndex, diagnosticMarkers, copy());
     },
     getSelectedEntry() {
       assertActive(destroyed);
@@ -374,10 +524,13 @@ export function createBlockTree(
       host.removeEventListener("dragleave", onDragLeave);
       host.removeEventListener("drop", onDrop);
       host.removeEventListener("dragend", onDragEnd);
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
+      localeObserver?.disconnect();
       host.inert = false;
       host.removeAttribute("aria-disabled");
       host.replaceChildren();
       buttons = [];
+      currentDocument = null;
       currentIndex = null;
       diagnosticMarkers = Object.freeze([]);
       selectedEntry = null;
@@ -390,6 +543,7 @@ function renderDiagnosticMarkers(
   host: HTMLElement,
   index: BlockIndex | null,
   markers: readonly BlockDiagnosticMarker[],
+  copy: BlockTreeCopy,
 ): void {
   host.querySelectorAll(".block-card__diagnostic").forEach((badge) => badge.remove());
   if (index === null) return;
@@ -417,7 +571,7 @@ function renderDiagnosticMarkers(
     const badge = host.ownerDocument.createElement("span");
     badge.className = "block-card__diagnostic";
     badge.dataset.severity = hasError ? "error" : "warning";
-    badge.textContent = `${hasError ? "错误" : "警告"} ${String(values.length)}`;
+    badge.textContent = `${hasError ? copy.error : copy.warning} ${String(values.length)}`;
     badge.title = values.map((marker) => marker.message).join("\n");
     button.append(badge);
   }
@@ -438,18 +592,20 @@ function assertActive(destroyed: boolean): void {
 }
 
 function renderBlock(
+  ownerDocument: Document,
   document: SourceDoc,
   block: Block,
   byBlock: ReadonlyMap<Block, BlockIndexEntry>,
   level: number,
+  copy: BlockTreeCopy,
 ): HTMLLIElement {
-  const item = window.document.createElement("li");
+  const item = ownerDocument.createElement("li");
   const semanticKind = blockSemanticKind(block);
   item.className = `block-tree-node block-tree-node--${semanticKind}`;
   item.dataset.fragmentKind = semanticKind;
   item.dataset.blockSemantic = semanticKind;
   item.setAttribute("role", "none");
-  const button = window.document.createElement("button");
+  const button = ownerDocument.createElement("button");
   button.type = "button";
   button.className = `block-card block-card--${block.kind}`;
   button.setAttribute("role", "treeitem");
@@ -459,45 +615,45 @@ function renderBlock(
   if (entry !== undefined) button.dataset.blockIndex = String(entry.index);
   button.dataset.nodeType = block.kind === "syntax" ? block.nodeType : "raw";
 
-  const accent = window.document.createElement("span");
+  const accent = ownerDocument.createElement("span");
   accent.className = "block-card__accent";
   accent.setAttribute("aria-hidden", "true");
-  const copy = window.document.createElement("span");
-  copy.className = "block-card__copy";
-  const title = window.document.createElement("span");
+  const copySurface = ownerDocument.createElement("span");
+  copySurface.className = "block-card__copy";
+  const title = ownerDocument.createElement("span");
   title.className = "block-card__title";
-  title.textContent = blockTitle(block);
-  const excerpt = window.document.createElement("code");
+  title.textContent = blockTitle(block, copy);
+  const excerpt = ownerDocument.createElement("code");
   excerpt.className = "block-card__excerpt";
   excerpt.textContent = compactExcerpt(document.source.slice(block.range.from, block.range.to));
-  copy.append(title, excerpt);
-  button.append(accent, copy);
+  copySurface.append(title, excerpt);
+  button.append(accent, copySurface);
 
   const concerns = concernsForBlock(document.concerns, block);
   if (concerns.length > 0) {
-    const badge = window.document.createElement("span");
+    const badge = ownerDocument.createElement("span");
     badge.className = "block-card__badge";
-    badge.textContent = "可疑解析";
+    badge.textContent = copy.suspiciousParse;
     badge.title = concerns.map((concern) => concern.message).join("\n");
     button.append(badge);
   }
   if (entry !== undefined && isMovableEntry(entry)) {
     item.dataset.assemblyTargetIndex = String(entry.index);
-    item.append(renderAssemblySlot(window.document, entry, "before"));
+    item.append(renderAssemblySlot(ownerDocument, entry, "before"));
   }
   item.append(button);
 
   if (block.children.length > 0) {
-    const group = window.document.createElement("ul");
+    const group = ownerDocument.createElement("ul");
     group.className = "block-tree-children";
     group.setAttribute("role", "group");
     for (const child of block.children) {
-      group.append(renderBlock(document, child, byBlock, level + 1));
+      group.append(renderBlock(ownerDocument, document, child, byBlock, level + 1, copy));
     }
     item.append(group);
   }
   if (entry !== undefined && isMovableEntry(entry)) {
-    item.append(renderAssemblySlot(window.document, entry, "after"));
+    item.append(renderAssemblySlot(ownerDocument, entry, "after"));
   }
   return item;
 }
@@ -579,42 +735,18 @@ function compactExcerpt(source: string): string {
   return compact.length <= 76 ? compact : `${compact.slice(0, 73)}…`;
 }
 
-function blockTitle(block: Block): string {
+function blockTitle(block: Block, copy: BlockTreeCopy): string {
   if (block.kind === "raw") {
-    if (block.reason === "parse-error") return "原始 C · 解析恢复";
-    if (block.reason === "unsupported-syntax") return "原始 C · 暂不结构化";
-    return "原始 C";
+    if (block.reason === "parse-error") return copy.rawParseRecovery;
+    if (block.reason === "unsupported-syntax") return copy.rawUnsupported;
+    return copy.raw;
   }
-  return NODE_TITLES[block.nodeType] ?? `${roleTitle(block.role)} · ${block.nodeType}`;
+  return copy.nodeTitles[block.nodeType] ?? `${copy.role[block.role]} · ${block.nodeType}`;
 }
 
-function roleTitle(role: "function" | "statement" | "declaration" | "preprocessor"): string {
-  if (role === "function") return "函数";
-  if (role === "declaration") return "声明";
-  if (role === "preprocessor") return "预处理";
-  return "语句";
+function resolveBlockTreeLocale(value: unknown): BlockTreeLocale {
+  return typeof value === "string" && value.toLowerCase().startsWith("en") ? "en" : "zh-CN";
 }
-
-const NODE_TITLES: Readonly<Record<string, string>> = Object.freeze({
-  function_definition: "函数",
-  declaration: "变量声明",
-  type_definition: "类型定义",
-  preproc_include: "包含头文件",
-  preproc_def: "对象宏",
-  preproc_ifdef: "条件编译",
-  if_statement: "条件判断",
-  for_statement: "for 循环",
-  while_statement: "while 循环",
-  do_statement: "do-while 循环",
-  switch_statement: "switch 分支",
-  case_statement: "case 分支",
-  labeled_statement: "标签",
-  expression_statement: "表达式",
-  return_statement: "返回",
-  break_statement: "跳出",
-  continue_statement: "继续下一轮",
-  goto_statement: "跳转",
-});
 
 const CONTROL_SHAPE_NODE_TYPES: ReadonlySet<string> = new Set([
   "if_statement",

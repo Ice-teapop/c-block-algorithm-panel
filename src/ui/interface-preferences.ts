@@ -1,4 +1,6 @@
-export type InterfaceLocale = "zh-CN" | "en";
+import { isInterfaceLocale, type InterfaceLocale } from "../shared/interface-locale.js";
+
+export type { InterfaceLocale } from "../shared/interface-locale.js";
 export type InterfaceBackground = "white" | "paper" | "cool";
 
 export const INTERFACE_LOCALE_STORAGE_KEY = "c-block-algorithm-panel.locale";
@@ -14,6 +16,7 @@ export interface InterfacePreferencesControllerOptions {
   readonly languageSelect: HTMLSelectElement;
   readonly backgroundSelect: HTMLSelectElement;
   readonly storage?: InterfacePreferenceStorage | undefined;
+  readonly systemLocale?: InterfaceLocale | undefined;
   readonly onLocaleChange: (locale: InterfaceLocale) => void;
 }
 
@@ -23,8 +26,11 @@ export interface InterfacePreferencesController {
   destroy(): void;
 }
 
-export function resolveInterfaceLocale(value: unknown): InterfaceLocale {
-  return value === "en" ? "en" : "zh-CN";
+export function resolveInterfaceLocale(
+  value: unknown,
+  fallback: InterfaceLocale = "zh-CN",
+): InterfaceLocale {
+  return isInterfaceLocale(value) ? value : fallback;
 }
 
 export function resolveInterfaceBackground(value: unknown): InterfaceBackground {
@@ -35,7 +41,8 @@ export function createInterfacePreferencesController(
   options: InterfacePreferencesControllerOptions,
 ): InterfacePreferencesController {
   const storage = options.storage ?? defaultStorage();
-  let locale = resolveInterfaceLocale(read(storage, INTERFACE_LOCALE_STORAGE_KEY));
+  const systemLocale = resolveInterfaceLocale(options.systemLocale, "en");
+  let locale = resolveInterfaceLocale(read(storage, INTERFACE_LOCALE_STORAGE_KEY), systemLocale);
   let background = resolveInterfaceBackground(read(storage, INTERFACE_BACKGROUND_STORAGE_KEY));
   let destroyed = false;
 
@@ -43,6 +50,8 @@ export function createInterfacePreferencesController(
     options.root.dataset.locale = locale;
     options.root.dataset.background = background;
     options.root.ownerDocument.documentElement.lang = locale;
+    options.root.ownerDocument.title =
+      locale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
     options.languageSelect.value = locale;
     options.backgroundSelect.value = background;
     options.onLocaleChange(locale);
@@ -50,7 +59,7 @@ export function createInterfacePreferencesController(
 
   const onLanguageChange = (): void => {
     if (destroyed) return;
-    locale = resolveInterfaceLocale(options.languageSelect.value);
+    locale = resolveInterfaceLocale(options.languageSelect.value, systemLocale);
     write(storage, INTERFACE_LOCALE_STORAGE_KEY, locale);
     render();
   };

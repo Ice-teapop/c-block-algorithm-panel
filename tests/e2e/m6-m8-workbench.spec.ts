@@ -47,7 +47,10 @@ test.beforeAll(async () => {
     },
   });
   page = await application.firstWindow();
-  await page.evaluate(() => globalThis.localStorage.clear());
+  await page.evaluate(() => {
+    globalThis.localStorage.clear();
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
@@ -73,8 +76,6 @@ test.beforeAll(async () => {
   await page.keyboard.insertText(SOURCE);
   await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
   await expect.poll(() => readFile(join(projectDirectory, "main.c"), "utf8")).toBe(SOURCE);
-  await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
-  await expect(page.locator(".flow-node[data-node-kind='branch']")).toHaveCount(1);
 
   await requireApplication().evaluate(({ dialog }) => {
     const mutableDialog = dialog as unknown as {
@@ -119,6 +120,13 @@ test("uses a reduced Dock, opens Library directly and exposes local interface pr
   await expect(page.locator("html")).toHaveAttribute("data-background", "paper");
   await page.locator("#interface-language").selectOption("en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect
+    .poll(() =>
+      requireApplication().evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.getTitle(),
+      ),
+    )
+    .toBe("C Block Algorithm Panel");
   await expect(page.locator("[data-menu-root-trigger]")).toHaveText([
     "Settings",
     "Blocks",
@@ -126,6 +134,13 @@ test("uses a reduced Dock, opens Library directly and exposes local interface pr
     "Layout",
   ]);
   await page.locator("#interface-language").selectOption("zh-CN");
+  await expect
+    .poll(() =>
+      requireApplication().evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.getTitle(),
+      ),
+    )
+    .toBe("C 积木算法面板");
   await page.locator("#interface-background").selectOption("white");
   await page.getByRole("button", { name: "切换为深色主题" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -148,6 +163,7 @@ test("opens the analysis workspace directly from the text Dock", async () => {
 
 test("keeps root scrolling locked while every meaningful region is independently resizable", async () => {
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
+  await page.locator("#run-tab").click();
   const splitters = page.locator(".resizable-layout__splitter");
   await expect(splitters).toHaveCount(7);
   await expect(page.locator("#build-layout > .resizable-layout__splitter")).toHaveCount(1);
@@ -166,6 +182,31 @@ test("keeps root scrolling locked while every meaningful region is independently
   expect(Math.abs(runtimeBounds.x - workAreaBounds.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(runtimeBounds.width - workAreaBounds.width)).toBeLessThanOrEqual(1);
 
+  const bottomSplitter = page.locator(
+    "#work-area > .resizable-layout__splitter[data-splitter-for='primary']",
+  );
+  const primarySizeBefore = Number(await bottomSplitter.getAttribute("aria-valuenow"));
+  const bottomSplitterBounds = await bottomSplitter.boundingBox();
+  if (bottomSplitterBounds === null) throw new Error("运行区高度分隔线不可用");
+  await page.mouse.move(
+    bottomSplitterBounds.x + bottomSplitterBounds.width / 2,
+    bottomSplitterBounds.y + bottomSplitterBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    bottomSplitterBounds.x + bottomSplitterBounds.width / 2,
+    bottomSplitterBounds.y + bottomSplitterBounds.height / 2 - 40,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await bottomSplitter.getAttribute("aria-valuenow")))
+    .toBeLessThan(primarySizeBefore);
+  const resizedRuntimeBounds = await page.locator("#bottom-pane").boundingBox();
+  expect(resizedRuntimeBounds?.height ?? runtimeBounds.height).toBeGreaterThan(
+    runtimeBounds.height,
+  );
+
   const mainSplitter = page.locator(
     "#build-layout > .resizable-layout__splitter[data-splitter-for='left']",
   );
@@ -173,6 +214,40 @@ test("keeps root scrolling locked while every meaningful region is independently
   await mainSplitter.focus();
   await page.keyboard.press("ArrowRight");
   await expect(mainSplitter).toHaveAttribute("aria-valuenow", String(initialSize + 8));
+
+  const outputPanel = page.locator(".runtime-advanced");
+  await outputPanel.locator(":scope > summary").click();
+  await expect(outputPanel).toHaveAttribute("open", "");
+  const scenarioSplitter = page.locator(
+    "#run-panel > .resizable-layout__splitter[data-splitter-for='scenario']",
+  );
+  const traceSplitter = page.locator(
+    "#run-panel > .resizable-layout__splitter[data-splitter-for='trace']",
+  );
+  await expect(scenarioSplitter).toBeVisible();
+  await expect(traceSplitter).toBeHidden();
+  const outputBefore = await outputPanel.boundingBox();
+  const scenarioSizeBefore = Number(await scenarioSplitter.getAttribute("aria-valuenow"));
+  const runtimeSplitterBounds = await scenarioSplitter.boundingBox();
+  if (outputBefore === null || runtimeSplitterBounds === null) {
+    throw new Error("输出与诊断分隔线不可用");
+  }
+  await page.mouse.move(
+    runtimeSplitterBounds.x + runtimeSplitterBounds.width / 2,
+    runtimeSplitterBounds.y + runtimeSplitterBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    runtimeSplitterBounds.x + runtimeSplitterBounds.width / 2 + 48,
+    runtimeSplitterBounds.y + runtimeSplitterBounds.height / 2,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await scenarioSplitter.getAttribute("aria-valuenow")))
+    .toBeGreaterThan(scenarioSizeBefore);
+  const outputAfter = await outputPanel.boundingBox();
+  expect(outputAfter?.width ?? outputBefore.width).toBeLessThan(outputBefore.width);
 
   const scrolling = await page.evaluate(() => {
     const palette = document.querySelector<HTMLElement>("#block-palette .block-palette__list");
@@ -239,6 +314,8 @@ test("lets Canvas Focus consume the full workbench height", async () => {
 });
 
 test("drags a projected node freely and restores its sidecar position after reload", async () => {
+  await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
+  await expect(page.locator(".flow-node[data-node-kind='branch']")).toHaveCount(1);
   const node = page.locator(".flow-node[data-node-kind='declaration']").first();
   await expect(node).toBeVisible();
   await node.click();
@@ -251,6 +328,52 @@ test("drags a projected node freely and restores its sidecar position after relo
   await expect(detail).toContainText("静态诊断：");
   await expect(detail).toContainText("运行证据：");
   await expect(detail).toContainText("main.c 的精确投影");
+  const detailBefore = await detail.boundingBox();
+  const detailHeader = detail.locator(".flow-detail__header");
+  const detailHeaderBounds = await detailHeader.boundingBox();
+  if (detailBefore === null || detailHeaderBounds === null) {
+    throw new Error("节点详情窗口不可拖动");
+  }
+  await page.mouse.move(
+    detailHeaderBounds.x + Math.min(80, detailHeaderBounds.width / 3),
+    detailHeaderBounds.y + detailHeaderBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    detailHeaderBounds.x + Math.min(80, detailHeaderBounds.width / 3) + 56,
+    detailHeaderBounds.y + detailHeaderBounds.height / 2 + 36,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  const detailAfter = await detail.boundingBox();
+  expect(detailAfter?.x ?? detailBefore.x).toBeGreaterThan(detailBefore.x);
+  expect(detailAfter?.y ?? detailBefore.y).toBeGreaterThan(detailBefore.y);
+  const canvasBounds = await page.locator(".flow-canvas").boundingBox();
+  const movedHeaderBounds = await detailHeader.boundingBox();
+  if (canvasBounds === null || movedHeaderBounds === null) {
+    throw new Error("节点详情或画布边界不可用");
+  }
+  await page.mouse.move(
+    movedHeaderBounds.x + Math.min(80, movedHeaderBounds.width / 3),
+    movedHeaderBounds.y + movedHeaderBounds.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    canvasBounds.x + canvasBounds.width + 400,
+    canvasBounds.y + canvasBounds.height + 400,
+    {
+      steps: 4,
+    },
+  );
+  await page.mouse.up();
+  const clampedDetail = await detail.boundingBox();
+  if (clampedDetail === null) throw new Error("节点详情窗口在拖动后消失");
+  expect(clampedDetail.x + clampedDetail.width).toBeLessThanOrEqual(
+    canvasBounds.x + canvasBounds.width + 1,
+  );
+  expect(clampedDetail.y + clampedDetail.height).toBeLessThanOrEqual(
+    canvasBounds.y + canvasBounds.height + 1,
+  );
   await detail.getByRole("button", { name: "收起", exact: true }).click();
   await expect(detail).toHaveAttribute("data-minimized", "true");
 
@@ -371,20 +494,28 @@ test("keeps teaching simulation isolated, then renders a backend-confirmed real 
   const tracePanel = page.locator(".trace-panel");
   const traceEvents = page.locator(".trace-panel__event");
   await expect(tracePanel).toHaveAttribute("data-status", "idle");
+  await expect(page.locator("#trace-workbench-host")).toBeHidden();
   const traceChart = page.locator("svg.trace-panel__chart");
-  await expect(traceChart).toBeVisible();
+  await expect(traceChart).toBeHidden();
   await expect(traceChart).toHaveAttribute("role", "img");
   await expect(traceChart).toHaveAttribute("data-point-count", "0");
   await expect(page.locator(".trace-panel__visual-stage")).toHaveCount(0);
   await expect(page.locator(".trace-panel__reference")).toContainText("参考工作量：不可用");
+  await expect(page.locator("#trace-primary-action")).toBeVisible();
+  await expect(tracePanel.getByRole("button", { name: "观察路径" })).toHaveCount(0);
 
+  await page.getByRole("combobox", { name: "算法案例" }).selectOption({ index: 1 });
+  await page.getByText("更多运行方式", { exact: true }).click();
   await page.getByRole("button", { name: "教学模拟" }).click();
   await expect(page.locator(".scenario-panel__status")).toHaveText("教学模拟请求已完成");
   await expect(page.locator(".flow-node[data-execution-mode='simulation']").first()).toBeVisible();
   await expect(traceEvents).toHaveCount(0);
   expect(await fileExists(join(projectDirectory, "run-history.json"))).toBe(false);
 
-  await page.getByRole("button", { name: "观察路径" }).click();
+  await page.getByRole("combobox", { name: "算法案例" }).selectOption("");
+  await page.getByRole("button", { name: "运行", exact: true }).click();
+  await expect(page.getByRole("button", { name: "观察路径", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "观察路径", exact: true }).click();
   await expect(tracePanel).toHaveAttribute("data-status", "completed", { timeout: 20_000 });
   await expect(traceEvents.first()).toBeVisible();
   expect(await traceEvents.count()).toBeGreaterThan(0);
@@ -396,8 +527,8 @@ test("keeps teaching simulation isolated, then renders a backend-confirmed real 
   await expect(page.locator(".trace-panel__events")).toHaveAttribute("data-trace-mode", "real");
   await expect(traceChart.locator("[data-series='trace']")).toBeVisible();
   await expect(traceChart.locator("[data-kind='branch'][data-branch-taken='true']")).toBeVisible();
-  await expect(page.locator(".trace-panel__reference")).toHaveAttribute("data-available", "true");
-  await expect(page.locator(".trace-panel__reference")).toContainText("实测/参考工作量比");
+  await expect(page.locator(".trace-panel__reference")).toHaveAttribute("data-available", "false");
+  await expect(page.locator(".trace-panel__reference")).toContainText("参考工作量：不可用");
   await expect(page.locator(".flow-node[data-execution-mode='real']").first()).toBeVisible();
   await expect(page.locator("[data-trace-field='operation-count']")).toContainText(
     "真实 Trace 事件",

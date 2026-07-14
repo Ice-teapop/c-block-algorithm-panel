@@ -9,10 +9,39 @@ import {
 } from "../../src/ui/scenario-panel.js";
 
 describe("scenario panel", () => {
-  it("lists all eight local scenarios across seven families and previews deterministic inputs", () => {
-    const provider = createBuiltinScenarioProvider();
+  it("updates static, case and completed status copy when locale changes", async () => {
     const fixture = fakeHost();
     const panel = createScenarioPanel(fixture.host, callbacks());
+    panel.selectScenario("scenario.searching.linear");
+    await panel.requestRealRun();
+
+    fixture.shell.dataset.locale = "en";
+    fixture.shell.dispatchEvent(new Event("workbench-locale-change"));
+
+    expect(fixture.findByClass("scenario-panel__title")?.textContent).toBe(
+      "Cases and branch execution",
+    );
+    const choices = fixture.findByClass("scenario-panel__scenario")?.children ?? [];
+    expect(
+      choices.find((choice) => choice.value === "scenario.searching.linear")?.textContent,
+    ).toBe("Searching · Linear search");
+    expect(fixture.findByClass("scenario-panel__description")?.textContent).toBe(
+      "Search an ascending integer sequence for its last element.",
+    );
+    expect(fixture.findByClass("scenario-panel__status")?.textContent).toBe(
+      "Real run request completed",
+    );
+    expect(fixture.findByClass("scenario-panel__run-real")?.textContent).toBe("Run");
+    expect(fixture.findByClass("scenario-panel__scenario")?.attributes.get("aria-label")).toBe(
+      "Algorithm case",
+    );
+  });
+
+  it("starts unbound, lists local scenarios and binds only after explicit selection", async () => {
+    const provider = createBuiltinScenarioProvider();
+    const fixture = fakeHost();
+    const panelCallbacks = callbacks();
+    const panel = createScenarioPanel(fixture.host, panelCallbacks);
 
     expect(new Set(provider.list().map((scenario) => scenario.family))).toEqual(
       new Set([
@@ -25,9 +54,30 @@ describe("scenario panel", () => {
         "dynamic-programming",
       ]),
     );
-    expect(fixture.findByClass("scenario-panel__scenario")?.children).toHaveLength(9);
+    expect(fixture.findByClass("scenario-panel__scenario")?.children).toHaveLength(
+      provider.list().length + 1,
+    );
+    expect(panel.hasScenarioBinding()).toBe(false);
+    expect(panel.getSnapshot().scenarioBinding).toBe("none");
+    expect(fixture.findByClass("scenario-panel__scenario")?.value).toBe("");
+    expect(fixture.findByClass("scenario-panel__run-real")?.disabled).toBe(true);
+    expect(fixture.findByClass("scenario-panel__run-simulation")?.disabled).toBe(true);
+    expect(fixture.findByClass("scenario-panel__run-benchmark")?.disabled).toBe(true);
+    await expect(panel.requestRealRun()).rejects.toThrow(/尚未显式绑定/u);
+    await expect(panel.requestTeachingSimulation()).rejects.toThrow(/尚未显式绑定/u);
+    await expect(panel.requestBenchmark()).rejects.toThrow(/尚未显式绑定/u);
+    expect(panelCallbacks.onRealRun).not.toHaveBeenCalled();
+    expect(panelCallbacks.onTeachingSimulation).not.toHaveBeenCalled();
+    expect(panelCallbacks.onBenchmark).not.toHaveBeenCalled();
+
+    panel.refreshScenarios();
+    expect(panel.hasScenarioBinding()).toBe(false);
 
     panel.selectScenario("scenario.searching.linear");
+    expect(panel.hasScenarioBinding()).toBe(true);
+    expect(panel.getSnapshot().scenarioBinding).toBe("explicit");
+    expect(fixture.findByClass("scenario-panel__run-real")?.disabled).toBe(false);
+    expect(fixture.findByClass("scenario-panel__run-simulation")?.disabled).toBe(false);
     panel.setSize(4);
     expect(panel.getSnapshot()).toMatchObject({
       scenarioId: "scenario.searching.linear",
@@ -41,6 +91,13 @@ describe("scenario panel", () => {
     expect(fixture.findByClass("scenario-panel__stdin")?.textContent).toBe("4 4\n1 2 3 4\n");
     expect(fixture.findByClass("scenario-panel__args")?.textContent).toBe("（无）");
     expect(fixture.findByClass("scenario-panel__expected")?.textContent).toBe("3\n");
+
+    panel.clearScenarioBinding();
+    expect(panel.hasScenarioBinding()).toBe(false);
+    expect(fixture.findByClass("scenario-panel__scenario")?.value).toBe("");
+    expect(fixture.findByClass("scenario-panel__run-real")?.disabled).toBe(true);
+    await expect(panel.requestRealRun()).rejects.toThrow(/尚未显式绑定/u);
+    expect(panelCallbacks.onRealRun).not.toHaveBeenCalled();
   });
 
   it("rejects non-integer and out-of-range input sizes", () => {
@@ -67,6 +124,7 @@ describe("scenario panel", () => {
       },
       onBenchmark: vi.fn(),
     });
+    panel.selectScenario("scenario.sorting.integers");
     panel.setBranchTargets([
       {
         id: "if.true",
@@ -178,12 +236,18 @@ function callbacks(): Parameters<typeof createScenarioPanel>[1] {
 
 function fakeHost(): {
   readonly host: HTMLElement;
+  readonly shell: FakeElement;
   findByClass(className: string): FakeElement | undefined;
 } {
   const document = new FakeDocument();
+  const shell = document.createElement("div");
+  shell.id = "workbench-shell";
+  shell.dataset.locale = "zh-CN";
   const root = document.createElement("div");
+  shell.append(root);
   return {
     host: root as unknown as HTMLElement,
+    shell,
     findByClass: (className) => walk(root).find((element) => element.className === className),
   };
 }
@@ -197,8 +261,11 @@ class FakeDocument {
 class FakeElement {
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string> = {};
-  readonly #listeners = new Map<string, Set<() => void>>();
+  readonly attributes = new Map<string, string>();
+  readonly #listeners = new Map<string, Set<(event?: Event) => void>>();
+  parent: FakeElement | null = null;
   className = "";
+  id = "";
   textContent = "";
   type = "";
   value = "";
@@ -212,6 +279,7 @@ class FakeElement {
   constructor(readonly ownerDocument: FakeDocument) {}
 
   append(...children: FakeElement[]): void {
+    for (const child of children) child.parent = this;
     this.children.push(...children);
   }
 
@@ -219,12 +287,34 @@ class FakeElement {
     this.children.splice(0, this.children.length, ...children);
   }
 
-  setAttribute(_name: string, _value: string): void {}
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
 
-  addEventListener(type: string, listener: () => void): void {
+  addEventListener(type: string, listener: (event?: Event) => void): void {
     const listeners = this.#listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.#listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event?: Event) => void): void {
+    this.#listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.#listeners.get(event.type) ?? []) listener(event);
+    return true;
+  }
+
+  closest<T extends Element>(selector: string): T | null {
+    let candidate: FakeElement | null = this;
+    while (candidate !== null) {
+      if (selector === "#workbench-shell" && candidate.id === "workbench-shell") {
+        return candidate as unknown as T;
+      }
+      candidate = candidate.parent;
+    }
+    return null;
   }
 }
 

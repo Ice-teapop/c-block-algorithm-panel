@@ -214,6 +214,19 @@ describe("WorkbenchModuleRegistry", () => {
       "analyze",
       "minimal",
     ]);
+    expect(snapshot.layoutPresets.find(({ id }) => id === "build")?.panelIds).toContain("ai-hints");
+    expect(snapshot.commands).toHaveLength(21);
+    expect(snapshot.commands.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        "navigation.projects",
+        "navigation.workspace",
+        "navigation.analysis",
+        "navigation.library",
+        "settings.general",
+        "layout.focus",
+        "layout.reset",
+      ]),
+    );
     expect(snapshot.dockMenus.flatMap(({ branches }) => branches)).toHaveLength(20);
     expect(
       registry.findModulesByCapability("inspector.editing").map(({ manifest }) => manifest.id),

@@ -12,7 +12,7 @@ import {
 } from "./guided-lesson.js";
 
 export const FIRST_GUIDED_LESSON_ID = "lesson.first.maximum-scan";
-export const FIRST_GUIDED_LESSON_VERSION = "6.0.0";
+export const FIRST_GUIDED_LESSON_VERSION = "6.1.0";
 export const MAXIMUM_SCENARIO_ID = "scenario.searching.maximum";
 export const MINIMUM_SCENARIO_ID = "scenario.searching.minimum";
 export const FIRST_ALGORITHM_SCENARIO_VERSION = "1.0.0";
@@ -142,7 +142,7 @@ export const FIRST_GUIDED_LESSON: GuidedLessonDefinition = defineGuidedLesson({
   id: FIRST_GUIDED_LESSON_ID,
   version: FIRST_GUIDED_LESSON_VERSION,
   title: "第一课 · 扫描求最大值",
-  summary: "用真实运行、Trace、积木补全和回归测试建立第一个算法与调试闭环。",
+  summary: "用真实运行、Trace、读图、Benchmark、积木补全和回归测试建立第一个算法与调试闭环。",
   initialSource: FIRST_ALGORITHM_SOURCE,
   initialScenarioId: MAXIMUM_SCENARIO_ID,
   initialScenarioVersion: FIRST_ALGORITHM_SCENARIO_VERSION,
@@ -185,6 +185,46 @@ export const FIRST_GUIDED_LESSON: GuidedLessonDefinition = defineGuidedLesson({
               MAXIMUM_SCENARIO_ID,
               "normal",
               FIRST_ALGORITHM_SOURCE_FINGERPRINT,
+            ),
+          ],
+        ),
+      ],
+    ),
+    mission(
+      "mission.read-trace-chart",
+      "读工作区图",
+      "用刚才的真实 Trace 学会读横纵轴、事件点、参考线和工作量比值。",
+      "运行图展示的是一次执行的事件证据。先读懂它，才能避免把事件密度、墙钟时间和复杂度混成一个结论。",
+      [
+        "横轴标题会明确写“事件顺序”或“事件时间跨度”。",
+        "实心小点是语句，较大的分支点会标出 true / false。",
+        "实测/参考比只比较同规模工作量，不是速度评分。",
+      ],
+      "trace-chart",
+      [
+        stage(
+          "mission.read-trace-chart.axes",
+          "先读轴与事件点",
+          "查看刚才生成的 Trace 图，再选择横轴为“事件顺序”时最准确的解释。",
+          [
+            visualizationAnswerRequirement(
+              "mission.read-trace-chart.axes.answer",
+              "trace-chart",
+              "later-event",
+              "能正确解释事件顺序轴与累计事件轴",
+            ),
+          ],
+        ),
+        stage(
+          "mission.read-trace-chart.reference",
+          "再读参考线与比值",
+          "根据同规模参考线，判断 1.25× 的工作量比值能够说明什么。",
+          [
+            visualizationAnswerRequirement(
+              "mission.read-trace-chart.reference.answer",
+              "trace-chart",
+              "work-above-reference",
+              "能区分工作量比值、速度和 Big-O",
             ),
           ],
         ),
@@ -242,6 +282,60 @@ export const FIRST_GUIDED_LESSON: GuidedLessonDefinition = defineGuidedLesson({
               "normal",
               "8\n",
               FIRST_ALGORITHM_SOURCE_FINGERPRINT,
+            ),
+          ],
+        ),
+      ],
+    ),
+    mission(
+      "mission.read-analysis-chart",
+      "读分析图",
+      "先生成三个输入规模的可比 Benchmark，再解释中位数、波动范围、实测线和参考增长线。",
+      "单次运行只能说明一个点。跨规模、重复运行且保持源码、情景和工具链一致，才有资格讨论增长趋势。",
+      [
+        "使用规模 8、32、128，每个规模重复 3 次。",
+        "竖线是最小值到最大值；越长表示这组测量波动越大。",
+        "判断增长形状优先看操作次数；实测曲线只支持、不能证明 Big-O。",
+      ],
+      "analysis-chart",
+      [
+        stage(
+          "mission.read-analysis-chart.benchmark",
+          "生成可比数据",
+          "运行预设的 8 / 32 / 128 三组 Benchmark，每组至少重复 3 次。",
+          [
+            benchmarkRequirement(
+              "mission.read-analysis-chart.benchmark.series",
+              MAXIMUM_SCENARIO_ID,
+              FIRST_ALGORITHM_SOURCE_FINGERPRINT,
+              [8, 32, 128],
+              3,
+            ),
+          ],
+        ),
+        stage(
+          "mission.read-analysis-chart.variation",
+          "读中位数与波动",
+          "进入分析页查看实测点和竖线，再判断竖线变长代表什么。",
+          [
+            visualizationAnswerRequirement(
+              "mission.read-analysis-chart.variation.answer",
+              "analysis-chart",
+              "larger-variation",
+              "能正确解释中位数点与最小值—最大值范围",
+            ),
+          ],
+        ),
+        stage(
+          "mission.read-analysis-chart.growth",
+          "判断增长但不夸大",
+          "切换到操作次数，比较实测线与参考线，再选择可以成立的结论。",
+          [
+            visualizationAnswerRequirement(
+              "mission.read-analysis-chart.growth.answer",
+              "analysis-chart",
+              "supports-not-proves",
+              "能用操作次数支持增长判断，同时保留 Big-O 证明边界",
             ),
           ],
         ),
@@ -558,6 +652,34 @@ function traceRequirement(
     requiredOutcomes: Object.freeze(["true", "false"] as const),
     allowTruncated: false,
   });
+}
+
+function benchmarkRequirement(
+  id: string,
+  scenarioId: string,
+  expectedSourceFingerprint: string,
+  sizes: readonly number[],
+  minRepetitions: number,
+): GuidedRequirement {
+  return Object.freeze({
+    id,
+    kind: "benchmark-series",
+    label: "同源码、同情景、同工具链完成 8 / 32 / 128 三个规模，每个至少 3 次真实运行",
+    scenarioId,
+    scenarioVersion: FIRST_ALGORITHM_SCENARIO_VERSION,
+    expectedSourceFingerprint,
+    sizes: Object.freeze([...sizes]),
+    minRepetitions,
+  });
+}
+
+function visualizationAnswerRequirement(
+  id: string,
+  visualizationId: "trace-chart" | "analysis-chart",
+  answerId: string,
+  label: string,
+): GuidedRequirement {
+  return Object.freeze({ id, kind: "visualization-answer", label, visualizationId, answerId });
 }
 
 function requireStaticTransform(result: GuidedSourceTransformResult): string {

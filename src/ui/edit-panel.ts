@@ -1,5 +1,6 @@
 import { BINARY_OPERATORS, type BinaryOperator } from "../core/editing/operators.js";
 import type { EditTarget } from "../core/editing/targets.js";
+import type { InterfaceLocale } from "../shared/interface-locale.js";
 
 export type EditPanelStatusKind =
   "idle" | "ready" | "working" | "success" | "error" | "parse-error";
@@ -103,11 +104,139 @@ interface RenderedForm {
   readonly fieldset: HTMLFieldSetElement;
   readonly submitButton: HTMLButtonElement;
   readonly readDraft: () => EditPanelDraft;
+  readonly applyCopy: (copy: EditPanelCopy) => void;
 }
 
 let nextPanelId = 1;
 
 const binaryOperatorSet: ReadonlySet<string> = new Set(BINARY_OPERATORS);
+
+interface EditPanelCopy {
+  readonly rootAria: string;
+  readonly historyAria: string;
+  readonly undo: string;
+  readonly redo: string;
+  readonly historyAvailable: (action: string, depth: number) => string;
+  readonly parseUnavailable: string;
+  readonly noSelectionContent: string;
+  readonly generating: string;
+  readonly committed: string;
+  readonly cancelled: string;
+  readonly confirmParseCancelled: string;
+  readonly confirmNoTargetCancelled: string;
+  readonly noChanges: string;
+  readonly historyRequested: (action: string, waitingForParse: boolean) => string;
+  readonly noSelectionStatus: string;
+  readonly targetReady: (target: string) => string;
+  readonly targetLabels: Readonly<Record<EditTarget["kind"], string>>;
+  readonly original: string;
+  readonly operator: string;
+  readonly initializer: string;
+  readonly condition: string;
+  readonly update: string;
+  readonly outerParentheses: string;
+  readonly preview: string;
+  readonly confirmationTitle: string;
+  readonly confirmationDescription: string;
+  readonly confirmationCancel: string;
+  readonly confirmationConfirm: string;
+  readonly before: string;
+  readonly after: string;
+  readonly multilineLiteralUnavailable: string;
+  readonly binaryOperatorUnavailable: string;
+  readonly fallbackError: string;
+}
+
+const EDIT_PANEL_COPY: Readonly<Record<InterfaceLocale, EditPanelCopy>> = Object.freeze({
+  "zh-CN": Object.freeze({
+    rootAria: "编辑检查器",
+    historyAria: "编辑历史",
+    undo: "撤销",
+    redo: "重做",
+    historyAvailable: (action: string, depth: number) => `${action}，可用 ${String(depth)} 步`,
+    parseUnavailable: "检测到解析错误；为避免生成错误补丁，当前目标不可编辑。",
+    noSelectionContent: "未选择可编辑项；代码保持不变。",
+    generating: "正在生成精确修改预览…",
+    committed: "修改已提交。",
+    cancelled: "已取消；源码未发生变化。",
+    confirmParseCancelled: "检测到解析错误；修改确认已取消。",
+    confirmNoTargetCancelled: "未选择可编辑项；修改确认已取消。",
+    noChanges: "没有需要提交的变化。",
+    historyRequested: (action: string, waitingForParse: boolean) =>
+      waitingForParse ? `${action}请求已发送；等待重新解析。` : `${action}请求已发送。`,
+    noSelectionStatus: "未选择可编辑项。",
+    targetReady: (target: string) => `${target}可编辑；先预览，再确认。`,
+    targetLabels: Object.freeze({
+      literal: "字面量",
+      "binary-expression": "二元运算符",
+      "for-statement": "for 三段",
+      "if-statement": "if 条件",
+    }),
+    original: "原文",
+    operator: "运算符",
+    initializer: "初始化",
+    condition: "条件",
+    update: "更新",
+    outerParentheses: "最外层括号内部",
+    preview: "预览修改",
+    confirmationTitle: "确认修改",
+    confirmationDescription: "逐项核对修改前后文本；只有确认后才会写入源码。",
+    confirmationCancel: "取消",
+    confirmationConfirm: "确认修改",
+    before: "修改前",
+    after: "修改后",
+    multilineLiteralUnavailable: "跨行字面量不能用单行编辑器安全修改；源码保持不变。",
+    binaryOperatorUnavailable: "当前二元运算符不在安全编辑集合中；源码保持不变。",
+    fallbackError: "无法完成编辑请求。",
+  }),
+  en: Object.freeze({
+    rootAria: "Edit inspector",
+    historyAria: "Edit history",
+    undo: "Undo",
+    redo: "Redo",
+    historyAvailable: (action: string, depth: number) =>
+      `${action}, ${String(depth)} steps available`,
+    parseUnavailable: "A parse error was detected. This target cannot be edited safely.",
+    noSelectionContent: "No editable item is selected. Source remains unchanged.",
+    generating: "Generating an exact change preview…",
+    committed: "Changes committed.",
+    cancelled: "Cancelled. Source remains unchanged.",
+    confirmParseCancelled: "A parse error was detected. Change confirmation was cancelled.",
+    confirmNoTargetCancelled: "No editable item is selected. Change confirmation was cancelled.",
+    noChanges: "There are no changes to commit.",
+    historyRequested: (action: string, waitingForParse: boolean) =>
+      waitingForParse
+        ? `${action} requested; waiting for the source to be parsed again.`
+        : `${action} requested.`,
+    noSelectionStatus: "No editable item selected.",
+    targetReady: (target: string) => `${target} is editable. Preview before confirming.`,
+    targetLabels: Object.freeze({
+      literal: "Literal",
+      "binary-expression": "Binary operator",
+      "for-statement": "for clauses",
+      "if-statement": "if condition",
+    }),
+    original: "Original text",
+    operator: "Operator",
+    initializer: "Initializer",
+    condition: "Condition",
+    update: "Update",
+    outerParentheses: "Inside the outer parentheses",
+    preview: "Preview Changes",
+    confirmationTitle: "Confirm Changes",
+    confirmationDescription:
+      "Review the exact before and after text. Source changes only after confirmation.",
+    confirmationCancel: "Cancel",
+    confirmationConfirm: "Confirm Changes",
+    before: "Before",
+    after: "After",
+    multilineLiteralUnavailable:
+      "A multiline literal cannot be changed safely in the single-line editor. Source remains unchanged.",
+    binaryOperatorUnavailable:
+      "This binary operator is outside the safe edit set. Source remains unchanged.",
+    fallbackError: "The edit request could not be completed.",
+  }),
+});
 
 /** Builds a frozen, target-bound request without trimming or normalizing user text. */
 export function buildEditRequest(target: EditTarget, draft: EditPanelDraft): EditPanelRequest {
@@ -233,6 +362,11 @@ export function createEditPanel<P extends EditConfirmationPlan>(
   root.append(toolbar, status, content, confirmation.dialog);
   host.append(root);
 
+  const localeHost =
+    typeof root.closest === "function" ? root.closest<HTMLElement>("[data-locale]") : null;
+  const getCopy = (): EditPanelCopy =>
+    EDIT_PANEL_COPY[localeHost?.dataset.locale === "en" ? "en" : "zh-CN"];
+
   let destroyed = false;
   let currentTarget: EditTarget | null = null;
   let currentForm: RenderedForm | null = null;
@@ -244,13 +378,19 @@ export function createEditPanel<P extends EditConfirmationPlan>(
   let generation = 0;
   let activeConfirmation: ((approved: boolean) => void) | null = null;
   let previousFocus: HTMLElement | null = null;
+  let statusLocalizer: ((copy: EditPanelCopy) => string) | null = null;
+  let unavailableElement: HTMLParagraphElement | null = null;
+  let unavailableLocalizer: ((copy: EditPanelCopy) => string) | null = null;
+  let confirmationRows: readonly EditConfirmationRow[] = Object.freeze([]);
 
   const applyStatus = (
     next: EditPanelStatus | string | Error,
     controlsParseBlock = false,
+    localize: ((copy: EditPanelCopy) => string) | null = null,
   ): void => {
     const normalized = normalizeStatus(next);
-    status.textContent = normalized.message;
+    statusLocalizer = localize;
+    status.textContent = localize?.(getCopy()) ?? normalized.message;
     status.dataset.state = normalized.kind;
     const wasParseBlocked = parseBlocked;
     if (normalized.kind === "parse-error") parseBlocked = true;
@@ -261,33 +401,42 @@ export function createEditPanel<P extends EditConfirmationPlan>(
 
   const renderTarget = (): void => {
     currentForm = null;
+    unavailableElement = null;
+    unavailableLocalizer = null;
     root.dataset.hasTarget = String(currentTarget !== null);
     content.replaceChildren();
     if (parseBlocked) {
-      content.append(
-        unavailableMessage(ownerDocument, "检测到解析错误；为避免生成错误补丁，当前目标不可编辑。"),
-      );
+      unavailableLocalizer = (copy) => copy.parseUnavailable;
+      unavailableElement = unavailableMessage(ownerDocument, unavailableLocalizer(getCopy()));
+      content.append(unavailableElement);
       return;
     }
     if (currentTarget === null) {
-      content.append(unavailableMessage(ownerDocument, "未选择可编辑项；代码保持不变。"));
+      unavailableLocalizer = (copy) => copy.noSelectionContent;
+      unavailableElement = unavailableMessage(ownerDocument, unavailableLocalizer(getCopy()));
+      content.append(unavailableElement);
       return;
     }
-    const unavailableReason = targetUnavailableReason(currentTarget);
+    const unavailableReason = targetUnavailableReason(currentTarget, getCopy());
     if (unavailableReason !== null) {
-      content.append(unavailableMessage(ownerDocument, unavailableReason));
+      const unavailableTarget = currentTarget;
+      unavailableLocalizer = (copy) =>
+        targetUnavailableReason(unavailableTarget, copy) ?? unavailableReason;
+      unavailableElement = unavailableMessage(ownerDocument, unavailableReason);
+      content.append(unavailableElement);
       return;
     }
-    currentForm = renderTargetForm(ownerDocument, panelId, currentTarget, onSubmit);
+    currentForm = renderTargetForm(ownerDocument, panelId, currentTarget, getCopy(), onSubmit);
     content.append(currentForm.form);
     updateInteractionState();
   };
 
   const updateHistoryButtons = (): void => {
+    const copy = getCopy();
     undoButton.disabled = destroyed || historyBusy || operationBusy || undoDepth === 0;
     redoButton.disabled = destroyed || historyBusy || operationBusy || redoDepth === 0;
-    undoButton.setAttribute("aria-label", `撤销，可用 ${String(undoDepth)} 步`);
-    redoButton.setAttribute("aria-label", `重做，可用 ${String(redoDepth)} 步`);
+    undoButton.setAttribute("aria-label", copy.historyAvailable(copy.undo, undoDepth));
+    redoButton.setAttribute("aria-label", copy.historyAvailable(copy.redo, redoDepth));
   };
 
   function updateInteractionState(): void {
@@ -316,7 +465,11 @@ export function createEditPanel<P extends EditConfirmationPlan>(
     operationBusy = true;
     const operationGeneration = generation + 1;
     generation = operationGeneration;
-    applyStatus({ kind: "working", message: "正在生成精确修改预览…" });
+    applyStatus(
+      { kind: "working", message: getCopy().generating },
+      false,
+      (copy) => copy.generating,
+    );
     updateInteractionState();
 
     try {
@@ -328,9 +481,17 @@ export function createEditPanel<P extends EditConfirmationPlan>(
       );
       if (destroyed || generation !== operationGeneration) return;
       if (result === "committed") {
-        applyStatus({ kind: "success", message: "修改已提交。" });
+        applyStatus(
+          { kind: "success", message: getCopy().committed },
+          false,
+          (copy) => copy.committed,
+        );
       } else if (result === "cancelled") {
-        applyStatus({ kind: "ready", message: "已取消；源码未发生变化。" });
+        applyStatus(
+          { kind: "ready", message: getCopy().cancelled },
+          false,
+          (copy) => copy.cancelled,
+        );
       }
     } catch (error: unknown) {
       if (!destroyed && generation === operationGeneration) {
@@ -376,21 +537,23 @@ export function createEditPanel<P extends EditConfirmationPlan>(
   ): Promise<boolean> => {
     assertActive(destroyed);
     if (parseBlocked || (requireCurrentTarget && currentTarget === null)) {
-      applyStatus({
-        kind: parseBlocked ? "parse-error" : "idle",
-        message: parseBlocked
-          ? "检测到解析错误；修改确认已取消。"
-          : "未选择可编辑项；修改确认已取消。",
-      });
+      const localize = (copy: EditPanelCopy): string =>
+        parseBlocked ? copy.confirmParseCancelled : copy.confirmNoTargetCancelled;
+      applyStatus(
+        { kind: parseBlocked ? "parse-error" : "idle", message: localize(getCopy()) },
+        false,
+        localize,
+      );
       return Promise.resolve(false);
     }
     const rows = buildConfirmationRows(plan);
     if (rows.length === 0) {
-      applyStatus({ kind: "ready", message: "没有需要提交的变化。" });
+      applyStatus({ kind: "ready", message: getCopy().noChanges }, false, (copy) => copy.noChanges);
       return Promise.resolve(false);
     }
     cancelActiveConfirmation();
-    renderConfirmationRows(ownerDocument, confirmation.list, rows);
+    confirmationRows = rows;
+    renderConfirmationRows(ownerDocument, confirmation.list, rows, getCopy());
     const active = ownerDocument.activeElement;
     const htmlElementConstructor = ownerDocument.defaultView?.HTMLElement;
     previousFocus =
@@ -408,7 +571,7 @@ export function createEditPanel<P extends EditConfirmationPlan>(
 
   const invokeHistory = async (
     action: () => void | Promise<void>,
-    actionLabel: "撤销" | "重做",
+    actionKind: "undo" | "redo",
   ): Promise<void> => {
     if (destroyed || historyBusy) return;
     generation += 1;
@@ -419,10 +582,14 @@ export function createEditPanel<P extends EditConfirmationPlan>(
     try {
       await action();
       if (!destroyed) {
+        const localize = (copy: EditPanelCopy): string =>
+          copy.historyRequested(actionKind === "undo" ? copy.undo : copy.redo, parseBlocked);
         applyStatus(
           parseBlocked
-            ? { kind: "parse-error", message: `${actionLabel}请求已发送；等待重新解析。` }
-            : { kind: "ready", message: `${actionLabel}请求已发送。` },
+            ? { kind: "parse-error", message: localize(getCopy()) }
+            : { kind: "ready", message: localize(getCopy()) },
+          false,
+          localize,
         );
       }
     } catch (error: unknown) {
@@ -434,16 +601,43 @@ export function createEditPanel<P extends EditConfirmationPlan>(
   };
 
   const onUndo = (): void => {
-    if (undoDepth > 0) void invokeHistory(callbacks.undo, "撤销");
+    if (undoDepth > 0) void invokeHistory(callbacks.undo, "undo");
   };
   const onRedo = (): void => {
-    if (redoDepth > 0) void invokeHistory(callbacks.redo, "重做");
+    if (redoDepth > 0) void invokeHistory(callbacks.redo, "redo");
   };
   undoButton.addEventListener("click", onUndo);
   redoButton.addEventListener("click", onRedo);
 
+  const applyStaticCopy = (): void => {
+    const copy = getCopy();
+    root.setAttribute("aria-label", copy.rootAria);
+    toolbar.setAttribute("aria-label", copy.historyAria);
+    undoButton.textContent = copy.undo;
+    undoButton.title = copy.undo;
+    redoButton.textContent = copy.redo;
+    redoButton.title = copy.redo;
+    confirmation.applyCopy(copy);
+    currentForm?.applyCopy(copy);
+    if (unavailableElement !== null && unavailableLocalizer !== null) {
+      unavailableElement.textContent = unavailableLocalizer(copy);
+    }
+    if (statusLocalizer !== null) status.textContent = statusLocalizer(copy);
+    if (confirmation.dialog.open && confirmationRows.length > 0) {
+      renderConfirmationRows(ownerDocument, confirmation.list, confirmationRows, copy);
+    }
+    updateHistoryButtons();
+  };
+  const onLocaleChange = (): void => applyStaticCopy();
+  localeHost?.addEventListener("workbench-locale-change", onLocaleChange);
+
   renderTarget();
-  applyStatus({ kind: "idle", message: "未选择可编辑项。" });
+  applyStatus(
+    { kind: "idle", message: getCopy().noSelectionStatus },
+    false,
+    (copy) => copy.noSelectionStatus,
+  );
+  applyStaticCopy();
   updateHistoryButtons();
 
   return Object.freeze({
@@ -455,13 +649,19 @@ export function createEditPanel<P extends EditConfirmationPlan>(
       currentTarget = target;
       parseBlocked = false;
       renderTarget();
-      const unavailableReason = target === null ? null : targetUnavailableReason(target);
+      const unavailableReason = target === null ? null : targetUnavailableReason(target, getCopy());
       applyStatus(
         target === null
-          ? { kind: "idle", message: "未选择可编辑项。" }
+          ? { kind: "idle", message: getCopy().noSelectionStatus }
           : unavailableReason === null
-            ? { kind: "ready", message: `${targetLabel(target)}可编辑；先预览，再确认。` }
+            ? { kind: "ready", message: getCopy().targetReady(targetLabel(target, getCopy())) }
             : { kind: "error", message: unavailableReason },
+        false,
+        target === null
+          ? (copy) => copy.noSelectionStatus
+          : unavailableReason === null
+            ? (copy) => copy.targetReady(targetLabel(target, copy))
+            : (copy) => targetUnavailableReason(target, copy) ?? unavailableReason,
       );
     },
     setHistoryDepth(depth: EditHistoryDepth): void {
@@ -494,6 +694,7 @@ export function createEditPanel<P extends EditConfirmationPlan>(
       undoButton.removeEventListener("click", onUndo);
       redoButton.removeEventListener("click", onRedo);
       confirmation.dialog.removeEventListener("close", onConfirmationClose);
+      localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
       root.remove();
       currentForm = null;
       currentTarget = null;
@@ -505,6 +706,7 @@ function renderTargetForm(
   ownerDocument: Document,
   panelId: number,
   target: EditTarget,
+  copy: EditPanelCopy,
   onSubmit: (event: SubmitEvent) => void,
 ): RenderedForm {
   const form = ownerDocument.createElement("form");
@@ -514,11 +716,23 @@ function renderTargetForm(
   const legend = ownerDocument.createElement("legend");
   legend.className = "edit-panel__legend";
   fieldset.append(legend);
+  const localizedFields: Array<
+    Readonly<{ text: HTMLElement; localize: (copy: EditPanelCopy) => string }>
+  > = [];
+  const appendLocalizedControl = <
+    T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  >(
+    control: T,
+    localize: (copy: EditPanelCopy) => string,
+  ): void => {
+    const labeled = labeledControl(ownerDocument, control, localize(copy));
+    localizedFields.push(Object.freeze({ text: labeled.text, localize }));
+    fieldset.append(labeled.label);
+  };
 
   let readDraft: () => EditPanelDraft;
   switch (target.kind) {
     case "literal": {
-      legend.textContent = "字面量";
       const input = ownerDocument.createElement("input");
       input.className = "edit-panel__input";
       input.type = "text";
@@ -526,12 +740,11 @@ function renderTargetForm(
       input.value = target.text;
       input.spellcheck = false;
       input.autocomplete = "off";
-      fieldset.append(labeledControl(ownerDocument, input, "原文"));
+      appendLocalizedControl(input, (nextCopy) => nextCopy.original);
       readDraft = () => ({ kind: "literal", newText: input.value });
       break;
     }
     case "binary-expression": {
-      legend.textContent = "二元运算符";
       const select = ownerDocument.createElement("select");
       select.className = "edit-panel__select";
       select.id = `edit-panel-${String(panelId)}-operator`;
@@ -542,12 +755,11 @@ function renderTargetForm(
         select.append(option);
       }
       select.value = target.operatorText;
-      fieldset.append(labeledControl(ownerDocument, select, "运算符"));
+      appendLocalizedControl(select, (nextCopy) => nextCopy.operator);
       readDraft = () => ({ kind: "binary-expression", newOperator: select.value });
       break;
     }
     case "for-statement": {
-      legend.textContent = "for 三段";
       const initializer = rawTextarea(
         ownerDocument,
         panelId,
@@ -556,11 +768,9 @@ function renderTargetForm(
       );
       const condition = rawTextarea(ownerDocument, panelId, "for-condition", target.conditionText);
       const update = rawTextarea(ownerDocument, panelId, "for-update", target.updateText);
-      fieldset.append(
-        labeledControl(ownerDocument, initializer.control, "初始化"),
-        labeledControl(ownerDocument, condition.control, "条件"),
-        labeledControl(ownerDocument, update.control, "更新"),
-      );
+      appendLocalizedControl(initializer.control, (nextCopy) => nextCopy.initializer);
+      appendLocalizedControl(condition.control, (nextCopy) => nextCopy.condition);
+      appendLocalizedControl(update.control, (nextCopy) => nextCopy.update);
       readDraft = () => ({
         kind: "for-statement",
         initializerText: initializer.read(),
@@ -570,20 +780,25 @@ function renderTargetForm(
       break;
     }
     case "if-statement": {
-      legend.textContent = "if 条件";
       const condition = rawTextarea(ownerDocument, panelId, "if-condition", target.conditionText);
-      fieldset.append(labeledControl(ownerDocument, condition.control, "最外层括号内部"));
+      appendLocalizedControl(condition.control, (nextCopy) => nextCopy.outerParentheses);
       readDraft = () => ({ kind: "if-statement", conditionText: condition.read() });
       break;
     }
   }
 
-  const submitButton = createButton(ownerDocument, "edit-panel__submit", "预览修改");
+  const submitButton = createButton(ownerDocument, "edit-panel__submit", copy.preview);
   submitButton.type = "submit";
   fieldset.append(submitButton);
   form.append(fieldset);
   form.addEventListener("submit", onSubmit);
-  return { form, fieldset, submitButton, readDraft };
+  const applyCopy = (nextCopy: EditPanelCopy): void => {
+    legend.textContent = nextCopy.targetLabels[target.kind];
+    for (const field of localizedFields) field.text.textContent = field.localize(nextCopy);
+    submitButton.textContent = nextCopy.preview;
+  };
+  applyCopy(copy);
+  return { form, fieldset, submitButton, readDraft, applyCopy };
 }
 
 function rawTextarea(
@@ -609,7 +824,7 @@ function labeledControl<T extends HTMLInputElement | HTMLSelectElement | HTMLTex
   ownerDocument: Document,
   control: T,
   labelText: string,
-): HTMLLabelElement {
+): Readonly<{ label: HTMLLabelElement; text: HTMLElement }> {
   const label = ownerDocument.createElement("label");
   label.className = "edit-panel__field";
   label.htmlFor = control.id;
@@ -617,7 +832,7 @@ function labeledControl<T extends HTMLInputElement | HTMLSelectElement | HTMLTex
   text.className = "edit-panel__field-label";
   text.textContent = labelText;
   label.append(text, control);
-  return label;
+  return Object.freeze({ label, text });
 }
 
 function createConfirmationDialog(ownerDocument: Document, panelId: number) {
@@ -649,26 +864,34 @@ function createConfirmationDialog(ownerDocument: Document, panelId: number) {
   actions.append(cancelButton, confirmButton);
   form.append(title, description, list, actions);
   dialog.append(form);
-  return { dialog, list, cancelButton };
+  const applyCopy = (copy: EditPanelCopy): void => {
+    title.textContent = copy.confirmationTitle;
+    description.textContent = copy.confirmationDescription;
+    cancelButton.textContent = copy.confirmationCancel;
+    confirmButton.textContent = copy.confirmationConfirm;
+  };
+  applyCopy(EDIT_PANEL_COPY["zh-CN"]);
+  return { dialog, list, cancelButton, applyCopy };
 }
 
 function renderConfirmationRows(
   ownerDocument: Document,
   list: HTMLOListElement,
   rows: readonly EditConfirmationRow[],
+  copy: EditPanelCopy,
 ): void {
   list.replaceChildren();
   for (const row of rows) {
     const item = ownerDocument.createElement("li");
     item.className = "edit-panel__diff";
     const beforeLabel = ownerDocument.createElement("strong");
-    beforeLabel.textContent = `修改前 [${String(row.beforeRange.from)}, ${String(row.beforeRange.to)})`;
+    beforeLabel.textContent = `${copy.before} [${String(row.beforeRange.from)}, ${String(row.beforeRange.to)})`;
     const before = ownerDocument.createElement("pre");
     before.className = "edit-panel__diff-text";
     before.textContent = row.beforeText;
     before.dataset.empty = String(row.beforeText.length === 0);
     const afterLabel = ownerDocument.createElement("strong");
-    afterLabel.textContent = `修改后 [${String(row.afterRange.from)}, ${String(row.afterRange.to)})`;
+    afterLabel.textContent = `${copy.after} [${String(row.afterRange.from)}, ${String(row.afterRange.to)})`;
     const after = ownerDocument.createElement("pre");
     after.className = "edit-panel__diff-text";
     after.textContent = row.afterText;
@@ -701,25 +924,16 @@ function normalizeTextareaNewlines(text: string): string {
   return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
-function targetLabel(target: EditTarget): string {
-  switch (target.kind) {
-    case "literal":
-      return "字面量";
-    case "binary-expression":
-      return "二元运算符";
-    case "for-statement":
-      return "for 三段";
-    case "if-statement":
-      return "if 条件";
-  }
+function targetLabel(target: EditTarget, copy: EditPanelCopy): string {
+  return copy.targetLabels[target.kind];
 }
 
-function targetUnavailableReason(target: EditTarget): string | null {
+function targetUnavailableReason(target: EditTarget, copy: EditPanelCopy): string | null {
   if (target.kind === "literal" && /[\r\n]/u.test(target.text)) {
-    return "跨行字面量不能用单行编辑器安全修改；源码保持不变。";
+    return copy.multilineLiteralUnavailable;
   }
   if (target.kind === "binary-expression" && !binaryOperatorSet.has(target.operatorText)) {
-    return "当前二元运算符不在安全编辑集合中；源码保持不变。";
+    return copy.binaryOperatorUnavailable;
   }
   return null;
 }

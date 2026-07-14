@@ -10,6 +10,26 @@ import type {
 } from "../../src/ui/scenario-panel.js";
 
 describe("scenario workbench controller", () => {
+  it("starts without a scenario binding and rejects every run path until explicitly selected", async () => {
+    const fixture = setup();
+
+    expect(fixture.controller.hasScenarioBinding()).toBe(false);
+    expect(fixture.controller.getSnapshot().scenarioBinding).toBe("none");
+    await expect(fixture.controller.runReal()).rejects.toThrow(/尚未显式绑定/u);
+    await expect(fixture.controller.simulateForTeaching()).rejects.toThrow(/尚未显式绑定/u);
+    await expect(fixture.controller.runBenchmark()).rejects.toThrow(/尚未显式绑定/u);
+    expect(fixture.real).not.toHaveBeenCalled();
+    expect(fixture.simulation).not.toHaveBeenCalled();
+    expect(fixture.benchmark).not.toHaveBeenCalled();
+
+    fixture.controller.selectScenario("scenario.sorting.integers");
+    expect(fixture.controller.hasScenarioBinding()).toBe(true);
+    fixture.controller.clearScenarioBinding();
+    expect(fixture.controller.hasScenarioBinding()).toBe(false);
+    await expect(fixture.controller.runReal()).rejects.toThrow(/尚未显式绑定/u);
+    expect(fixture.real).not.toHaveBeenCalled();
+  });
+
   it("uses the seven-family local provider and forwards a trace-verifiable real request", async () => {
     const fixture = setup();
     expect(new Set(fixture.controller.provider.list().map((item) => item.family))).toHaveLength(7);
@@ -39,6 +59,7 @@ describe("scenario workbench controller", () => {
 
   it("never routes teaching simulation through real or benchmark callbacks", async () => {
     const fixture = setup();
+    fixture.controller.selectScenario("scenario.sorting.integers");
     await fixture.controller.simulateForTeaching();
 
     expect(fixture.simulation).toHaveBeenCalledOnce();

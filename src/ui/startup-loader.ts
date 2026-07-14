@@ -1,9 +1,12 @@
+import type { InterfaceLocale } from "../shared/interface-locale.js";
+
 export type StartupStage = "shell" | "parser" | "parser-ready" | "source";
 
 export interface StartupLoaderElements {
   readonly root: HTMLElement;
   readonly progress: HTMLProgressElement;
   readonly status: HTMLOutputElement;
+  readonly locale?: (() => InterfaceLocale) | undefined;
 }
 
 export interface StartupLoader {
@@ -20,11 +23,33 @@ interface StagePresentation {
   readonly message: string;
 }
 
-const STAGES: Readonly<Record<StartupStage, StagePresentation>> = Object.freeze({
-  shell: Object.freeze({ progress: 8, message: "正在建立本地工作台…" }),
-  parser: Object.freeze({ progress: 32, message: "正在加载 C 解析器…" }),
-  "parser-ready": Object.freeze({ progress: 68, message: "解析器已就绪，正在准备算法面板…" }),
-  source: Object.freeze({ progress: 86, message: "正在读取 Documents 工作区…" }),
+const STAGES: Readonly<Record<InterfaceLocale, Readonly<Record<StartupStage, StagePresentation>>>> =
+  Object.freeze({
+    "zh-CN": Object.freeze({
+      shell: Object.freeze({ progress: 8, message: "正在建立本地工作台…" }),
+      parser: Object.freeze({ progress: 32, message: "正在加载 C 解析器…" }),
+      "parser-ready": Object.freeze({ progress: 68, message: "解析器已就绪，正在准备算法面板…" }),
+      source: Object.freeze({ progress: 86, message: "正在读取 Documents 工作区…" }),
+    }),
+    en: Object.freeze({
+      shell: Object.freeze({ progress: 8, message: "Building the local workbench…" }),
+      parser: Object.freeze({ progress: 32, message: "Loading the C parser…" }),
+      "parser-ready": Object.freeze({
+        progress: 68,
+        message: "Parser ready. Preparing the algorithm workspace…",
+      }),
+      source: Object.freeze({ progress: 86, message: "Reading the Documents workspace…" }),
+    }),
+  });
+
+const COMPLETE_COPY: Readonly<Record<InterfaceLocale, string>> = Object.freeze({
+  "zh-CN": "工作台已就绪",
+  en: "Workbench ready",
+});
+
+const FAILURE_COPY: Readonly<Record<InterfaceLocale, string>> = Object.freeze({
+  "zh-CN": "工作台初始化失败",
+  en: "Workbench initialization failed",
 });
 
 const COMPLETE_HIDE_DELAY_MS = 480;
@@ -35,6 +60,7 @@ export function createStartupLoader(elements: StartupLoaderElements): StartupLoa
   let progress = 0;
   let destroyed = false;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  const locale = (): InterfaceLocale => (elements.locale?.() === "en" ? "en" : "zh-CN");
 
   const hide = (): void => {
     if (stage !== "ready" || destroyed) return;
@@ -51,7 +77,7 @@ export function createStartupLoader(elements: StartupLoaderElements): StartupLoa
     if (stage === "ready" || stage === "error") {
       throw new Error("启动加载层已进入终态");
     }
-    const next = STAGES[nextStage];
+    const next = STAGES[locale()][nextStage];
     if (next.progress < progress) throw new RangeError("启动阶段不可倒退");
     stage = nextStage;
     progress = next.progress;
@@ -80,7 +106,7 @@ export function createStartupLoader(elements: StartupLoaderElements): StartupLoa
       progress = 100;
       elements.progress.value = progress;
       elements.progress.setAttribute("aria-valuenow", "100");
-      elements.status.textContent = "工作台已就绪";
+      elements.status.textContent = COMPLETE_COPY[locale()];
       elements.root.dataset.state = "ready";
       elements.root.setAttribute("aria-busy", "false");
       hideTimer = setTimeout(hide, COMPLETE_HIDE_DELAY_MS);
@@ -90,7 +116,7 @@ export function createStartupLoader(elements: StartupLoaderElements): StartupLoa
       if (stage === "ready") return;
       const detail = message.trim();
       stage = "error";
-      elements.status.textContent = detail.length === 0 ? "工作台初始化失败" : detail;
+      elements.status.textContent = detail.length === 0 ? FAILURE_COPY[locale()] : detail;
       elements.root.dataset.state = "error";
       elements.root.setAttribute("aria-busy", "false");
     },

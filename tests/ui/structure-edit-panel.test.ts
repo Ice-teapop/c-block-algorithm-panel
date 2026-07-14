@@ -301,6 +301,32 @@ describe("structure edit panel DOM behavior", () => {
     );
   });
 
+  it("switches visible copy without losing the selection or current drafts", () => {
+    const fixture = fakeHost();
+    const panel = createStructureEditPanel(
+      fixture.host as unknown as HTMLElement,
+      inertCallbacks(),
+    );
+    panel.setSelection(completeSelection());
+    fixture.root.findInputByLabel("要插入的单行 C 语句")?.input("custom_call();");
+    fixture.root.findInputByLabel("局部变量 total 的新名称")?.input("best_total");
+
+    fixture.host.changeLocale("en");
+
+    expect(panel.element.getAttribute("aria-label")).toBe("Structure editing");
+    expect(fixture.root.findInputByLabel("Single-line C statement to insert")?.value).toBe(
+      "custom_call();",
+    );
+    expect(fixture.root.findInputByLabel("New name for local variable total")?.value).toBe(
+      "best_total",
+    );
+    expect(fixture.root.findByClass("structure-edit-panel__target")?.textContent).toBe("work();");
+    expect(fixture.root.findByOperation("delete")?.textContent).toBe("Delete");
+    expect(fixture.root.findByClass("structure-edit-panel__status")?.textContent).toMatch(
+      /exact diff/u,
+    );
+  });
+
   it("tears down idempotently and rejects later selections", () => {
     const fixture = fakeHost();
     const panel = createStructureEditPanel(
@@ -457,6 +483,11 @@ class FakeElement {
     this.dispatch("input");
   }
 
+  changeLocale(locale: "zh-CN" | "en"): void {
+    this.dataset.locale = locale;
+    this.dispatch("workbench-locale-change", Object.freeze({ locale }));
+  }
+
   findByClass(className: string): FakeElement | undefined {
     return this.find((element) => element.className.split(/\s+/u).includes(className));
   }
@@ -471,8 +502,8 @@ class FakeElement {
     );
   }
 
-  private dispatch(type: string): void {
-    const event = new FakeEvent();
+  private dispatch(type: string, detail?: unknown): void {
+    const event = new FakeEvent(detail);
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
@@ -488,6 +519,8 @@ class FakeElement {
 
 class FakeEvent {
   defaultPrevented = false;
+
+  constructor(readonly detail?: unknown) {}
 
   preventDefault(): void {
     this.defaultPrevented = true;

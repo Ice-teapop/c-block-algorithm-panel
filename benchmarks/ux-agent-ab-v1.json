@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "ux-agent-ab-v1",
+  "evidenceKind": "agent-cognitive-walkthrough",
+  "limitations": [
+    "Each observation is a task-persona cell, not an independent human participant.",
+    "Results may reject a confusing variant but cannot establish population-level significance."
+  ],
+  "variants": {
+    "A": "current-single-primary-v1",
+    "B": "contextual-wire-guidance-v1"
+  },
+  "personas": [
+    {
+      "id": "novice",
+      "sampleTaskCountPerVariant": 12,
+      "priorKnowledge": ["C variables", "if", "for and while", "read short C functions"],
+      "excludedKnowledge": ["CFG", "Trace tooling", "node editors", "complexity profilers"]
+    },
+    {
+      "id": "intermediate",
+      "sampleTaskCountPerVariant": 12,
+      "priorKnowledge": [
+        "one university C course",
+        "arrays and basic pointers",
+        "sorting and searching",
+        "run and breakpoint concepts"
+      ],
+      "excludedKnowledge": ["this application", "CFG terminology"]
+    },
+    {
+      "id": "advanced",
+      "sampleTaskCountPerVariant": 12,
+      "priorKnowledge": [
+        "proficient C and pointers",
+        "data structures and Big-O",
+        "debuggers",
+        "VS Code, Blender, or Node-RED interaction patterns"
+      ],
+      "excludedKnowledge": ["this application"]
+    }
+  ],
+  "tasks": [
+    { "id": "open-project", "label": "Open an existing project" },
+    { "id": "create-project", "label": "Create a project" },
+    { "id": "run-no-input", "label": "Run a no-input C program" },
+    { "id": "run-stdin", "label": "Enter stdin and run a scanf program" },
+    { "id": "insert-preset", "label": "Insert a preset block" },
+    { "id": "connect-flow", "label": "Connect a block into the flow" },
+    { "id": "reconnect-flow", "label": "Reconnect an existing wire" },
+    { "id": "edit-node", "label": "Open node details and edit" },
+    { "id": "navigate-problems", "label": "Locate the first and next certain problem" },
+    { "id": "observe-branch", "label": "Observe a path and identify the active branch" },
+    { "id": "library-lookup", "label": "Look up C syntax in Library" },
+    { "id": "focus-layout", "label": "Enter canvas focus and return" }
+  ],
+  "metrics": [
+    "taskSuccess",
+    "activationCount",
+    "wrongActivationCount",
+    "helpRequestCount",
+    "clarity1to5",
+    "extraneousLoad1to5"
+  ],
+  "scale": {
+    "personaCount": 3,
+    "taskCount": 12,
+    "variantCount": 2,
+    "observationsPerVariant": 36,
+    "totalObservationCells": 72
+  },
+  "decisionRules": [
+    "B must not reduce task successes in any persona stratum.",
+    "B must reduce total wrong activations plus help requests by at least 15 percent.",
+    "B must not add more than one median activation to the advanced stratum.",
+    "B must preserve source, CFG, execution, and credential safety gates."
+  ]
+}

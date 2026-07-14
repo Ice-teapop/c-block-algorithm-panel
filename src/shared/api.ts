@@ -35,6 +35,22 @@ import type {
   SelectAiProviderModelRequest,
   StartAiMentorRequest,
 } from "./ai-provider.js";
+import type {
+  AiConversationCreateResult,
+  AiConversationDeleteResult,
+  AiConversationMessageAppendResult,
+  AiConversationReadResult,
+  AiConversationUpdateResult,
+  AiProjectOpenResult,
+  AppendAiConversationMessageRequest,
+  CreateAiConversationRequest,
+  DeleteAiConversationRequest,
+  OpenAiProjectRequest,
+  ReadAiConversationRequest,
+  RenameAiConversationRequest,
+  SetAiConversationArchivedRequest,
+} from "./ai-project.js";
+import type { AiWindowHostApi } from "./ai-window.js";
 
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
 
@@ -242,7 +258,11 @@ export type SourceImportResult =
   | { readonly status: "cancelled" }
   | { readonly status: "failed"; readonly error: SourceImportError };
 
-export interface PanelApi {
+export interface PanelApi extends AiWindowHostApi {
+  /** Returns the app-level system locale only; no other OS locale data crosses this boundary. */
+  getSystemLocale(): Promise<import("./interface-locale.js").InterfaceLocale>;
+  /** Applies the renderer's explicit UI locale to native window chrome and dialogs. */
+  setInterfaceLocale?(locale: import("./interface-locale.js").InterfaceLocale): Promise<void>;
   openSource(): Promise<SourceImportResult>;
   openDroppedSource(file: File): Promise<SourceImportResult>;
   listWorkspaceDocuments(): Promise<WorkspaceListResult>;
@@ -258,6 +278,18 @@ export interface PanelApi {
   saveLearningCatalog(request: SaveLearningCatalogRequest): Promise<LearningCatalogSaveResult>;
   /** Returns only public metadata; credentials and ciphertext never cross into the renderer. */
   getAiProviderConfig(): Promise<AiProviderReadResult>;
+  /** Opens or idempotently creates the one local AI Project bound to a managed workspace ID. */
+  openAiProject(request: OpenAiProjectRequest): Promise<AiProjectOpenResult>;
+  createAiConversation(request: CreateAiConversationRequest): Promise<AiConversationCreateResult>;
+  readAiConversation(request: ReadAiConversationRequest): Promise<AiConversationReadResult>;
+  renameAiConversation(request: RenameAiConversationRequest): Promise<AiConversationUpdateResult>;
+  setAiConversationArchived(
+    request: SetAiConversationArchivedRequest,
+  ): Promise<AiConversationUpdateResult>;
+  deleteAiConversation(request: DeleteAiConversationRequest): Promise<AiConversationDeleteResult>;
+  appendAiConversationMessage(
+    request: AppendAiConversationMessageRequest,
+  ): Promise<AiConversationMessageAppendResult>;
   connectAiProvider(request: ConnectAiProviderRequest): Promise<AiProviderConnectResult>;
   listAiProviderModels(request: ListAiProviderModelsRequest): Promise<AiProviderModelsResult>;
   selectAiProviderModel(

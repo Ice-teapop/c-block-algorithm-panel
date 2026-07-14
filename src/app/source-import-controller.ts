@@ -1,4 +1,4 @@
-import type { ImportedSource, SourceImportResult } from "../shared/api.js";
+import type { ImportedSource, SourceImportErrorCode, SourceImportResult } from "../shared/api.js";
 import { importPastedSource } from "../shared/source-import.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 
@@ -26,12 +26,25 @@ export function createSourceImportController(
   let requestId = 0;
   let dragDepth = 0;
   let destroyed = false;
+  const english = (): boolean => elements.shell.dataset.locale === "en";
+  let localizedStatus: {
+    readonly zh: string;
+    readonly en: string;
+    readonly state: SourceImportStatusState;
+  } | null = null;
 
   const setStatus = (message: string, state: SourceImportStatusState): void => {
     if (typeof message !== "string" || !isStatusState(state)) {
       throw new TypeError("source import status 必须提供字符串与合法 state");
     }
+    localizedStatus = null;
     elements.importStatus.textContent = message;
+    elements.importStatus.dataset.state = state;
+  };
+
+  const setLocalizedStatus = (zh: string, en: string, state: SourceImportStatusState): void => {
+    localizedStatus = Object.freeze({ zh, en, state });
+    elements.importStatus.textContent = english() ? en : zh;
     elements.importStatus.dataset.state = state;
   };
 
@@ -42,21 +55,37 @@ export function createSourceImportController(
     const isCurrent = (): boolean => !destroyed && currentRequest === requestId;
     if (!isCurrent()) return false;
     if (result.status === "cancelled") {
-      setStatus("已取消文件选择，当前文档保持不变。", "ready");
+      setLocalizedStatus(
+        "已取消文件选择，当前文档保持不变。",
+        "File selection cancelled; the current document is unchanged.",
+        "ready",
+      );
       return false;
     }
     if (result.status === "failed") {
-      setStatus(`${result.error.code}：${result.error.message}`, "error");
+      setLocalizedStatus(
+        `${result.error.code}：${result.error.message}`,
+        `${result.error.code}: ${sourceImportErrorMessage(result.error.code, result.error.message)}`,
+        "error",
+      );
       return false;
     }
     try {
       await options.load(result.document, isCurrent);
       if (!isCurrent()) return false;
-      setStatus(`已载入 ${result.document.displayName}。`, "ready");
+      setLocalizedStatus(
+        `已载入 ${result.document.displayName}。`,
+        `Loaded ${result.document.displayName}.`,
+        "ready",
+      );
       return true;
     } catch (error: unknown) {
       if (isCurrent()) {
-        setStatus(`源码载入失败：${errorMessage(error)}；当前文档保持不变。`, "error");
+        setLocalizedStatus(
+          `源码载入失败：${errorMessage(error, false)}；当前文档保持不变。`,
+          `Source import failed: ${errorMessage(error, true)}. The current document is unchanged.`,
+          "error",
+        );
       }
       return false;
     }
@@ -64,13 +93,13 @@ export function createSourceImportController(
 
   const openNativeSource = async (): Promise<void> => {
     const currentRequest = ++requestId;
-    setStatus("正在等待系统文件选择器…", "loading");
+    setLocalizedStatus("正在等待系统文件选择器…", "Waiting for the system file picker…", "loading");
     try {
       const result = await window.panelApi.openSource();
       if (!destroyed && currentRequest === requestId) await applyResult(result, currentRequest);
     } catch {
       if (!destroyed && currentRequest === requestId) {
-        setStatus("文件选择器 IPC 调用失败。", "error");
+        setLocalizedStatus("文件选择器 IPC 调用失败。", "File-picker IPC request failed.", "error");
       }
     }
   };
@@ -85,7 +114,9 @@ export function createSourceImportController(
   const confirmPaste = async (): Promise<void> => {
     const result = importPastedSource(elements.pasteSource.value);
     if (result.status === "failed") {
-      elements.pasteError.textContent = result.error.message;
+      elements.pasteError.textContent = english()
+        ? sourceImportErrorMessage(result.error.code, result.error.message)
+        : result.error.message;
       return;
     }
     if (result.status === "opened") {
@@ -126,11 +157,15 @@ export function createSourceImportController(
     elements.dropOverlay.hidden = true;
     const files = event.dataTransfer?.files;
     if (files === undefined || files.length !== 1 || files[0] === undefined) {
-      setStatus("请一次只拖入一个 .c 文件。", "error");
+      setLocalizedStatus(
+        "请一次只拖入一个 .c 文件。",
+        "Drop exactly one .c file at a time.",
+        "error",
+      );
       return;
     }
     const currentRequest = ++requestId;
-    setStatus("正在读取拖入的 C 文件…", "loading");
+    setLocalizedStatus("正在读取拖入的 C 文件…", "Reading the dropped C file…", "loading");
     void window.panelApi
       .openDroppedSource(files[0])
       .then(async (result) => {
@@ -140,7 +175,11 @@ export function createSourceImportController(
       })
       .catch(() => {
         if (!destroyed && currentRequest === requestId) {
-          setStatus("拖拽导入 IPC 调用失败。", "error");
+          setLocalizedStatus(
+            "拖拽导入 IPC 调用失败。",
+            "Drag-and-drop import IPC request failed.",
+            "error",
+          );
         }
       });
   };
@@ -154,6 +193,11 @@ export function createSourceImportController(
   elements.shell.addEventListener("dragover", onDragOver);
   elements.shell.addEventListener("dragleave", onDragLeave);
   elements.shell.addEventListener("drop", onDrop);
+  const onLocaleChange = (): void => {
+    if (localizedStatus === null) return;
+    elements.importStatus.textContent = english() ? localizedStatus.en : localizedStatus.zh;
+  };
+  elements.shell.addEventListener("workbench-locale-change", onLocaleChange);
 
   return Object.freeze({
     setEnabled(enabled: boolean): void {
@@ -177,6 +221,7 @@ export function createSourceImportController(
       elements.shell.removeEventListener("dragover", onDragOver);
       elements.shell.removeEventListener("dragleave", onDragLeave);
       elements.shell.removeEventListener("drop", onDrop);
+      elements.shell.removeEventListener("workbench-locale-change", onLocaleChange);
     },
   });
 }
@@ -189,6 +234,27 @@ function isStatusState(state: string): state is SourceImportStatusState {
   return state === "loading" || state === "ready" || state === "error";
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "未知错误";
+function errorMessage(error: unknown, english: boolean): string {
+  if (!(error instanceof Error)) return english ? "unknown error" : "未知错误";
+  return english && /[\u3400-\u9fff]/u.test(error.message)
+    ? "the source could not be loaded"
+    : error.message;
+}
+
+export function sourceImportErrorMessage(code: SourceImportErrorCode, message: string): string {
+  if (!/[\u3400-\u9fff]/u.test(message)) return message;
+  const copy: Readonly<Record<SourceImportErrorCode, string>> = Object.freeze({
+    SOURCE_IMPORT_BUSY: "Another source import is already in progress.",
+    SOURCE_CONTEXT_CLOSED: "The source import was cancelled because the app is closing.",
+    SOURCE_DIALOG_FAILED: "The system file picker could not be opened.",
+    SOURCE_INVALID_DROP: "Drop exactly one regular .c file.",
+    SOURCE_INVALID_REQUEST: "The source import request is invalid.",
+    SOURCE_NOT_C_FILE: "Only .c files can be imported.",
+    SOURCE_NOT_REGULAR_FILE: "The selected item is not a regular file.",
+    SOURCE_TOO_LARGE: "The C source exceeds the 512 KiB limit.",
+    SOURCE_INVALID_UTF8: "The source is not valid lossless UTF-8 text.",
+    SOURCE_CONTAINS_NUL: "The C source contains a NUL byte and was rejected.",
+    SOURCE_READ_FAILED: "The selected C file could not be read.",
+  });
+  return copy[code];
 }

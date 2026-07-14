@@ -83,7 +83,7 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
       panel("properties", "属性与解释", "right", 10, true),
       panel("flow", "运行流程", "bottom", 0, true),
       panel("metrics", "运行指标", "bottom", 10, true),
-      panel("ai-hints", "AI 提示", "bottom", 20, true),
+      panel("ai-hints", "本地检查", "bottom", 20, true),
       panel("library", "Library", "floating", 0, false),
     ]),
     layoutPresets: Object.freeze([
@@ -95,7 +95,7 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
         "properties",
         "ai-hints",
       ]),
-      layout("build", "搭建", 10, ["presets", "canvas", "code", "properties", "flow"]),
+      layout("build", "搭建", 10, ["presets", "canvas", "code", "properties", "flow", "ai-hints"]),
       layout("debug", "调试", 20, ["project", "canvas", "code", "flow"]),
       layout("analyze", "分析", 30, ["canvas", "code", "flow", "metrics", "ai-hints"]),
       layout("minimal", "极简", 40, ["canvas", "code"]),
@@ -110,7 +110,29 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
       Object.freeze({ id: "run", label: "运行", groupId: "execute", order: 10 }),
       Object.freeze({ id: "software-library", label: "Library", groupId: "learn", order: 10 }),
     ]),
-    commands: Object.freeze([]),
+    commands: Object.freeze([
+      command("navigation.projects", "项目", 0),
+      command("navigation.workspace", "工作区", 10),
+      command("navigation.analysis", "分析界面", 20),
+      command("navigation.library", "Library", 30),
+      command("source.open", "打开 C 文件", 40),
+      command("source.paste", "粘贴源码", 50),
+      command("settings.general", "设置：通用", 100),
+      command("settings.ai", "设置：AI 助手", 110),
+      command("settings.shortcuts", "设置：快捷键", 120),
+      command("settings.about", "设置：关于", 130),
+      command("panel.presets", "定位预设块", 200),
+      command("panel.canvas", "定位自由画布", 210),
+      command("panel.code", "定位 C 代码", 220),
+      command("panel.runtime", "定位运行面板", 230),
+      command("panel.metrics", "定位运行指标", 240),
+      command("panel.mentor", "定位本地检查", 250),
+      command("layout.build", "布局：搭建", 300),
+      command("layout.debug", "布局：调试", 310),
+      command("layout.analyze", "布局：分析", 320),
+      command("layout.focus", "布局：专注画布", 330),
+      command("layout.reset", "布局：恢复尺寸", 340),
+    ]),
     algorithmElements: Object.freeze([]),
   });
 }
@@ -193,4 +215,12 @@ function layout(
   panelIds: readonly string[],
 ): NonNullable<WorkbenchModuleDefinition["layoutPresets"]>[number] {
   return Object.freeze({ id, label, order, panelIds: Object.freeze([...panelIds]) });
+}
+
+function command(
+  id: string,
+  label: string,
+  order: number,
+): NonNullable<WorkbenchModuleDefinition["commands"]>[number] {
+  return Object.freeze({ id, label, order });
 }

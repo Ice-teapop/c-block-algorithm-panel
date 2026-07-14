@@ -97,6 +97,10 @@ describe("official AI Provider transport", () => {
       "anthropic-secret",
       "claude-test",
       "Explain",
+      [
+        { role: "user", content: "What does it return?" },
+        { role: "assistant", content: "It returns zero." },
+      ],
       {
         currentFunction: "int main(void){return 0;}",
         diagnosticSummary: [],
@@ -104,6 +108,8 @@ describe("official AI Provider transport", () => {
         runEvidence: [],
       },
       new AbortController().signal,
+      "chat",
+      "en",
     );
     expect(result).toEqual({ status: "completed", text: "Evidence-based answer" });
     expect(captured).not.toBeNull();
@@ -111,7 +117,83 @@ describe("official AI Provider transport", () => {
     expect(request.url).toBe("https://api.anthropic.com/v1/messages");
     expect(request.headers["x-api-key"]).toBe("anthropic-secret");
     expect(request.body).toContain('"system"');
+    expect(request.body).toContain("What does it return?");
+    expect(request.body).toContain("It returns zero.");
+    expect(request.body).toContain("Reply in English.");
+    expect(request.body).toContain("Workbench evidence (may be empty):");
+    expect(request.body).not.toContain("工作台证据");
     expect(request.body).not.toContain("anthropic-secret");
+  });
+
+  it("accepts a strict edit envelope but never treats free-form model text as a proposal", async () => {
+    const envelope = {
+      schemaVersion: 1,
+      answer: "建议修正返回值。",
+      proposal: {
+        schemaVersion: 1,
+        summary: "修正返回值",
+        replacements: [{ expectedText: "return 0;", newText: "return 1;" }],
+      },
+    };
+    let captured: AiProviderNetworkRequest | null = null;
+    const client = createAiProviderClient(
+      network(async (request) => {
+        captured = request;
+        return jsonResponse({ choices: [{ message: { content: JSON.stringify(envelope) } }] });
+      }),
+    );
+    const result = await client.requestMentor(
+      "openai",
+      "private-key",
+      "gpt-test",
+      "Fix it",
+      [],
+      {
+        currentFunction: "int main(void){return 0;}",
+        diagnosticSummary: [],
+        controlFlowSummary: "complete",
+        runEvidence: [],
+      },
+      new AbortController().signal,
+      "propose-edit",
+      "en",
+    );
+    expect(result).toEqual({
+      status: "completed",
+      text: "建议修正返回值。",
+      proposal: envelope.proposal,
+    });
+    expect((captured as unknown as AiProviderNetworkRequest).body).toContain(
+      "You may propose only text replacements inside the current main.c",
+    );
+    expect((captured as unknown as AiProviderNetworkRequest).body).not.toMatch(/[\p{Script=Han}]/u);
+
+    const malformed = createAiProviderClient(
+      network(async () =>
+        jsonResponse({ choices: [{ message: { content: "```json\\n{}\\n```" } }] }),
+      ),
+    );
+    await expect(
+      malformed.requestMentor(
+        "openai",
+        "private-key",
+        "gpt-test",
+        "Fix it",
+        [],
+        {
+          currentFunction: "int main(void){return 0;}",
+          diagnosticSummary: [],
+          controlFlowSummary: "complete",
+          runEvidence: [],
+        },
+        new AbortController().signal,
+        "propose-edit",
+        "en",
+      ),
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "AI_PROVIDER_INVALID_RESPONSE" },
+    });
   });
 });
 
@@ -122,7 +204,11 @@ function network(
 }
 
 function jsonResponse(value: unknown): AiProviderNetworkResponse {
-  return { status: 200, contentType: "application/json; charset=utf-8", body: bytes(JSON.stringify(value)) };
+  return {
+    status: 200,
+    contentType: "application/json; charset=utf-8",
+    body: bytes(JSON.stringify(value)),
+  };
 }
 
 function bytes(value: string): Uint8Array {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProjectionStatus } from "../../src/ui/projection-status.js";
+import { createProjectionStatus, resolveProjectionLocale } from "../../src/ui/projection-status.js";
 
 describe("projection status banner", () => {
   afterEach(() => {
@@ -61,7 +61,37 @@ describe("projection status banner", () => {
     expect(output.removeCount).toBe(1);
     expect(() => status.setState("synced")).toThrow(/已销毁/u);
   });
+
+  it("switches default status copy immediately while preserving caller-provided messages", () => {
+    const { host, output } = setupDom();
+    host.dataset.locale = "en";
+    const status = createProjectionStatus(host as unknown as HTMLElement);
+
+    expect(resolveProjectionLocale("en-AU")).toBe("en");
+    expect(resolveProjectionLocale("zh-Hans")).toBe("zh-CN");
+    status.setState("pending");
+    expect(output.textContent).toBe("Updating the block projection…");
+    expect(output.dataset.locale).toBe("en");
+
+    status.setState("held", "外部解析消息");
+    host.dataset.locale = "zh-CN";
+    host.dispatchEvent(localeChangeEvent("zh-CN"));
+    expect(output.textContent).toBe("外部解析消息");
+    expect(output.dataset.locale).toBe("zh-CN");
+
+    status.setState("recovery");
+    expect(output.textContent).toBe("代码仍有局部语法问题，已显示可恢复积木");
+    expect(host.listenerCount("workbench-locale-change")).toBe(1);
+    status.destroy();
+    expect(host.listenerCount("workbench-locale-change")).toBe(0);
+  });
 });
+
+function localeChangeEvent(locale: "zh-CN" | "en"): Event {
+  const event = new Event("workbench-locale-change");
+  Object.defineProperty(event, "detail", { value: Object.freeze({ locale }) });
+  return event;
+}
 
 function setupDom(): { host: FakeHost; output: FakeOutput } {
   const host = new FakeHost();
@@ -77,9 +107,29 @@ function setupDom(): { host: FakeHost; output: FakeOutput } {
 
 class FakeHost {
   prepended: FakeOutput | null = null;
+  readonly dataset: Record<string, string | undefined> = {};
+  private readonly listeners = new Map<string, Set<(event: Event) => void>>();
 
   prepend(output: FakeOutput): void {
     this.prepended = output;
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    const listeners = this.listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: Event): void {
+    for (const listener of this.listeners.get(event.type) ?? []) listener(event);
+  }
+
+  listenerCount(type: string): number {
+    return this.listeners.get(type)?.size ?? 0;
   }
 }
 

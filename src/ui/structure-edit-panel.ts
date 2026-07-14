@@ -1,3 +1,5 @@
+import type { InterfaceLocale } from "../shared/interface-locale.js";
+
 export interface StructureEditRange {
   readonly from: number;
   readonly to: number;
@@ -125,6 +127,160 @@ interface RenderedControls {
   readonly renameButton: HTMLButtonElement | null;
 }
 
+interface StructureEditCopy {
+  readonly ariaLabel: string;
+  readonly unavailable: string;
+  readonly status: Readonly<
+    Record<"idle" | "ready" | "working" | "committed" | "cancelled", string>
+  >;
+  readonly statementLegend: string;
+  readonly insertLabel: string;
+  readonly insertPlaceholder: string;
+  readonly insertAria: string;
+  readonly insertBefore: string;
+  readonly insertBeforeAria: string;
+  readonly insertAfter: string;
+  readonly insertAfterAria: string;
+  readonly movePrevious: string;
+  readonly movePreviousAria: string;
+  readonly moveNext: string;
+  readonly moveNextAria: string;
+  readonly delete: string;
+  readonly deleteAria: string;
+  readonly moreActions: string;
+  readonly insertHint: string;
+  readonly localVariableLegend: string;
+  readonly renameLabel: (name: string) => string;
+  readonly renameAria: (name: string) => string;
+  readonly renameButton: string;
+  readonly renameButtonAria: (name: string) => string;
+  readonly renameHint: string;
+  readonly statementReasons: Readonly<
+    Record<"required-body" | "inline-required-body" | StructureEditBlocker, string>
+  >;
+  readonly requestErrors: Readonly<
+    Record<
+      | "no-renamable-local"
+      | "invalid-identifier"
+      | "same-name"
+      | "no-statement"
+      | "insert-disabled"
+      | "delete-disabled"
+      | "no-adjacent-statement",
+      string
+    >
+  >;
+}
+
+const STRUCTURE_EDIT_COPY: Readonly<Record<InterfaceLocale, StructureEditCopy>> = Object.freeze({
+  "zh-CN": Object.freeze({
+    ariaLabel: "结构编辑",
+    unavailable: "选择一条语句或局部变量以使用结构操作。",
+    status: Object.freeze({
+      idle: "当前选择没有可用的结构操作。",
+      ready: "结构操作已就绪；提交前会显示精确差异。",
+      working: "正在生成精确修改预览…",
+      committed: "修改已提交。",
+      cancelled: "已取消；源码未发生变化。",
+    }),
+    statementLegend: "语句结构",
+    insertLabel: "插入一条语句",
+    insertPlaceholder: "例如：total += value;",
+    insertAria: "要插入的单行 C 语句",
+    insertBefore: "上方插入",
+    insertBeforeAria: "在当前语句上方插入一行",
+    insertAfter: "下方插入",
+    insertAfterAria: "在当前语句下方插入一行",
+    movePrevious: "上移",
+    movePreviousAria: "将当前语句上移，与上一条交换",
+    moveNext: "下移",
+    moveNextAria: "将当前语句下移，与下一条交换",
+    delete: "删除",
+    deleteAria: "删除当前语句",
+    moreActions: "更多操作",
+    insertHint: "仅接受一条无外层缩进的物理源码行。",
+    localVariableLegend: "局部变量",
+    renameLabel: (name: string) => `重命名 ${name}`,
+    renameAria: (name: string) => `局部变量 ${name} 的新名称`,
+    renameButton: "预览重命名",
+    renameButtonAria: (name: string) => `预览局部变量 ${name} 的重命名`,
+    renameHint: "使用非关键字、非实现保留名的 ASCII C 标识符。",
+    statementReasons: Object.freeze({
+      "required-body": "无大括号控制体只允许删除；插入或移动前请先补大括号。",
+      "inline-required-body": "行内控制体只允许安全删除；删除后会保留空语句。",
+      "multiline-block-comment": "跨行块注释的附着关系不明确，结构操作已停用。",
+      "not-line-exclusive": "该语句未独占源码行，结构操作已停用。",
+      "parse-recovery": "该语句位于语法恢复区，结构操作已停用。",
+      "preprocessor-context": "该语句邻近预处理或续行边界，结构操作已停用。",
+    }),
+    requestErrors: Object.freeze({
+      "no-renamable-local": "当前选择没有可重命名的局部变量",
+      "invalid-identifier": "新名称必须是非保留的 ASCII C 标识符",
+      "same-name": "新旧名称相同",
+      "no-statement": "当前选择没有可编辑语句",
+      "insert-disabled": "当前语句不允许在相邻位置插入",
+      "delete-disabled": "当前语句不允许删除",
+      "no-adjacent-statement": "当前方向没有可交换的相邻语句",
+    }),
+  }),
+  en: Object.freeze({
+    ariaLabel: "Structure editing",
+    unavailable: "Select a statement or local variable to use structure actions.",
+    status: Object.freeze({
+      idle: "No structure actions are available for the current selection.",
+      ready: "Structure actions are ready. An exact diff will be shown before commit.",
+      working: "Preparing an exact edit preview…",
+      committed: "Edit committed.",
+      cancelled: "Cancelled; source unchanged.",
+    }),
+    statementLegend: "Statement structure",
+    insertLabel: "Insert one statement",
+    insertPlaceholder: "Example: total += value;",
+    insertAria: "Single-line C statement to insert",
+    insertBefore: "Insert above",
+    insertBeforeAria: "Insert a line above the current statement",
+    insertAfter: "Insert below",
+    insertAfterAria: "Insert a line below the current statement",
+    movePrevious: "Move up",
+    movePreviousAria: "Move the current statement up by swapping with the previous statement",
+    moveNext: "Move down",
+    moveNextAria: "Move the current statement down by swapping with the next statement",
+    delete: "Delete",
+    deleteAria: "Delete the current statement",
+    moreActions: "More actions",
+    insertHint: "Enter one physical source line with no outer indentation.",
+    localVariableLegend: "Local variable",
+    renameLabel: (name: string) => `Rename ${name}`,
+    renameAria: (name: string) => `New name for local variable ${name}`,
+    renameButton: "Preview rename",
+    renameButtonAria: (name: string) => `Preview renaming local variable ${name}`,
+    renameHint: "Use an ASCII C identifier that is not a keyword or implementation-reserved name.",
+    statementReasons: Object.freeze({
+      "required-body":
+        "A braceless control body can only be deleted. Add braces before inserting or moving.",
+      "inline-required-body":
+        "An inline control body can only be deleted safely; deletion leaves an empty statement.",
+      "multiline-block-comment":
+        "The attachment of a multiline block comment is ambiguous, so structure actions are disabled.",
+      "not-line-exclusive":
+        "This statement does not occupy its own source line, so structure actions are disabled.",
+      "parse-recovery":
+        "This statement is inside a parse-recovery region, so structure actions are disabled.",
+      "preprocessor-context":
+        "This statement is next to a preprocessor or line-continuation boundary, so structure actions are disabled.",
+    }),
+    requestErrors: Object.freeze({
+      "no-renamable-local": "The current selection has no local variable that can be renamed",
+      "invalid-identifier": "The new name must be a non-reserved ASCII C identifier",
+      "same-name": "The old and new names are the same",
+      "no-statement": "The current selection has no editable statement",
+      "insert-disabled": "A statement cannot be inserted next to the current statement",
+      "delete-disabled": "The current statement cannot be deleted",
+      "no-adjacent-statement": "There is no adjacent statement to swap in this direction",
+    }),
+  }),
+});
+
 const C_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const RESERVED_IMPLEMENTATION_IDENTIFIER = /^(?:__|_[A-Z])/u;
 const C17_KEYWORDS = new Set([
@@ -178,10 +334,12 @@ export function getStructureEditAvailability(
   selection: StructureEditSelection | null,
   insertText = "",
   renameText = selection?.localVariable?.name ?? "",
+  locale: InterfaceLocale = "zh-CN",
 ): StructureEditAvailability {
   const statement = selection?.statement;
   const localVariable = selection?.localVariable;
-  const statementReason = statement === undefined ? null : statementUnavailableReason(statement);
+  const statementReason =
+    statement === undefined ? null : statementUnavailableReason(statement, locale);
   const statementListReady = statement !== undefined && statement.blocker === null;
   const canReorder = statementListReady && statement.parentMode === "statement-list";
   return Object.freeze({
@@ -203,15 +361,17 @@ export function getStructureEditAvailability(
 export function buildStructureEditRequest(
   selection: StructureEditSelection,
   intent: StructureEditIntent,
+  locale: InterfaceLocale = "zh-CN",
 ): StructureEditRequest {
+  const errors = STRUCTURE_EDIT_COPY[locale].requestErrors;
   const snapshot = copySelection(selection);
   if (intent.kind === "rename") {
     const localVariable = snapshot.localVariable;
-    if (localVariable === undefined) throw new TypeError("当前选择没有可重命名的局部变量");
+    if (localVariable === undefined) throw new TypeError(errors["no-renamable-local"]);
     if (!isValidRenameIdentifier(intent.newName)) {
-      throw new TypeError("新名称必须是非保留的 ASCII C 标识符");
+      throw new TypeError(errors["invalid-identifier"]);
     }
-    if (intent.newName === localVariable.name) throw new TypeError("新旧名称相同");
+    if (intent.newName === localVariable.name) throw new TypeError(errors["same-name"]);
     return Object.freeze({
       kind: "local-variable-rename",
       baseRevision: snapshot.revision,
@@ -222,10 +382,12 @@ export function buildStructureEditRequest(
   }
 
   const statement = snapshot.statement;
-  if (statement === undefined) throw new TypeError("当前选择没有可编辑语句");
+  if (statement === undefined) throw new TypeError(errors["no-statement"]);
   const availability = getStructureEditAvailability(
     snapshot,
     "statementText" in intent ? intent.statementText : "valid();",
+    snapshot.localVariable?.name ?? "",
+    locale,
   );
   const base = {
     baseRevision: snapshot.revision,
@@ -235,7 +397,7 @@ export function buildStructureEditRequest(
   switch (intent.kind) {
     case "insert-before":
     case "insert-after":
-      if (!availability.insert) throw new TypeError("当前语句不允许在相邻位置插入");
+      if (!availability.insert) throw new TypeError(errors["insert-disabled"]);
       return Object.freeze({
         ...base,
         kind: "insert-statement",
@@ -243,14 +405,14 @@ export function buildStructureEditRequest(
         statementText: intent.statementText,
       });
     case "delete":
-      if (!availability.delete) throw new TypeError("当前语句不允许删除");
+      if (!availability.delete) throw new TypeError(errors["delete-disabled"]);
       return Object.freeze({ ...base, kind: "delete-statement" });
     case "move-previous":
     case "move-next": {
       const neighbor = intent.kind === "move-previous" ? statement.previous : statement.next;
       const canMove =
         intent.kind === "move-previous" ? availability.movePrevious : availability.moveNext;
-      if (!canMove || neighbor === null) throw new TypeError("当前方向没有可交换的相邻语句");
+      if (!canMove || neighbor === null) throw new TypeError(errors["no-adjacent-statement"]);
       return Object.freeze({
         ...base,
         kind: "swap-adjacent-statements",
@@ -283,9 +445,17 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
 ): StructureEditPanel {
   assertCallbacks(callbacks);
   const ownerDocument = host.ownerDocument;
+  const localeHost = resolveLocaleHost(host);
+  let locale = resolveStructureEditLocale(
+    localeHost.dataset.locale ??
+      ownerDocument.documentElement?.dataset.locale ??
+      ownerDocument.documentElement?.lang,
+  );
+  const copy = (): StructureEditCopy => STRUCTURE_EDIT_COPY[locale];
   const root = ownerDocument.createElement("section");
   root.className = "structure-edit-panel";
-  root.setAttribute("aria-label", "结构编辑");
+  root.dataset.locale = locale;
+  root.setAttribute("aria-label", copy().ariaLabel);
 
   const status = ownerDocument.createElement("output");
   status.className = "structure-edit-panel__status";
@@ -303,14 +473,52 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
   let operationSequence = 0;
   let operationBusy = false;
   let controls: RenderedControls = emptyControls();
+  type StatusState = "idle" | "ready" | "working" | "success" | "error";
+  type StatusCopyKey = keyof StructureEditCopy["status"];
+  type StatusSource =
+    | { readonly kind: "copy"; readonly key: StatusCopyKey }
+    | { readonly kind: "selection" }
+    | { readonly kind: "literal"; readonly message: string };
+  let statusState: StatusState = "idle";
+  let statusSource: StatusSource = Object.freeze({ kind: "copy", key: "idle" });
 
-  const setStatus = (
-    state: "idle" | "ready" | "working" | "success" | "error",
-    message: string,
-  ) => {
-    root.dataset.state = state;
-    status.dataset.state = state;
+  const renderStatus = (): void => {
+    let message: string;
+    switch (statusSource.kind) {
+      case "copy":
+        message = copy().status[statusSource.key];
+        break;
+      case "selection":
+        message =
+          (selection?.statement === undefined
+            ? null
+            : statementUnavailableReason(selection.statement, locale)) ?? copy().status.ready;
+        break;
+      case "literal":
+        message = statusSource.message;
+        break;
+    }
+    root.dataset.state = statusState;
+    status.dataset.state = statusState;
     status.textContent = message;
+  };
+
+  const setCopyStatus = (state: StatusState, key: StatusCopyKey): void => {
+    statusState = state;
+    statusSource = Object.freeze({ kind: "copy", key });
+    renderStatus();
+  };
+
+  const setSelectionStatus = (): void => {
+    statusState = "ready";
+    statusSource = Object.freeze({ kind: "selection" });
+    renderStatus();
+  };
+
+  const setLiteralStatus = (state: StatusState, message: string): void => {
+    statusState = state;
+    statusSource = Object.freeze({ kind: "literal", message });
+    renderStatus();
   };
 
   const updateControls = (): void => {
@@ -318,6 +526,7 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
       selection,
       controls.insertInput?.value ?? "",
       controls.renameInput?.value ?? selection?.localVariable?.name ?? "",
+      locale,
     );
     setDisabled(controls.insertBefore, operationBusy || !availability.insert);
     setDisabled(controls.insertAfter, operationBusy || !availability.insert);
@@ -360,28 +569,28 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
     }
     let request: StructureEditRequest;
     try {
-      request = buildStructureEditRequest(selection, intent);
+      request = buildStructureEditRequest(selection, intent, locale);
     } catch (error: unknown) {
-      setStatus("error", errorMessage(error));
+      setLiteralStatus("error", errorMessage(error));
       updateControls();
       return;
     }
 
     operationBusy = true;
     const operationId = ++operationSequence;
-    setStatus("working", "正在生成精确修改预览…");
+    setCopyStatus("working", "working");
     updateControls();
     const isCurrent = () =>
       !destroyed && operationId === operationSequence && renderedGeneration === selectionGeneration;
     try {
       const result = await runStructureEditWorkflow(request, callbacks, isCurrent);
       if (!isCurrent()) return;
-      setStatus(
+      setCopyStatus(
         result === "committed" ? "success" : "ready",
-        result === "committed" ? "修改已提交。" : "已取消；源码未发生变化。",
+        result === "committed" ? "committed" : "cancelled",
       );
     } catch (error: unknown) {
-      if (isCurrent()) setStatus("error", errorMessage(error));
+      if (isCurrent()) setLiteralStatus("error", errorMessage(error));
     } finally {
       if (isCurrent()) {
         operationBusy = false;
@@ -390,7 +599,11 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
     }
   };
 
-  const render = (): void => {
+  const render = (preserveDraft = false, preserveStatus = false): void => {
+    const insertDraft = preserveDraft ? controls.insertInput?.value : undefined;
+    const renameDraft = preserveDraft ? controls.renameInput?.value : undefined;
+    root.dataset.locale = locale;
+    root.setAttribute("aria-label", copy().ariaLabel);
     content.replaceChildren();
     controls = emptyControls();
     const current = selection;
@@ -400,8 +613,9 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
       current === null ||
       (current.statement === undefined && current.localVariable === undefined)
     ) {
-      content.append(unavailableMessage(ownerDocument));
-      setStatus("idle", "当前选择没有可用的结构操作。");
+      content.append(unavailableMessage(ownerDocument, copy()));
+      if (preserveStatus) renderStatus();
+      else setCopyStatus("idle", "idle");
       return;
     }
     const renderedGeneration = selectionGeneration;
@@ -411,6 +625,9 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
         current.statement,
         (intent) => void execute(intent, renderedGeneration),
         updateControls,
+        copy(),
+        locale,
+        insertDraft,
       );
       controls = mergeControls(controls, statementControls);
       content.append(statementControls.group);
@@ -421,15 +638,39 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
         current.localVariable,
         (intent) => void execute(intent, renderedGeneration),
         updateControls,
+        copy(),
+        renameDraft,
       );
       controls = mergeControls(controls, renameControls);
       content.append(renameControls.group);
     }
-    const availability = getStructureEditAvailability(current);
-    setStatus("ready", availability.statementReason ?? "结构操作已就绪；提交前会显示精确差异。");
+    if (preserveStatus) renderStatus();
+    else setSelectionStatus();
     updateControls();
   };
 
+  const onLocaleChange = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    const candidate =
+      typeof detail === "object" && detail !== null && "locale" in detail
+        ? detail.locale
+        : localeHost.dataset.locale;
+    locale = resolveStructureEditLocale(candidate);
+    render(true, true);
+  };
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver;
+  const localeObserver =
+    MutationObserverConstructor === undefined
+      ? null
+      : new MutationObserverConstructor(() => {
+          locale = resolveStructureEditLocale(localeHost.dataset.locale);
+          render(true, true);
+        });
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
+  localeObserver?.observe(localeHost, {
+    attributes: true,
+    attributeFilter: ["data-locale"],
+  });
   render();
 
   return Object.freeze({
@@ -448,6 +689,10 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
       selectionGeneration += 1;
       operationSequence += 1;
       operationBusy = false;
+      if (typeof localeHost.removeEventListener === "function") {
+        localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
+      }
+      localeObserver?.disconnect();
       root.remove();
       selection = null;
       controls = emptyControls();
@@ -460,12 +705,15 @@ function renderStatementGroup(
   statement: StructureEditStatementSelection,
   execute: (intent: StructureEditIntent) => void,
   onDraftChange: () => void,
+  copy: StructureEditCopy,
+  locale: InterfaceLocale,
+  draft?: string,
 ): RenderedControls & { readonly group: HTMLFieldSetElement } {
   const group = ownerDocument.createElement("fieldset");
   group.className = "structure-edit-panel__group";
   const legend = ownerDocument.createElement("legend");
   legend.className = "structure-edit-panel__legend";
-  legend.textContent = "语句结构";
+  legend.textContent = copy.statementLegend;
   const target = ownerDocument.createElement("code");
   target.className = "structure-edit-panel__target";
   target.textContent = statement.text;
@@ -475,30 +723,31 @@ function renderStatementGroup(
   insertLabel.className = "structure-edit-panel__field";
   const insertLabelText = ownerDocument.createElement("span");
   insertLabelText.className = "structure-edit-panel__field-label";
-  insertLabelText.textContent = "插入一条语句";
+  insertLabelText.textContent = copy.insertLabel;
   const insertInput = ownerDocument.createElement("input");
   insertInput.className = "structure-edit-panel__input";
   insertInput.type = "text";
-  insertInput.placeholder = "例如：total += value;";
+  insertInput.value = draft ?? "";
+  insertInput.placeholder = copy.insertPlaceholder;
   insertInput.autocomplete = "off";
   insertInput.spellcheck = false;
-  insertInput.setAttribute("aria-label", "要插入的单行 C 语句");
+  insertInput.setAttribute("aria-label", copy.insertAria);
   insertLabel.append(insertLabelText, insertInput);
 
   const insertActions = actionRow(ownerDocument);
-  const insertBefore = actionButton(ownerDocument, "上方插入", "在当前语句上方插入一行");
-  const insertAfter = actionButton(ownerDocument, "下方插入", "在当前语句下方插入一行");
+  const insertBefore = actionButton(ownerDocument, copy.insertBefore, copy.insertBeforeAria);
+  const insertAfter = actionButton(ownerDocument, copy.insertAfter, copy.insertAfterAria);
   insertBefore.dataset.operation = "insert-before";
   insertAfter.dataset.operation = "insert-after";
   insertActions.append(insertBefore, insertAfter);
 
   const moveActions = actionRow(ownerDocument);
-  const movePrevious = actionButton(ownerDocument, "上移", "将当前语句上移，与上一条交换");
-  const moveNext = actionButton(ownerDocument, "下移", "将当前语句下移，与下一条交换");
+  const movePrevious = actionButton(ownerDocument, copy.movePrevious, copy.movePreviousAria);
+  const moveNext = actionButton(ownerDocument, copy.moveNext, copy.moveNextAria);
   const deleteButton = actionButton(
     ownerDocument,
-    "删除",
-    "删除当前语句",
+    copy.delete,
+    copy.deleteAria,
     "structure-edit-panel__button--danger",
   );
   movePrevious.dataset.operation = "move-previous";
@@ -508,12 +757,12 @@ function renderStatementGroup(
   const moreActions = ownerDocument.createElement("details");
   moreActions.className = "structure-edit-panel__more-actions";
   const moreSummary = ownerDocument.createElement("summary");
-  moreSummary.textContent = "更多操作";
+  moreSummary.textContent = copy.moreActions;
   moreActions.append(moreSummary, deleteButton);
 
   const hint = ownerDocument.createElement("p");
   hint.className = "structure-edit-panel__hint";
-  hint.textContent = statementUnavailableReason(statement) ?? "仅接受一条无外层缩进的物理源码行。";
+  hint.textContent = statementUnavailableReason(statement, locale) ?? copy.insertHint;
   group.append(legend, target, insertLabel, insertActions, moveActions, moreActions, hint);
 
   insertInput.addEventListener("input", () => {
@@ -546,34 +795,36 @@ function renderRenameGroup(
   localVariable: StructureEditRenameSelection,
   execute: (intent: StructureEditIntent) => void,
   onDraftChange: () => void,
+  copy: StructureEditCopy,
+  draft?: string,
 ): RenderedControls & { readonly group: HTMLFieldSetElement } {
   const group = ownerDocument.createElement("fieldset");
   group.className = "structure-edit-panel__group";
   const legend = ownerDocument.createElement("legend");
   legend.className = "structure-edit-panel__legend";
-  legend.textContent = "局部变量";
+  legend.textContent = copy.localVariableLegend;
   const renameLabel = ownerDocument.createElement("label");
   renameLabel.className = "structure-edit-panel__field";
   const renameLabelText = ownerDocument.createElement("span");
   renameLabelText.className = "structure-edit-panel__field-label";
-  renameLabelText.textContent = `重命名 ${localVariable.name}`;
+  renameLabelText.textContent = copy.renameLabel(localVariable.name);
   const renameInput = ownerDocument.createElement("input");
   renameInput.className = "structure-edit-panel__input";
   renameInput.type = "text";
-  renameInput.value = localVariable.name;
+  renameInput.value = draft ?? localVariable.name;
   renameInput.autocomplete = "off";
   renameInput.spellcheck = false;
-  renameInput.setAttribute("aria-label", `局部变量 ${localVariable.name} 的新名称`);
+  renameInput.setAttribute("aria-label", copy.renameAria(localVariable.name));
   renameLabel.append(renameLabelText, renameInput);
   const renameButton = actionButton(
     ownerDocument,
-    "预览重命名",
-    `预览局部变量 ${localVariable.name} 的重命名`,
+    copy.renameButton,
+    copy.renameButtonAria(localVariable.name),
   );
   renameButton.dataset.operation = "rename";
   const hint = ownerDocument.createElement("p");
   hint.className = "structure-edit-panel__hint";
-  hint.textContent = "使用非关键字、非实现保留名的 ASCII C 标识符。";
+  hint.textContent = copy.renameHint;
   group.append(legend, renameLabel, renameButton, hint);
 
   renameInput.addEventListener("input", () => {
@@ -606,31 +857,29 @@ function actionButton(
   return button;
 }
 
-function unavailableMessage(ownerDocument: Document): HTMLParagraphElement {
+function unavailableMessage(
+  ownerDocument: Document,
+  copy: StructureEditCopy,
+): HTMLParagraphElement {
   const message = ownerDocument.createElement("p");
   message.className = "structure-edit-panel__unavailable";
-  message.textContent = "选择一条语句或局部变量以使用结构操作。";
+  message.textContent = copy.unavailable;
   return message;
 }
 
-function statementUnavailableReason(statement: StructureEditStatementSelection): string | null {
+function statementUnavailableReason(
+  statement: StructureEditStatementSelection,
+  locale: InterfaceLocale = "zh-CN",
+): string | null {
+  const reasons = STRUCTURE_EDIT_COPY[locale].statementReasons;
   if (statement.parentMode === "required-body" && statement.blocker === null) {
-    return "无大括号控制体只允许删除；插入或移动前请先补大括号。";
+    return reasons["required-body"];
   }
   if (statement.blocker === null) return null;
   if (statement.blocker === "not-line-exclusive" && statement.parentMode === "required-body") {
-    return "行内控制体只允许安全删除；删除后会保留空语句。";
+    return reasons["inline-required-body"];
   }
-  switch (statement.blocker) {
-    case "multiline-block-comment":
-      return "跨行块注释的附着关系不明确，结构操作已停用。";
-    case "not-line-exclusive":
-      return "该语句未独占源码行，结构操作已停用。";
-    case "parse-recovery":
-      return "该语句位于语法恢复区，结构操作已停用。";
-    case "preprocessor-context":
-      return "该语句邻近预处理或续行边界，结构操作已停用。";
-  }
+  return reasons[statement.blocker];
 }
 
 function isValidInsertLine(value: string): boolean {
@@ -760,6 +1009,15 @@ function mergeControls(left: RenderedControls, right: RenderedControls): Rendere
 
 function setDisabled(button: HTMLButtonElement | null, disabled: boolean): void {
   if (button !== null) button.disabled = disabled;
+}
+
+export function resolveStructureEditLocale(value: unknown): InterfaceLocale {
+  return typeof value === "string" && value.toLowerCase().startsWith("en") ? "en" : "zh-CN";
+}
+
+function resolveLocaleHost(host: HTMLElement): HTMLElement {
+  if (typeof host.closest !== "function") return host;
+  return host.closest<HTMLElement>("[data-locale]") ?? host;
 }
 
 function requireNonEmpty(value: string, label: string): string {

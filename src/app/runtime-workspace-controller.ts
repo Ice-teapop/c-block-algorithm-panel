@@ -18,11 +18,13 @@ import {
   type ScenarioCatalogStore,
 } from "../scenarios/index.js";
 import type { Capabilities, CompileResult, PanelApi, RunResult } from "../shared/api.js";
+import { RUNNER_LIMITS } from "../shared/limits.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import type { TraceEvent, TraceRunEvidence } from "../shared/trace.js";
 import { scenarioReferenceWorkload } from "../runtime/index.js";
 import type { BlockTree } from "../ui/block-tree.js";
 import type { CodePane } from "../ui/code-pane.js";
+import type { MentorRemoteContext } from "../ui/mentor-panel.js";
 import type { FlowCanvasActivePath } from "../ui/flow-canvas.js";
 import type {
   RealScenarioRunRequest,
@@ -37,6 +39,13 @@ import {
   type RunPanelCompletion,
 } from "../ui/run-panel.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
+import {
+  createManualRunInput,
+  emptyManualRunInput,
+  sourceMayNeedRuntimeInput,
+  type ManualRunInput,
+  type ManualRunInputValue,
+} from "../ui/manual-run-input.js";
 import { createDiagnosticRunPanel, type DiagnosticRunPanel } from "./diagnostic-run-panel.js";
 import {
   createEvidenceWorkspaceController,
@@ -58,9 +67,17 @@ import {
 } from "./trace-flow-projection.js";
 import { createWorkspaceSidecarPersistence } from "./workspace-sidecar-persistence.js";
 import type { FlowNodeRuntimeSnapshot } from "./flow-node-evidence.js";
+import {
+  createWorkbenchPrimaryActionState,
+  reduceWorkbenchPrimaryActionState,
+  selectWorkbenchPrimaryAction,
+  type WorkbenchPrimaryActionState,
+} from "./workbench-primary-action.js";
 
 const SCENARIO_SIDECAR_VERSION = 1 as const;
 const OBSERVATION_LIMIT = 256;
+const MANUAL_TRACE_SCENARIO_ID = "manual.current-source";
+const MANUAL_TRACE_SCENARIO_VERSION = "1.0.0";
 const BRANCH_KINDS = new Set([
   "branch-true",
   "branch-false",
@@ -79,18 +96,19 @@ interface RuntimeLearningObservationBase {
   readonly sourceFingerprint: string;
   readonly scenarioId: string;
   readonly scenarioVersion: string;
-  readonly size: number;
 }
 
 export type RuntimeLearningObservation =
   | (RuntimeLearningObservationBase & {
       readonly type: "trace-completed";
+      readonly size: number;
       readonly mapped: true;
       readonly truncated: false;
       readonly branchKinds: readonly RuntimeObservedBranchKind[];
     })
   | (RuntimeLearningObservationBase & {
       readonly type: "run-completed";
+      readonly size: number;
       readonly ok: boolean;
       readonly stdout: string;
       readonly expectedStdout: string;
@@ -98,6 +116,11 @@ export type RuntimeLearningObservation =
       readonly exitCode: number | null;
       readonly termination: RunResult["termination"];
       readonly historyDisposition: "success" | "teaching-failure";
+    })
+  | (RuntimeLearningObservationBase & {
+      readonly type: "benchmark-completed";
+      readonly sizes: readonly number[];
+      readonly repetitions: number;
     });
 
 interface ScenarioSelectionState {
@@ -137,6 +160,11 @@ interface ScenarioSidecarDocument {
   readonly definitions: readonly ScenarioDefinitionSnapshot[];
   readonly observations: readonly BranchObservation[];
   readonly customCatalog: ScenarioCatalogDocument;
+  readonly manualInput: ManualInputSnapshot | null;
+}
+
+interface ManualInputSnapshot extends ManualRunInputValue {
+  readonly sourceFingerprint: string;
 }
 
 export interface RuntimeWorkspaceControllerOptions {
@@ -166,6 +194,7 @@ export interface RuntimeWorkspaceController {
   readonly scenario: ScenarioWorkbenchController;
   readonly trace: TraceController;
   readonly hasPendingChanges: boolean;
+  getRemoteMentorContext(): MentorRemoteContext | null;
   setWorkspaceEntry(entryId: string | null, fingerprint: string | null): Promise<void>;
   setAnalysis(analysis: ProgramAnalysisSnapshot | null): void;
   invalidateSource(): void;
@@ -194,6 +223,12 @@ export function createRuntimeWorkspaceController(
   let traceWaiter: TraceWaiter | null = null;
   let evidenceDirty = false;
   let suppressCatalogPersistence = true;
+  let primaryActionState: WorkbenchPrimaryActionState = createWorkbenchPrimaryActionState(
+    fingerprintSource(options.getSource()),
+  );
+  let primaryActionBusy = false;
+  let primaryBusyAction: "run" | "observe" | null = null;
+  let activeProblemIndex = 0;
 
   const evidence = createEvidenceWorkspaceController({
     metricsHost: options.elements.metricsHost,
@@ -203,6 +238,7 @@ export function createRuntimeWorkspaceController(
     getSource: options.getSource,
     readSidecar: (entryId, kind) => options.api.readWorkspaceSidecar({ entryId, kind }),
     saveSidecar: (request) => options.api.saveWorkspaceSidecar(request),
+    onOpenAiSettings: () => options.elements.executeMenuAction("settings", "ai-privacy"),
     ...(options.sidecarDelayMs === undefined ? {} : { delayMs: options.sidecarDelayMs }),
     onLocate: (target) => {
       const projection = currentProjectionOrNull(options);
@@ -239,6 +275,20 @@ export function createRuntimeWorkspaceController(
   let scenarioCatalogPanel: ScenarioCatalogPanel | undefined;
   let trace!: TraceController;
   let tracePanel!: TracePanel;
+  let manualInputValue: ManualRunInputValue = emptyManualRunInput();
+  let manualInputAcknowledged = false;
+  let manualInputBindingFingerprint: string | null = null;
+  const manualInput: ManualRunInput = createManualRunInput(options.elements.manualRunInputHost, {
+    onRun: (value) => {
+      manualInputValue = value;
+      manualInputAcknowledged = true;
+      manualInputBindingFingerprint = fingerprintSource(options.getSource());
+      manualInput.setValue(value);
+      resetPrimaryAction(fingerprintSource(options.getSource()));
+      persistScenarioState();
+      void invokePrimaryAction();
+    },
+  });
 
   const runPanel: DiagnosticRunPanel = createDiagnosticRunPanel(
     options.elements.getInspectorHost("run"),
@@ -248,6 +298,7 @@ export function createRuntimeWorkspaceController(
       getSource: options.getSource,
       getAnalyzedSource: options.getAnalyzedSource,
       getDisplayName: options.getDisplayName,
+      getManualScenario: () => manualScenario(manualInputValue),
       onRunComplete: (completion) => recordEvidence(completion),
     },
   );
@@ -337,10 +388,9 @@ export function createRuntimeWorkspaceController(
   });
 
   tracePanel = createTracePanel(options.elements.traceHost, {
+    showStartButton: false,
     onStart: async () => {
-      const snapshot = scenario.getSnapshot();
-      const result = await runTrace(snapshot.runCase);
-      observeBranches(snapshot.runCase, result.path.edgeIds);
+      await observeCurrentPath();
     },
     onCancel: () => trace.cancel(),
     onPausePlayback: () => trace.pausePlayback(),
@@ -349,16 +399,26 @@ export function createRuntimeWorkspaceController(
   tracePanel.setState(trace.getState());
   tracePanel.setEvents(trace.getEvents());
 
-  const scenarioHosts = createScenarioHosts(options.elements.scenarioHost);
+  const scenarioHosts = createScenarioHosts(
+    options.elements.scenarioHost,
+    options.elements.shell.dataset.locale === "en",
+  );
   scenario = createScenarioWorkbenchController({
     host: scenarioHosts.runner,
     provider: catalogProvider,
+    onScenarioChange: () => {
+      manualInputAcknowledged = false;
+      refreshManualInput();
+      resetPrimaryAction(fingerprintSource(options.getSource()));
+      persistScenarioState();
+    },
     onRealRunRequested: runScenarioReal,
     onTeachingSimulationRequested: runTeachingSimulation,
     onBenchmarkRequested: runBenchmark,
   });
   scenarioCatalogPanel = createScenarioCatalogPanel(scenarioHosts.catalog, {
     store: catalogStore,
+    localeHost: options.elements.shell,
     confirmDelete: (label) => globalThis.confirm(label),
     onSelectionChange: (scenarioId) => {
       if (scenarioId === null) return;
@@ -374,6 +434,28 @@ export function createRuntimeWorkspaceController(
   refreshBranchTargets();
   evidence.setAnalysis(validAnalysis(options.getAnalysis(), options.getSource()));
   void runPanel.refreshCapabilities();
+  const onPrimaryActionClick = (): void => {
+    void invokePrimaryAction();
+  };
+  const onProblemShortcut = (event: KeyboardEvent): void => {
+    if (event.key !== "F8" || event.altKey || event.ctrlKey || event.metaKey) return;
+    const analysis = validAnalysis(options.getAnalysis(), options.getSource());
+    if (actionableFindingCount(analysis) === 0) return;
+    event.preventDefault();
+    revealPrimaryProblem(event.shiftKey ? "previous" : "next");
+  };
+  const onPrimaryLocaleChange = (): void => {
+    renderPrimaryAction();
+    scenarioHosts.catalogSummary.textContent = scenarioCatalogSummaryLabel(
+      options.elements.shell.dataset.locale === "en",
+    );
+  };
+  options.elements.tracePrimaryButton.addEventListener("click", onPrimaryActionClick);
+  options.elements.shell.addEventListener("keydown", onProblemShortcut);
+  options.elements.shell.addEventListener("workbench-locale-change", onPrimaryLocaleChange);
+  syncPrimaryProblem();
+  renderPrimaryAction();
+  refreshManualInput();
 
   function withoutCatalogPersistence(operation: () => void): void {
     const previous = suppressCatalogPersistence;
@@ -383,6 +465,176 @@ export function createRuntimeWorkspaceController(
     } finally {
       suppressCatalogPersistence = previous;
     }
+  }
+
+  function updatePrimaryAction(
+    event: Parameters<typeof reduceWorkbenchPrimaryActionState>[1],
+  ): void {
+    primaryActionState = reduceWorkbenchPrimaryActionState(primaryActionState, event);
+    renderPrimaryAction();
+  }
+
+  function refreshManualInput(): void {
+    const needed = !scenario.hasScenarioBinding() && sourceMayNeedRuntimeInput(options.getSource());
+    manualInput.setNeeded(needed);
+    manualInput.setValue(manualInputValue);
+  }
+
+  function resetPrimaryAction(sourceFingerprint: string): void {
+    activeProblemIndex = 0;
+    primaryActionState = reduceWorkbenchPrimaryActionState(primaryActionState, {
+      type: "source-reset",
+      sourceFingerprint,
+    });
+    syncPrimaryProblem();
+    renderPrimaryAction();
+  }
+
+  function syncPrimaryProblem(): void {
+    const analysis = validAnalysis(options.getAnalysis(), options.getSource());
+    updatePrimaryAction({
+      type: "problem-changed",
+      sourceFingerprint: primaryActionState.sourceFingerprint,
+      present: actionableFindingCount(analysis) > 0,
+    });
+  }
+
+  function renderPrimaryAction(): void {
+    const button = options.elements.tracePrimaryButton;
+    const action = selectWorkbenchPrimaryAction(primaryActionState);
+    const english = options.elements.shell.dataset.locale === "en";
+    const problemCount = actionableFindingCount(
+      validAnalysis(options.getAnalysis(), options.getSource()),
+    );
+    if (problemCount > 0) activeProblemIndex %= problemCount;
+    else activeProblemIndex = 0;
+    button.dataset.primaryAction = action;
+    button.disabled = primaryActionBusy;
+    button.setAttribute("aria-busy", String(primaryActionBusy));
+    if (action === "problem") {
+      button.setAttribute("aria-keyshortcuts", "F8 Shift+F8");
+      button.title = english
+        ? "F8 next problem · Shift+F8 previous problem"
+        : "F8 下一个问题 · Shift+F8 上一个问题";
+    } else {
+      button.removeAttribute("aria-keyshortcuts");
+      button.title = "";
+    }
+    if (primaryActionBusy) {
+      button.textContent =
+        primaryBusyAction === "observe"
+          ? english
+            ? "Observing…"
+            : "观察中…"
+          : english
+            ? "Running…"
+            : "运行中…";
+      return;
+    }
+    button.textContent =
+      action === "run"
+        ? english
+          ? primaryActionState.run === "passed"
+            ? "Run Again"
+            : "Run"
+          : primaryActionState.run === "passed"
+            ? "再次运行"
+            : "运行"
+        : action === "observe"
+          ? english
+            ? "Observe Path"
+            : "观察路径"
+          : english
+            ? problemCount > 0
+              ? `Problem ${String(activeProblemIndex + 1)}/${String(problemCount)}`
+              : "View Runtime Problem"
+            : problemCount > 0
+              ? `问题 ${String(activeProblemIndex + 1)}/${String(problemCount)}`
+              : "查看运行问题";
+  }
+
+  async function invokePrimaryAction(): Promise<void> {
+    if (destroyed || primaryActionBusy) return;
+    const sourceFingerprint = fingerprintSource(options.getSource());
+    if (sourceFingerprint !== primaryActionState.sourceFingerprint) {
+      resetPrimaryAction(sourceFingerprint);
+    }
+    const action = selectWorkbenchPrimaryAction(primaryActionState);
+    if (action === "problem") {
+      revealPrimaryProblem();
+      return;
+    }
+    if (
+      action === "run" &&
+      !scenario.hasScenarioBinding() &&
+      !manualInputAcknowledged &&
+      sourceMayNeedRuntimeInput(options.getSource()) &&
+      manualInput.requestInput()
+    ) {
+      return;
+    }
+    primaryActionBusy = true;
+    primaryBusyAction = action;
+    renderPrimaryAction();
+    try {
+      if (action === "run") {
+        if (scenario.hasScenarioBinding()) {
+          await scenario.runReal();
+        } else {
+          const previousRun = primaryActionState.run;
+          await runPanel.runCurrent();
+          if (primaryActionState.run === previousRun) {
+            updatePrimaryAction({ type: "run-finished", sourceFingerprint, ok: false });
+          }
+        }
+      } else {
+        await observeCurrentPath();
+        updatePrimaryAction({ type: "observation-finished", sourceFingerprint, ok: true });
+      }
+    } catch {
+      updatePrimaryAction({
+        type: action === "run" ? "run-finished" : "observation-finished",
+        sourceFingerprint,
+        ok: false,
+      });
+    } finally {
+      primaryActionBusy = false;
+      primaryBusyAction = null;
+      renderPrimaryAction();
+    }
+  }
+
+  async function observeCurrentPath(): Promise<void> {
+    options.elements.focusPanel("runtime");
+    const bound = scenario.hasScenarioBinding();
+    const runCase = bound ? scenario.getSnapshot().runCase : manualTraceRunCase(manualInputValue);
+    const result = await runTrace(runCase);
+    if (bound) observeBranches(runCase, result.path.edgeIds);
+  }
+
+  function revealPrimaryProblem(direction: "next" | "previous" = "next"): void {
+    const analysis = validAnalysis(options.getAnalysis(), options.getSource());
+    const findings = actionableFindings(analysis);
+    if (findings.length === 0) {
+      options.elements.focusPanel("runtime");
+      return;
+    }
+    if (direction === "previous") {
+      activeProblemIndex = (activeProblemIndex - 1 + findings.length) % findings.length;
+    } else {
+      activeProblemIndex %= findings.length;
+    }
+    const finding = findings[activeProblemIndex]!;
+    options.elements.focusPanel("code");
+    const projection = currentProjectionOrNull(options);
+    const node = projection?.nodes.find(
+      (candidate) =>
+        candidate.id === finding.ownerNodeId || candidate.sourceNodeId === finding.ownerNodeId,
+    );
+    if (node !== undefined) options.onFocusNode(node.id);
+    options.onRevealRange(finding.primaryRange);
+    if (direction === "next") activeProblemIndex = (activeProblemIndex + 1) % findings.length;
+    renderPrimaryAction();
   }
 
   function settleTraceWaiter(state: TraceControllerState): void {
@@ -439,35 +691,44 @@ export function createRuntimeWorkspaceController(
   async function runScenarioReal(request: RealScenarioRunRequest): Promise<void> {
     const taskGeneration = generation;
     const source = sourceSnapshot(options);
-    persistScenarioState();
-    const projected = await runTrace(request.runCase);
-    assertSnapshot(source, taskGeneration);
-    if (
-      request.targetBranch !== null &&
-      !projected.path.edgeIds.includes(request.targetBranch.id)
-    ) {
-      throw new Error(`真实轨迹未经过目标分支：${request.targetBranch.label}`);
-    }
-    observeBranches(request.runCase, projected.path.edgeIds);
-    const completion = await compileAndRun(
-      request.runCase,
-      source,
-      taskGeneration,
-      requireTraceCounts(trace.getState().evidence),
-    );
-    assertExpectedOutput(request.runCase, completion.runResult);
-    recordEvidence(
-      completion,
-      realPathSummary(
-        options,
+    try {
+      persistScenarioState();
+      const projected = await runTrace(request.runCase);
+      assertSnapshot(source, taskGeneration);
+      if (
+        request.targetBranch !== null &&
+        !projected.path.edgeIds.includes(request.targetBranch.id)
+      ) {
+        throw new Error(`真实轨迹未经过目标分支：${request.targetBranch.label}`);
+      }
+      observeBranches(request.runCase, projected.path.edgeIds);
+      const completion = await compileAndRun(
         request.runCase,
-        projected,
-        trace.getState().evidence,
-        request.targetBranch?.id ?? null,
-      ),
-    );
-    const currentNodeId = projected.path.currentNodeId;
-    if (currentNodeId !== null) options.onFocusNode(currentNodeId);
+        source,
+        taskGeneration,
+        requireTraceCounts(trace.getState().evidence),
+      );
+      assertExpectedOutput(request.runCase, completion.runResult);
+      recordEvidence(
+        completion,
+        realPathSummary(
+          options,
+          request.runCase,
+          projected,
+          trace.getState().evidence,
+          request.targetBranch?.id ?? null,
+        ),
+      );
+      const currentNodeId = projected.path.currentNodeId;
+      if (currentNodeId !== null) options.onFocusNode(currentNodeId);
+    } catch (error: unknown) {
+      updatePrimaryAction({
+        type: "run-finished",
+        sourceFingerprint: source.fingerprint,
+        ok: false,
+      });
+      throw error;
+    }
   }
 
   async function runTeachingSimulation(request: TeachingSimulationRequest): Promise<void> {
@@ -487,6 +748,7 @@ export function createRuntimeWorkspaceController(
   async function runBenchmark(request: ScenarioBenchmarkRequest): Promise<void> {
     const taskGeneration = generation;
     const source = sourceSnapshot(options);
+    const completedSizes = validateBenchmarkRequest(request);
     persistScenarioState();
     for (const runCase of request.cases) {
       for (let repetition = 0; repetition < request.repetitions; repetition += 1) {
@@ -507,6 +769,8 @@ export function createRuntimeWorkspaceController(
         );
       }
     }
+    assertSnapshot(source, taskGeneration);
+    publishBenchmarkLearningObservation(request, source, completedSizes);
   }
 
   async function compileAndRun(
@@ -603,6 +867,25 @@ export function createRuntimeWorkspaceController(
     );
   }
 
+  function publishBenchmarkLearningObservation(
+    request: ScenarioBenchmarkRequest,
+    snapshot: SourceSnapshot,
+    sizes: readonly number[],
+  ): void {
+    if (activeEntryId === null || options.onLearningObservation === undefined) return;
+    options.onLearningObservation(
+      Object.freeze({
+        type: "benchmark-completed",
+        workspaceId: activeEntryId,
+        sourceFingerprint: snapshot.fingerprint,
+        scenarioId: request.scenario.id,
+        scenarioVersion: request.scenario.version,
+        sizes,
+        repetitions: request.repetitions,
+      }),
+    );
+  }
+
   function recordEvidence(
     completionValue: RunPanelCompletion,
     realPath: RealExecutionPathSummary | null = null,
@@ -613,6 +896,11 @@ export function createRuntimeWorkspaceController(
     evidence.setRealPath(realPath);
     evidence.recordRun(completionValue);
     evidenceDirty = true;
+    updatePrimaryAction({
+      type: "run-finished",
+      sourceFingerprint: completionValue.sourceFingerprint,
+      ok: completionValue.compileResult.ok && completionValue.runResult?.ok === true,
+    });
   }
 
   function observeBranches(runCase: ScenarioRunCase, edgeIds: readonly string[]): void {
@@ -693,6 +981,8 @@ export function createRuntimeWorkspaceController(
       scenario,
       observations,
       catalogStore.document,
+      manualInputValue,
+      manualInputBindingFingerprint,
     );
     scenarioPersistence.update(JSON.stringify(document), activeFingerprint);
   }
@@ -703,10 +993,18 @@ export function createRuntimeWorkspaceController(
     get hasPendingChanges(): boolean {
       return scenarioPersistence.hasPendingChanges || evidenceDirty;
     },
+    getRemoteMentorContext(): MentorRemoteContext | null {
+      return evidence.getRemoteMentorContext();
+    },
     async setWorkspaceEntry(entryId: string | null, fingerprint: string | null): Promise<void> {
       assertAlive(destroyed);
       assertWorkspaceIdentity(entryId, fingerprint);
       invalidateTasks("工作区已切换");
+      manualInputValue = emptyManualRunInput();
+      manualInputAcknowledged = false;
+      manualInputBindingFingerprint = null;
+      manualInput.setValue(manualInputValue);
+      resetPrimaryAction(fingerprint ?? fingerprintSource(options.getSource()));
       await trace.cancel();
       if (entryId === null || fingerprint === null) {
         await Promise.all([
@@ -722,9 +1020,11 @@ export function createRuntimeWorkspaceController(
             createEmptyScenarioCatalog(fingerprintSource(options.getSource())),
           );
           scenario.refreshScenarios();
+          scenario.clearScenarioBinding();
           scenarioCatalogPanel?.refresh();
         });
         refreshBranchTargets();
+        refreshManualInput();
         return;
       }
       if (fingerprintSource(options.getSource()) !== fingerprint) {
@@ -755,12 +1055,23 @@ export function createRuntimeWorkspaceController(
       restoreSelection(scenario, restored?.selection ?? null);
       refreshBranchTargets();
       restoreTargetSelection(scenario, adoption.document, fingerprint);
+      if (restored?.manualInput !== null && restored?.manualInput !== undefined) {
+        manualInputValue = Object.freeze({
+          stdin: restored.manualInput.stdin,
+          arguments: restored.manualInput.arguments,
+        });
+        manualInputAcknowledged = true;
+        manualInputBindingFingerprint = fingerprint;
+        manualInput.setValue(manualInputValue);
+      }
       evidence.setAnalysis(validAnalysis(options.getAnalysis(), options.getSource()));
+      refreshManualInput();
     },
     setAnalysis(analysis: ProgramAnalysisSnapshot | null): void {
       assertAlive(destroyed);
       evidence.setAnalysis(validAnalysis(analysis, options.getSource()));
       refreshBranchTargets();
+      syncPrimaryProblem();
     },
     invalidateSource(): void {
       assertAlive(destroyed);
@@ -770,6 +1081,9 @@ export function createRuntimeWorkspaceController(
       evidence.setAnalysis(null);
       observations = Object.freeze([]);
       activeFingerprint = activeEntryId === null ? null : fingerprintSource(options.getSource());
+      manualInputAcknowledged = false;
+      manualInputBindingFingerprint = null;
+      resetPrimaryAction(activeFingerprint ?? fingerprintSource(options.getSource()));
       if (activeFingerprint !== null) {
         withoutCatalogPersistence(() => {
           catalogStore.rebindSource(activeFingerprint!);
@@ -778,6 +1092,7 @@ export function createRuntimeWorkspaceController(
         });
       }
       refreshBranchTargets();
+      refreshManualInput();
       persistScenarioState();
     },
     async flush(): Promise<void> {
@@ -789,8 +1104,12 @@ export function createRuntimeWorkspaceController(
       if (destroyed) return;
       invalidateTasks("Runtime 工作台已销毁", false);
       destroyed = true;
+      options.elements.tracePrimaryButton.removeEventListener("click", onPrimaryActionClick);
+      options.elements.shell.removeEventListener("keydown", onProblemShortcut);
+      options.elements.shell.removeEventListener("workbench-locale-change", onPrimaryLocaleChange);
       trace.destroy();
       tracePanel.destroy();
+      manualInput.destroy();
       scenarioCatalogPanel?.destroy();
       scenario.destroy();
       runPanel.destroy();
@@ -831,6 +1150,33 @@ export function createRuntimeWorkspaceController(
 interface SourceSnapshot {
   readonly source: string;
   readonly fingerprint: string;
+}
+
+function validateBenchmarkRequest(request: ScenarioBenchmarkRequest): readonly number[] {
+  if (!Number.isSafeInteger(request.repetitions) || request.repetitions < 1) {
+    throw new TypeError("Benchmark 重复次数无效");
+  }
+  const sizes = [...new Set(request.sizes)];
+  if (
+    sizes.length === 0 ||
+    sizes.some((size) => !Number.isSafeInteger(size) || size < 1) ||
+    request.cases.length !== sizes.length
+  ) {
+    throw new TypeError("Benchmark 输入规模无效");
+  }
+  const caseSizes = new Set<number>();
+  for (const runCase of request.cases) {
+    if (
+      runCase.scenarioId !== request.scenario.id ||
+      runCase.scenarioVersion !== request.scenario.version ||
+      !sizes.includes(runCase.size) ||
+      caseSizes.has(runCase.size)
+    ) {
+      throw new TypeError("Benchmark 案例必须绑定同一情景、版本和唯一输入规模");
+    }
+    caseSizes.add(runCase.size);
+  }
+  return Object.freeze(sizes);
 }
 
 interface TraceCounts {
@@ -890,6 +1236,28 @@ function requireTraceCounts(evidence: TraceRunEvidence | null): TraceCounts {
 function sourceSnapshot(options: RuntimeWorkspaceControllerOptions): SourceSnapshot {
   const source = options.getSource();
   return Object.freeze({ source, fingerprint: fingerprintSource(source) });
+}
+
+function manualTraceRunCase(value: ManualRunInputValue): ScenarioRunCase {
+  return Object.freeze({
+    scenarioId: MANUAL_TRACE_SCENARIO_ID,
+    scenarioVersion: MANUAL_TRACE_SCENARIO_VERSION,
+    size: 1,
+    stdin: value.stdin,
+    arguments: Object.freeze([...value.arguments]),
+    expected: Object.freeze({ stdout: "", explanation: "当前源码的手动输入观察轨迹" }),
+  });
+}
+
+function manualScenario(value: ManualRunInputValue): ManualRunScenario {
+  return Object.freeze({
+    id: MANUAL_TRACE_SCENARIO_ID,
+    version: MANUAL_TRACE_SCENARIO_VERSION,
+    mode: "real",
+    stdin: value.stdin,
+    arguments: Object.freeze([...value.arguments]),
+    inputSize: null,
+  });
 }
 
 function completion(
@@ -1087,16 +1455,20 @@ function scenarioDocument(
   scenario: ScenarioWorkbenchController,
   observations: readonly BranchObservation[],
   customCatalog: ScenarioCatalogDocument,
+  manualInput: ManualRunInputValue,
+  manualInputBindingFingerprint: string | null,
 ): ScenarioSidecarDocument {
   const snapshot = scenario.getSnapshot();
   return Object.freeze({
     schemaVersion: SCENARIO_SIDECAR_VERSION,
     sourceFingerprint,
-    selection: Object.freeze({
-      scenarioId: snapshot.scenarioId,
-      size: snapshot.size,
-      targetBranchId: snapshot.targetBranch?.id ?? null,
-    }),
+    selection: scenario.hasScenarioBinding()
+      ? Object.freeze({
+          scenarioId: snapshot.scenarioId,
+          size: snapshot.size,
+          targetBranchId: snapshot.targetBranch?.id ?? null,
+        })
+      : null,
     activeCase: snapshot.runCase,
     definitions: Object.freeze(
       scenario.provider.list().map((definition) =>
@@ -1113,6 +1485,7 @@ function scenarioDocument(
     ),
     observations: Object.freeze([...observations]),
     customCatalog,
+    manualInput: manualInputSnapshot(sourceFingerprint, manualInput, manualInputBindingFingerprint),
   });
 }
 
@@ -1137,6 +1510,7 @@ function parseScenarioSidecar(
     const activeCase = parseScenarioRunCase(value.activeCase);
     const definitions = value.definitions.map(parseDefinitionSnapshot);
     const customCatalog = readScenarioCatalogExtension(value, expectedFingerprint);
+    const manualInput = parseManualInputSnapshot(value.manualInput, expectedFingerprint);
     if (activeCase === null || definitions.some((item) => item === null)) return null;
     return Object.freeze({
       schemaVersion: SCENARIO_SIDECAR_VERSION,
@@ -1146,6 +1520,7 @@ function parseScenarioSidecar(
       definitions: Object.freeze(definitions as ScenarioDefinitionSnapshot[]),
       observations: Object.freeze(observations as BranchObservation[]),
       customCatalog,
+      manualInput,
     });
   } catch {
     return null;
@@ -1255,7 +1630,10 @@ function restoreSelection(
   scenario: ScenarioWorkbenchController,
   selection: ScenarioSelectionState | null,
 ): void {
-  if (selection === null) return;
+  if (selection === null) {
+    scenario.clearScenarioBinding();
+    return;
+  }
   try {
     scenario.selectScenario(selection.scenarioId);
     scenario.setInputSize(selection.size);
@@ -1297,6 +1675,79 @@ function validAnalysis(
   return analysis?.sourceFingerprint === fingerprintSource(source) ? analysis : null;
 }
 
+function actionableFindingCount(analysis: ProgramAnalysisSnapshot | null): number {
+  return actionableFindings(analysis).length;
+}
+
+function actionableFindings(
+  analysis: ProgramAnalysisSnapshot | null,
+): ProgramAnalysisSnapshot["findings"] {
+  return Object.freeze(
+    analysis?.findings.filter((finding) => finding.confidence === "certain") ?? [],
+  );
+}
+
+const MANUAL_INPUT_SIDECAR_MAX_BYTES = 256 * 1024;
+
+function manualInputSnapshot(
+  sourceFingerprint: string,
+  value: ManualRunInputValue,
+  bindingFingerprint: string | null,
+): ManualInputSnapshot | null {
+  if (bindingFingerprint !== sourceFingerprint || !validManualInput(value)) return null;
+  return Object.freeze({
+    sourceFingerprint,
+    stdin: value.stdin,
+    arguments: Object.freeze([...value.arguments]),
+  });
+}
+
+function parseManualInputSnapshot(
+  value: unknown,
+  expectedFingerprint: string,
+): ManualInputSnapshot | null {
+  if (value === undefined || value === null || !isRecord(value)) return null;
+  const candidate = {
+    stdin: value.stdin,
+    arguments: value.arguments,
+  };
+  if (value.sourceFingerprint !== expectedFingerprint || !validManualInput(candidate)) return null;
+  return Object.freeze({
+    sourceFingerprint: expectedFingerprint,
+    stdin: candidate.stdin as string,
+    arguments: Object.freeze([...(candidate.arguments as string[])]),
+  });
+}
+
+function validManualInput(value: {
+  readonly stdin: unknown;
+  readonly arguments: unknown;
+}): value is ManualRunInputValue {
+  if (
+    typeof value.stdin !== "string" ||
+    value.stdin.includes("\0") ||
+    utf8Length(value.stdin) > MANUAL_INPUT_SIDECAR_MAX_BYTES ||
+    !Array.isArray(value.arguments) ||
+    value.arguments.length > RUNNER_LIMITS.maxArgumentCount ||
+    value.arguments.some(
+      (argument) =>
+        typeof argument !== "string" ||
+        argument.includes("\0") ||
+        utf8Length(argument) > RUNNER_LIMITS.maxArgumentBytes,
+    )
+  ) {
+    return false;
+  }
+  return (
+    (value.arguments as string[]).reduce((total, argument) => total + utf8Length(argument), 0) <=
+    RUNNER_LIMITS.maxTotalArgumentBytes
+  );
+}
+
+function utf8Length(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 function emptyPath(mode: "real" | "simulation"): FlowCanvasActivePath {
   return Object.freeze({
     nodeIds: Object.freeze([]),
@@ -1312,9 +1763,13 @@ function isTerminalTraceState(status: TraceControllerState["status"]): boolean {
   );
 }
 
-function createScenarioHosts(host: HTMLElement): {
+function createScenarioHosts(
+  host: HTMLElement,
+  english: boolean,
+): {
   readonly runner: HTMLElement;
   readonly catalog: HTMLElement;
+  readonly catalogSummary: HTMLElement;
 } {
   const document = host.ownerDocument;
   const workspace = document.createElement("div");
@@ -1324,13 +1779,17 @@ function createScenarioHosts(host: HTMLElement): {
   const catalogDisclosure = document.createElement("details");
   catalogDisclosure.className = "scenario-workspace__catalog-disclosure";
   const catalogSummary = document.createElement("summary");
-  catalogSummary.textContent = "管理案例";
+  catalogSummary.textContent = scenarioCatalogSummaryLabel(english);
   const catalog = document.createElement("div");
   catalog.className = "scenario-workspace__catalog";
   catalogDisclosure.append(catalogSummary, catalog);
   workspace.append(runner, catalogDisclosure);
   host.replaceChildren(workspace);
-  return Object.freeze({ runner, catalog });
+  return Object.freeze({ runner, catalog, catalogSummary });
+}
+
+export function scenarioCatalogSummaryLabel(english: boolean): string {
+  return english ? "Manage Cases" : "管理案例";
 }
 
 function accumulateTraceEvents(

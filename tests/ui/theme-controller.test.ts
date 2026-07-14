@@ -65,6 +65,24 @@ describe("theme controller", () => {
     expect(storage.setItem).toHaveBeenLastCalledWith(THEME_STORAGE_KEY, "dark");
   });
 
+  it("refreshes English accessibility text when the locale changes at runtime", () => {
+    const root = fakeRoot();
+    const button = new FakeButton();
+    createThemeController({
+      root,
+      button: asButton(button),
+      localeHost: button as unknown as HTMLElement,
+      storage: memoryStorage("light"),
+    });
+
+    root.dataset.locale = "en";
+    button.dispatch("workbench-locale-change");
+    expect(button.attribute("aria-label")).toBe("Switch to dark theme");
+    expect(button.attribute("title")).not.toMatch(/[\p{Script=Han}]/u);
+    button.click();
+    expect(button.attribute("aria-label")).toBe("Switch to light theme");
+  });
+
   it.each([null, "system", " light "])("falls back to light for stored value %j", (value) => {
     const root = fakeRoot();
     const button = new FakeButton();
@@ -186,7 +204,11 @@ class FakeButton {
   }
 
   click(): void {
-    for (const listener of this.listeners.get("click") ?? []) {
+    this.dispatch("click");
+  }
+
+  dispatch(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) {
       listener();
     }
   }

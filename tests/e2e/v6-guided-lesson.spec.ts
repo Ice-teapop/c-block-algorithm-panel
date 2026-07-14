@@ -82,7 +82,7 @@ test("atomically creates the first lesson and mounts the evidence task rail", as
   await expect(page.getByRole("spinbutton", { name: "案例输入规模" })).toHaveValue("5");
   await expect(page.locator(".onboarding-tour")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "真实运行", exact: true }).click();
+  await page.getByRole("button", { name: "运行", exact: true }).click();
   await expect(page.getByRole("button", { name: "下一任务" })).toBeEnabled();
   await expect(page.locator(".guided-lesson-rail__status")).toContainText("当前任务已通过");
 

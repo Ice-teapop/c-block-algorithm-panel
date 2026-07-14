@@ -77,6 +77,45 @@ describe("scenario catalog panel", () => {
     expect(store.document.customScenarios[0]?.cases[0]?.targetBranchId).toBeNull();
     expect(flatText(host)).toContain("未保存");
   });
+
+  it("switches all product UI, confirmations, and validation status to English", async () => {
+    const document = new FakeDocument();
+    const host = document.createElement("div");
+    const confirmations: string[] = [];
+    const store = createScenarioCatalogStore({
+      builtins: createBuiltinScenarioProvider(),
+      document: createEmptyScenarioCatalog("100:source:one"),
+      idFactory: {
+        scenarioId: () => "copied-sorting",
+        caseId: () => "new-input",
+      },
+      clock: { now: () => new Date("2026-07-12T00:00:00.000Z") },
+      onChange: vi.fn(),
+    });
+    createScenarioCatalogPanel(host as unknown as HTMLElement, {
+      store,
+      confirmDelete(message) {
+        confirmations.push(message);
+        return true;
+      },
+    });
+
+    host.dataset.locale = "en";
+    host.dispatch("workbench-locale-change");
+    expect(visibleText(host)).not.toMatch(/[\p{Script=Han}]/u);
+
+    findAction(host, "copy").click();
+    expect(visibleText(host)).not.toMatch(/[\p{Script=Han}]/u);
+    field(host, "Target branch edge id (optional)").value = "not a valid edge id";
+    findTag(host, "form").dispatch("submit");
+    expect(flatText(host)).toContain("Not saved");
+    expect(visibleText(host)).not.toMatch(/[\p{Script=Han}]/u);
+
+    findAction(host, "delete").click();
+    await Promise.resolve();
+    expect(confirmations[0]).toMatch(/^Delete scenario/u);
+    expect(confirmations[0]).not.toMatch(/[\p{Script=Han}]/u);
+  });
 });
 
 function findAction(root: FakeElement, action: string): FakeElement {
@@ -105,6 +144,15 @@ function find(root: FakeElement, predicate: (element: FakeElement) => boolean): 
 
 function flatText(root: FakeElement): string {
   return [root.textContent, ...root.children.map(flatText)].join(" ");
+}
+
+function visibleText(root: FakeElement): string {
+  return [
+    root.textContent,
+    root.value,
+    ...root.attributes.values(),
+    ...root.children.map(visibleText),
+  ].join(" ");
 }
 
 class FakeDocument {

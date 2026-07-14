@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFirstRunStart, type FirstRunStartCallbacks } from "../../src/ui/first-run-start.js";
 import {
   createGuidedLessonRail,
+  resolveRailLocale,
   type GuidedLessonRailCallbacks,
   type GuidedLessonRailSnapshot,
 } from "../../src/ui/guided-lesson-rail.js";
@@ -28,6 +29,20 @@ describe("guided lesson rail", () => {
     expect(byText(root, "待验证").tagName).toBe("STRONG");
     expect(byText(root, "定位").tagName).toBe("BUTTON");
     expect(byText(root, "为什么").tagName).toBe("SUMMARY");
+    expect(byText(root, "验收条件 · 0/1").parentElement?.open).toBe(false);
+    expect(byText(root, "逐轮推演（非运行时变量）").parentElement?.open).toBe(false);
+    expect(byText(root, "为什么").parentElement?.open).toBe(false);
+    expect(byText(root, "提示 · 0/3").parentElement?.open).toBe(false);
+    expect(byText(root, "任务工具").parentElement?.open).toBe(false);
+    expect(byText(root, "查看任务详情").parentElement?.open).toBe(false);
+    const primaryAction = walk(root).find(
+      (element) => element.className === "guided-lesson-rail__primary-action",
+    );
+    expect(
+      primaryAction?.children
+        .filter((element) => element.tagName === "BUTTON" && !element.hidden)
+        .map((element) => element.textContent),
+    ).toEqual(["下一任务"]);
     expect(byText(root, "下一任务").disabled).toBe(true);
   });
 
@@ -43,7 +58,7 @@ describe("guided lesson rail", () => {
 
     byText(root, "定位").click();
     byText(root, "为什么").click();
-    byText(root, "提示 0/3").click();
+    byText(root, "显示第一条提示").click();
     byText(root, "重置").click();
     byText(root, "退出课程").click();
     expect(callbacks.onLocate).toHaveBeenCalledOnce();
@@ -59,7 +74,6 @@ describe("guided lesson rail", () => {
         expandedWhy: true,
         hintLevel: 2,
         showPrepareSkeleton: true,
-        showInjectBug: true,
         requirements: [{ label: "两个分支已覆盖", status: "passed" }],
         status: { state: "success", message: "真实 Trace 已通过。" },
       }),
@@ -71,11 +85,22 @@ describe("guided lesson rail", () => {
     expect(byText(root, "已通过").parentElement?.dataset.state).toBe("passed");
     expect(byText(root, "真实 Trace 已通过。").dataset.state).toBe("success");
     expect(byText(root, "开始补全").hidden).toBe(false);
-    expect(byText(root, "载入故障版本").hidden).toBe(false);
-    expect(byText(root, "下一任务").disabled).toBe(false);
+    expect(byText(root, "载入故障版本").hidden).toBe(true);
+    expect(byText(root, "下一任务").hidden).toBe(true);
 
     byText(root, "开始补全").click();
+    rail.update(
+      lessonSnapshot({
+        showInjectBug: true,
+        status: { state: "idle", message: "等待故障版本。" },
+      }),
+    );
+    expect(byText(root, "开始补全").hidden).toBe(true);
+    expect(byText(root, "载入故障版本").hidden).toBe(false);
     byText(root, "载入故障版本").click();
+    rail.update(lessonSnapshot({ canAdvance: true }));
+    expect(byText(root, "下一任务").hidden).toBe(false);
+    expect(byText(root, "下一任务").disabled).toBe(false);
     byText(root, "下一任务").click();
     expect(callbacks.onPrepareSkeleton).toHaveBeenCalledOnce();
     expect(callbacks.onInjectBug).toHaveBeenCalledOnce();
@@ -110,6 +135,108 @@ describe("guided lesson rail", () => {
         lessonCallbacks(),
       ),
     ).toThrow("任务总数不能小于当前任务序号");
+  });
+
+  it("renders a compact read-chart lesson and records an explicit answer", () => {
+    const fixture = fakeHost();
+    const callbacks = lessonCallbacks();
+    const rail = createGuidedLessonRail(
+      fixture.host as unknown as HTMLElement,
+      lessonSnapshot({
+        visualGuide: {
+          phase: "跟练",
+          title: "先读点，再读波动范围",
+          explanation: "圆点是中位数，竖线是最小值到最大值。",
+          facts: [
+            { label: "圆点", description: "重复真实运行的中位数" },
+            { label: "竖线", description: "最小值—最大值范围" },
+          ],
+          question: "竖线更长说明什么？",
+          options: [
+            { id: "variation", label: "这组运行波动更大" },
+            { id: "wrong", label: "中位数一定更大" },
+          ],
+          selectedOptionId: null,
+          feedback: null,
+          feedbackState: "idle",
+        },
+      }),
+      callbacks,
+    );
+    const root = rail.element as unknown as FakeElement;
+
+    expect(treeText(root)).toContain("跟练 先读点，再读波动范围");
+    expect(treeText(root)).toContain("圆点 重复真实运行的中位数");
+    expect(byText(root, "这组运行波动更大").tagName).toBe("BUTTON");
+    byText(root, "这组运行波动更大").click();
+    expect(callbacks.onVisualAnswer).toHaveBeenCalledWith("variation");
+
+    rail.update(
+      lessonSnapshot({
+        visualGuide: {
+          phase: "跟练",
+          title: "先读点，再读波动范围",
+          explanation: "圆点是中位数，竖线是最小值到最大值。",
+          facts: [],
+          question: "竖线更长说明什么？",
+          options: [{ id: "wrong", label: "中位数一定更大" }],
+          selectedOptionId: "wrong",
+          feedback: "竖线表达范围，不决定中位数。",
+          feedbackState: "incorrect",
+        },
+      }),
+    );
+    expect(byText(root, "中位数一定更大").getAttribute("aria-pressed")).toBe("true");
+    expect(byText(root, "竖线表达范围，不决定中位数。").dataset.state).toBe("incorrect");
+  });
+
+  it("switches rail controls, status labels, defaults and table copy without translating lesson evidence", () => {
+    const fixture = fakeHost();
+    fixture.host.dataset.locale = "en";
+    const snapshot = lessonSnapshot({
+      hintLevel: 1,
+      why: undefined,
+      hints: undefined,
+    });
+    const rail = createGuidedLessonRail(
+      fixture.host as unknown as HTMLElement,
+      snapshot,
+      lessonCallbacks(),
+    );
+    const root = rail.element as unknown as FakeElement;
+
+    expect(resolveRailLocale("en-AU")).toBe("en");
+    expect(resolveRailLocale("zh-Hans")).toBe("zh-CN");
+    expect(root.dataset.locale).toBe("en");
+    expect(root.getAttribute("aria-label")).toBe("第一课 mission rail");
+    expect(treeText(root)).toContain("Mission 2 / 5");
+    expect(treeText(root)).toContain("Acceptance criteria · 0/1");
+    expect(treeText(root)).toContain("Iteration walkthrough (not runtime variables)");
+    expect(treeText(root)).toContain("Iteration Input Comparison maximum");
+    expect(treeText(root)).toContain("Use Locate to find the panel for the current mission.");
+    expect(byText(root, "Pending").tagName).toBe("STRONG");
+    expect(byText(root, "Locate").tagName).toBe("BUTTON");
+    expect(byText(root, "Show next hint").tagName).toBe("BUTTON");
+    expect(treeText(root)).toContain(snapshot.title);
+    expect(treeText(root)).toContain(snapshot.instruction);
+    expect(treeText(root)).toContain(snapshot.status.message);
+    expect(treeText(root)).toContain(snapshot.requirements[0]!.label);
+    expect(fixture.host.listenerCount("workbench-locale-change")).toBe(1);
+
+    fixture.host.dataset.locale = "zh-CN";
+    fixture.host.dispatchEvent(localeChangeEvent("zh-CN"));
+
+    expect(root.dataset.locale).toBe("zh-CN");
+    expect(root.getAttribute("aria-label")).toBe("第一课任务轨");
+    expect(treeText(root)).toContain("任务 2 / 5");
+    expect(treeText(root)).toContain("验收条件 · 0/1");
+    expect(byText(root, "待验证").tagName).toBe("STRONG");
+    expect(byText(root, "定位").tagName).toBe("BUTTON");
+    expect(treeText(root)).toContain(snapshot.title);
+    expect(treeText(root)).toContain(snapshot.requirements[0]!.detail!);
+
+    rail.destroy();
+    expect(fixture.host.listenerCount("workbench-locale-change")).toBe(0);
   });
 });
 
@@ -217,6 +344,7 @@ function lessonCallbacks(): GuidedLessonRailCallbacks {
     onNext: vi.fn(),
     onPrepareSkeleton: vi.fn(),
     onInjectBug: vi.fn(),
+    onVisualAnswer: vi.fn(),
   };
 }
 
@@ -236,6 +364,12 @@ function deferred(): { readonly promise: Promise<void>; resolve(): void } {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function localeChangeEvent(locale: "zh-CN" | "en"): Event {
+  const event = new Event("workbench-locale-change");
+  Object.defineProperty(event, "detail", { value: Object.freeze({ locale }) });
+  return event;
 }
 
 function fakeHost(): { readonly document: FakeDocument; readonly host: FakeElement } {
@@ -311,6 +445,19 @@ class FakeElement {
     const listeners = this.#listeners.get(type) ?? new Set<FakeListener>();
     listeners.add(listener);
     this.#listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: FakeListener): void {
+    this.#listeners.get(type)?.delete(listener);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.#listeners.get(event.type) ?? []) listener(event);
+    return !event.defaultPrevented;
+  }
+
+  listenerCount(type: string): number {
+    return this.#listeners.get(type)?.size ?? 0;
   }
 
   click(): void {

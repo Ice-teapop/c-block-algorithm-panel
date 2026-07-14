@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "variant": "A",
+  "label": "current-single-primary-v1",
+  "capturedAt": "2026-07-13T16:47:00+08:00",
+  "files": {
+    "src/ui/workbench-shell.ts": "73ff4935c21b6c759da8df043152c9e86bbb3d85991aa7d7c4ea191acde22c31",
+    "src/app/flow-workbench-controller.ts": "10e16ceccd6734127a9430e8f0461efc4b8de1a7fcdcbd8c18e723d473e6b9fb",
+    "src/app/runtime-workspace-controller.ts": "7e4a885fa12c377e4c1cccbe0010a30441b2d0a7ed203a0c2247a9bdeee2080f",
+    "src/ui/flow-canvas.ts": "0db258bc8e55e1602251fc58d33c280eadc5e2ece4759824a1496d9b268a477d",
+    "src/style.css": "7a8868e5d41eddf7a903755ff42bd9d62588199285c0f8510e905a91ec1e21ba"
+  }
+}

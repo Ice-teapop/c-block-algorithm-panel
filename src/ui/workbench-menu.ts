@@ -1,3 +1,6 @@
+import type { InterfaceLocale } from "../shared/interface-locale.js";
+import type { WorkbenchRegistrySnapshot } from "../workbench/contracts.js";
+
 export type WorkbenchMenuRootId = "settings" | "presets" | "library" | "panels";
 
 export type WorkbenchMenuBranchKind = "command" | "panel" | "layout";
@@ -21,6 +24,7 @@ export interface WorkbenchMenuSelection {
 }
 
 export interface WorkbenchMenuOptions {
+  readonly localeHost?: HTMLElement | undefined;
   readonly onSelect?: ((selection: WorkbenchMenuSelection) => void) | undefined;
   readonly onOpenChange?: ((rootId: WorkbenchMenuRootId | null) => void) | undefined;
   readonly definitions?: readonly WorkbenchMenuDefinition[] | undefined;
@@ -79,7 +83,35 @@ interface MountedMenu {
   readonly trigger: HTMLButtonElement;
   readonly popup: HTMLElement;
   readonly items: readonly HTMLButtonElement[];
+  readonly groups: readonly HTMLElement[];
 }
+
+const ENGLISH_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  "root:settings": "Settings",
+  "root:presets": "Blocks",
+  "root:library": "Library",
+  "root:panels": "Layout",
+  "settings:general": "General",
+  "settings:ai-privacy": "AI Assistant",
+  "settings:keyboard": "Keyboard",
+  "settings:about-logs": "About",
+  "presets:search": "Search",
+  "presets:flow-c-basics": "Flow and C Basics",
+  "presets:data-memory": "Data and Memory",
+  "presets:algorithm-patterns": "Algorithm Patterns",
+  "presets:custom-lifecycle": "Custom",
+  "library:c-syntax": "Syntax",
+  "library:standard-library": "Standard Library",
+  "library:data-structure-dictionary": "Data Structures",
+  "library:algorithms-complexity": "Algorithms",
+  "library:examples": "Examples",
+  "library:manual": "Help",
+  "panels:build": "Build",
+  "panels:debug": "Debug",
+  "panels:analyze": "Analyze",
+  "panels:minimal": "Canvas Focus",
+  "panels:reset-layout": "Reset Sizes",
+});
 
 let menuInstanceSequence = 0;
 
@@ -92,10 +124,12 @@ export function createWorkbenchMenu(
   }
 
   const ownerDocument = host.ownerDocument;
+  const localeHost = options.localeHost ?? host;
+  let locale: InterfaceLocale = localeHost.dataset.locale === "en" ? "en" : "zh-CN";
   const instanceId = ++menuInstanceSequence;
   const navigation = ownerDocument.createElement("nav");
   navigation.className = "workbench-menu";
-  navigation.setAttribute("aria-label", "工作台功能");
+  navigation.setAttribute("aria-label", locale === "en" ? "Workbench features" : "工作台功能");
 
   const definitions = normalizeDefinitions(options.definitions ?? WORKBENCH_MENU_DEFINITIONS);
   const mounted: MountedMenu[] = definitions.map((menu, rootIndex) => {
@@ -107,7 +141,7 @@ export function createWorkbenchMenu(
     const trigger = ownerDocument.createElement("button");
     trigger.className = "workbench-menu__trigger";
     trigger.type = "button";
-    trigger.textContent = menu.label;
+    trigger.textContent = visibleMenuLabel(menu.id, menu.label, locale);
     trigger.dataset.labelZh = menu.label;
     trigger.dataset.menuRootTrigger = menu.id;
     if (!direct) trigger.setAttribute("aria-haspopup", "menu");
@@ -120,25 +154,28 @@ export function createWorkbenchMenu(
     popup.dataset.menuPopup = menu.id;
     popup.dataset.tourTarget = `dock-${menu.id}-branches`;
     popup.setAttribute("role", "menu");
-    popup.setAttribute("aria-label", menu.label);
+    popup.setAttribute("aria-label", visibleMenuLabel(menu.id, menu.label, locale));
     popup.hidden = true;
     if (!direct) trigger.setAttribute("aria-controls", popup.id);
 
     const items: HTMLButtonElement[] = [];
+    const groups: HTMLElement[] = [];
     let previousGroup: string | null = null;
     for (const item of menu.branches) {
       if (item.group.length > 0 && item.group !== previousGroup) {
         const groupLabel = ownerDocument.createElement("div");
         groupLabel.className = "workbench-menu__group-label";
-        groupLabel.textContent = item.group;
+        groupLabel.textContent = visibleGroupLabel(item.group, locale);
+        groupLabel.dataset.labelZh = item.group;
         groupLabel.setAttribute("role", "presentation");
         popup.append(groupLabel);
+        groups.push(groupLabel);
         previousGroup = item.group;
       }
       const button = ownerDocument.createElement("button");
       button.className = "workbench-menu__item";
       button.type = "button";
-      button.textContent = item.label;
+      button.textContent = visibleBranchLabel(menu.id, item.id, item.label, locale);
       button.dataset.labelZh = item.label;
       button.dataset.menuRoot = menu.id;
       button.dataset.menuBranch = item.id;
@@ -152,12 +189,20 @@ export function createWorkbenchMenu(
     if (direct) root.append(trigger);
     else root.append(trigger, popup);
     navigation.append(root);
-    return { definition: menu, root, trigger, popup, items: Object.freeze(items) };
+    return {
+      definition: menu,
+      root,
+      trigger,
+      popup,
+      items: Object.freeze(items),
+      groups: Object.freeze(groups),
+    };
   });
 
   host.replaceChildren(navigation);
   let openRootId: WorkbenchMenuRootId | null = null;
   let destroyed = false;
+  const popupCloseTimers = new Map<WorkbenchMenuRootId, ReturnType<typeof setTimeout>>();
 
   const mountedFor = (rootId: WorkbenchMenuRootId): MountedMenu => {
     const match = mounted.find((entry) => entry.definition.id === rootId);
@@ -165,12 +210,46 @@ export function createWorkbenchMenu(
     return match;
   };
 
+  const cancelPopupClose = (menu: MountedMenu): void => {
+    const timer = popupCloseTimers.get(menu.definition.id);
+    if (timer !== undefined) clearTimeout(timer);
+    popupCloseTimers.delete(menu.definition.id);
+  };
+
+  const prefersReducedMotion = (): boolean =>
+    ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
   const renderOpenState = (): void => {
     for (const menu of mounted) {
       const open = menu.definition.id === openRootId;
       menu.trigger.setAttribute("aria-expanded", String(open));
-      menu.popup.hidden = !open;
       menu.root.classList.toggle("is-open", open);
+      if (open) {
+        cancelPopupClose(menu);
+        menu.popup.hidden = false;
+        menu.popup.dataset.state = "opening";
+        continue;
+      }
+      if (menu.popup.hidden) {
+        menu.popup.dataset.state = "closed";
+        continue;
+      }
+      cancelPopupClose(menu);
+      menu.popup.dataset.state = "closing";
+      if (prefersReducedMotion()) {
+        menu.popup.hidden = true;
+        menu.popup.dataset.state = "closed";
+        continue;
+      }
+      popupCloseTimers.set(
+        menu.definition.id,
+        setTimeout(() => {
+          popupCloseTimers.delete(menu.definition.id);
+          if (destroyed || openRootId === menu.definition.id) return;
+          menu.popup.hidden = true;
+          menu.popup.dataset.state = "closed";
+        }, 90),
+      );
     }
   };
 
@@ -298,9 +377,36 @@ export function createWorkbenchMenu(
     if (target instanceof Node && !navigation.contains(target)) close();
   };
 
+  const renderLocale = (): void => {
+    navigation.setAttribute("aria-label", locale === "en" ? "Workbench features" : "工作台功能");
+    for (const menu of mounted) {
+      const rootLabel = visibleMenuLabel(menu.definition.id, menu.definition.label, locale);
+      menu.trigger.textContent = rootLabel;
+      menu.popup.setAttribute("aria-label", rootLabel);
+      for (const [index, item] of menu.items.entries()) {
+        const definition = menu.definition.branches[index];
+        if (definition === undefined) continue;
+        item.textContent = visibleBranchLabel(
+          menu.definition.id,
+          definition.id,
+          definition.label,
+          locale,
+        );
+      }
+      for (const group of menu.groups) {
+        group.textContent = visibleGroupLabel(group.dataset.labelZh ?? "", locale);
+      }
+    }
+  };
+  const onLocaleChange = (): void => {
+    locale = localeHost.dataset.locale === "en" ? "en" : "zh-CN";
+    renderLocale();
+  };
+
   navigation.addEventListener("click", onNavigationClick);
   navigation.addEventListener("keydown", onNavigationKeydown);
   ownerDocument.addEventListener("pointerdown", onDocumentPointerDown);
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
 
   return Object.freeze({
     element: navigation,
@@ -319,9 +425,12 @@ export function createWorkbenchMenu(
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      for (const timer of popupCloseTimers.values()) clearTimeout(timer);
+      popupCloseTimers.clear();
       navigation.removeEventListener("click", onNavigationClick);
       navigation.removeEventListener("keydown", onNavigationKeydown);
       ownerDocument.removeEventListener("pointerdown", onDocumentPointerDown);
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       navigation.remove();
     },
   });
@@ -444,4 +553,53 @@ function clampInteger(value: number, minimum: number, maximum: number): number {
 function assertActive(destroyed: boolean): void {
   if (destroyed) throw new Error("Workbench menu 已销毁");
 }
-import type { WorkbenchRegistrySnapshot } from "../workbench/contracts.js";
+
+function visibleMenuLabel(
+  rootId: WorkbenchMenuRootId,
+  fallback: string,
+  locale: InterfaceLocale,
+): string {
+  return locale === "en"
+    ? (ENGLISH_LABELS[`root:${rootId}`] ?? englishFallback(fallback, rootId))
+    : fallback;
+}
+
+function visibleBranchLabel(
+  rootId: WorkbenchMenuRootId,
+  branchId: string,
+  fallback: string,
+  locale: InterfaceLocale,
+): string {
+  return locale === "en"
+    ? (ENGLISH_LABELS[`${rootId}:${branchId}`] ?? englishFallback(fallback, branchId))
+    : fallback;
+}
+
+function visibleGroupLabel(label: string, locale: InterfaceLocale): string {
+  return locale === "en" ? englishFallback(label, "extensions") : label;
+}
+
+export function workbenchMenuLabel(rootId: WorkbenchMenuRootId, locale: InterfaceLocale): string {
+  const definition = WORKBENCH_MENU_DEFINITIONS.find((item) => item.id === rootId);
+  if (definition === undefined) return rootId;
+  return visibleMenuLabel(rootId, definition.label, locale);
+}
+
+export function workbenchMenuBranchLabel(
+  rootId: WorkbenchMenuRootId,
+  branchId: string,
+  locale: InterfaceLocale,
+): string {
+  const definition = WORKBENCH_MENU_DEFINITIONS.find((item) => item.id === rootId);
+  const branchDefinition = definition?.branches.find((item) => item.id === branchId);
+  return visibleBranchLabel(rootId, branchId, branchDefinition?.label ?? branchId, locale);
+}
+
+function englishFallback(label: string, id: string): string {
+  if (!/[\p{Script=Han}]/u.test(label)) return label;
+  return id
+    .split(/[-_.]/u)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}

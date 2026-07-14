@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "ux-interaction-v1",
+  "measurementRules": {
+    "activation": "一次鼠标、触控板或键盘命令；连续文本输入不按字符计数",
+    "visiblePrimaryControl": "无需展开 details、菜单或浮窗即可触发的主操作控件",
+    "persistentRegion": "任务轨初始状态中无需展开即可看到的信息区",
+    "scope": "已打开普通工作区且源码投影就绪后的关键路径"
+  },
+  "automatedGates": [
+    {
+      "id": "ordinary-first-run-activations",
+      "label": "无输入程序首次运行",
+      "unit": "activation",
+      "operator": "max",
+      "threshold": 1,
+      "evidence": [
+        "src/app/workbench-primary-action.ts#createWorkbenchPrimaryActionState",
+        "src/ui/workbench-shell.ts#trace-primary-action"
+      ]
+    },
+    {
+      "id": "input-first-run-activations",
+      "label": "读取 stdin 的程序首次运行（不计文本键入）",
+      "unit": "activation",
+      "operator": "max",
+      "threshold": 2,
+      "evidence": [
+        "src/app/runtime-workspace-controller.ts#manualInput.requestInput",
+        "src/ui/manual-run-input.ts#createManualRunInput"
+      ]
+    },
+    {
+      "id": "next-problem-activations",
+      "label": "定位下一个确定性问题",
+      "unit": "activation",
+      "operator": "max",
+      "threshold": 1,
+      "evidence": [
+        "src/app/runtime-workspace-controller.ts#onProblemShortcut",
+        "src/app/runtime-workspace-controller.ts#revealPrimaryProblem"
+      ]
+    },
+    {
+      "id": "persistent-primary-controls",
+      "label": "工作区常驻主操作控件",
+      "unit": "visiblePrimaryControl",
+      "operator": "exact",
+      "threshold": 1,
+      "evidence": ["src/ui/workbench-shell.ts#trace-primary-action"]
+    },
+    {
+      "id": "lesson-visible-primary-controls",
+      "label": "教学任务轨常驻主操作控件",
+      "unit": "visiblePrimaryControl",
+      "operator": "max",
+      "threshold": 1,
+      "evidence": [
+        "src/ui/guided-lesson-rail.ts#primaryAction",
+        "tests/ui/guided-lesson-ui.test.ts#guided-lesson-rail"
+      ]
+    },
+    {
+      "id": "lesson-persistent-regions",
+      "label": "教学任务轨初始信息区",
+      "unit": "persistentRegion",
+      "operator": "max",
+      "threshold": 4,
+      "evidence": ["src/ui/guided-lesson-rail.ts#createGuidedLessonRail"]
+    },
+    {
+      "id": "advanced-runtime-open-by-default",
+      "label": "默认展开的高级运行区",
+      "unit": "region",
+      "operator": "exact",
+      "threshold": 0,
+      "evidence": ["src/ui/workbench-shell.ts#runtime-advanced"]
+    }
+  ],
+  "manualTasks": [
+    {
+      "id": "run-hello",
+      "task": "打开一个无输入 C 程序并得到首次真实输出",
+      "targetSeconds": 10,
+      "maxWrongActivations": 0,
+      "maxHelpRequests": 0
+    },
+    {
+      "id": "run-stdin",
+      "task": "为 scanf 程序输入一组数据并得到首次真实输出",
+      "targetSeconds": 30,
+      "maxWrongActivations": 1,
+      "maxHelpRequests": 0
+    },
+    {
+      "id": "visit-three-problems",
+      "task": "依次定位三个确定性问题并回到第一个",
+      "targetSeconds": 15,
+      "maxWrongActivations": 0,
+      "maxHelpRequests": 0
+    }
+  ]
+}

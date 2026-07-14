@@ -137,10 +137,7 @@ describe("flow draft safe connection planning", () => {
   });
 
   it("anchors direct edge insertion to one exact editable next edge", () => {
-    const fixture = analyzeFixture(
-      parser,
-      "int f(void) {\n  int value = 1;\n  return value;\n}\n",
-    );
+    const fixture = analyzeFixture(parser, "int f(void) {\n  int value = 1;\n  return value;\n}\n");
     const target = nodeBySource(fixture.projection, "return value;");
     const edge = fixture.projection.edges.find(
       (candidate) => candidate.to.nodeId === target.id && candidate.kind === "next",

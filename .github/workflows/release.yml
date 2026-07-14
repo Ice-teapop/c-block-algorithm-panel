@@ -1,4 +1,4 @@
-name: Release unsigned macOS beta
+name: Release unsigned macOS build
 
 on:
   push:
@@ -6,23 +6,25 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release-beta:
+  verify:
     name: Verify and publish Universal DMG
     runs-on: macos-15
     timeout-minutes: 90
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Set up Node 24 LTS
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -33,10 +35,13 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Validate tag and unsigned beta boundary
+      - name: Validate tag and unsigned v0.x boundary
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: npm run accept:m9
+
+      - name: Verify third-party notices
+        run: npm run notices:check
 
       - name: Check formatting
         run: npm run format:check
@@ -62,15 +67,15 @@ jobs:
 
       - name: Upload Electron failure traces
         if: failure() && steps.electron_e2e.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: electron-e2e-failure-${{ github.ref_name }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/c-block-algorithm-panel-playwright
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Build unsigned Universal beta DMG
-        run: npm run dist:mac:beta
+      - name: Build unsigned Universal DMG
+        run: npm run dist:mac
 
       - name: Verify copied installed application from DMG
         run: npm run verify:installed-dmg
@@ -89,7 +94,7 @@ jobs:
           shasum -a 256 --check SHA256SUMS.txt
 
       - name: Upload verified build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: c-block-algorithm-panel-${{ github.ref_name }}-macos-universal
           path: |
@@ -97,16 +102,40 @@ jobs:
             release/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Create GitHub prerelease
+  publish:
+    name: Publish verified GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged release notes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download verified build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: c-block-algorithm-panel-${{ github.ref_name }}-macos-universal
+          path: release
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "${notes_file}" ]]; then
+            echo "Missing release notes: ${notes_file}" >&2
+            exit 1
+          fi
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --prerelease \
-              --title "C Block Algorithm Panel ${GITHUB_REF_NAME}"
+              --latest \
+              --title "C Block Algorithm Panel ${GITHUB_REF_NAME}" \
+              --notes-file "${notes_file}"
             gh release upload "${GITHUB_REF_NAME}" \
               release/*.dmg \
               release/SHA256SUMS.txt \
@@ -118,7 +147,7 @@ jobs:
               release/SHA256SUMS.txt \
               --repo "${GITHUB_REPOSITORY}" \
               --verify-tag \
-              --prerelease \
+              --latest \
               --title "C Block Algorithm Panel ${GITHUB_REF_NAME}" \
-              --notes "Unsigned and unnotarized macOS beta for testing. Verify SHA256SUMS.txt before opening. Gatekeeper may require explicit user approval."
+              --notes-file "${notes_file}"
           fi

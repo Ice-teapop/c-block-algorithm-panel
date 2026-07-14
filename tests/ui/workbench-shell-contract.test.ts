@@ -22,6 +22,9 @@ describe("M6 workbench shell contract", () => {
     expect(source).toContain("snapshot.pages");
     expect(source).toContain("snapshot.inspectorViews");
     expect(runtimeSource).toContain("mountWorkbench(app, registrySnapshot)");
+    expect(runtimeSource).toContain(
+      "createWorkbenchCommandSurface({ elements, registrySnapshot })",
+    );
   });
 
   it("publishes exactly four root Dock menus with branch popups", () => {
@@ -38,6 +41,7 @@ describe("M6 workbench shell contract", () => {
       "left-pane",
       "center-pane",
       "flow-canvas",
+      "trace-primary-action",
       "bottom-pane",
       "right-pane",
       "code-pane",
@@ -49,6 +53,16 @@ describe("M6 workbench shell contract", () => {
     }
     expect(source).toContain('showFullPage("build")');
     expect(source).toContain("currentPageId = pageId");
+    expect(source.match(/data-primary-action="run"/gu)).toHaveLength(1);
+    expect(source).toContain("拖入积木 · 拖空白平移 · 滚轮缩放");
+    expect(source).toContain("Drag in blocks · drag blank canvas to pan · wheel to zoom");
+    expect(source).not.toContain("任一端发起连线");
+    expect(source).toContain('id="mentor-tab"');
+    expect(source).toContain('id="ai-assistant-button" class="runtime-ai-action"');
+    expect(source).toContain(">打开 AI 助手</button>");
+    expect(source).not.toContain('id="ai-assistant-button" class="workspace-switcher__button"');
+    expect(source).toContain(">本地检查</button>");
+    expect(source).toContain('tab.hidden = !visible && id !== "mentor"');
   });
 
   it("targets the real floating node detail instead of the legacy inspector during onboarding", () => {

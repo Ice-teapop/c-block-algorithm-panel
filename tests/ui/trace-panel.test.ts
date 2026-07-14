@@ -8,6 +8,8 @@ import {
   TRACE_CHART_POINT_LIMIT,
   TRACE_PANEL_EVENT_LIMIT,
   traceChartXAxisMode,
+  traceChartTimeDomain,
+  tracePanelStateMessage,
   tracePlaybackControlEnabled,
   traceStatusPresentation,
   type TracePanelState,
@@ -50,6 +52,35 @@ describe("trace panel status contract", () => {
     expect(tracePlaybackControlEnabled("completed", true)).toBe(true);
     expect(tracePlaybackControlEnabled("truncated", true)).toBe(true);
     expect(tracePlaybackControlEnabled("completed", false)).toBe(false);
+  });
+
+  it("projects controller-owned Chinese states into safe English UI copy", () => {
+    expect(
+      tracePanelStateMessage(
+        panelState({ status: "preparing", message: "正在准备临时影子 Trace…" }),
+        "en",
+      ),
+    ).toBe("Preparing the temporary shadow Trace…");
+    expect(
+      tracePanelStateMessage(
+        panelState({ status: "branch", message: "真实分支：第 12 行为 false。" }),
+        "en",
+      ),
+    ).toBe("Real branch: line 12 evaluated to false.");
+    expect(
+      tracePanelStateMessage(
+        panelState({
+          status: "unsupported",
+          message: "当前源码布局不支持可靠 Trace。",
+          unsupported: {
+            code: "unsupported-control-layout",
+            line: 8,
+            message: "当前控制结构不支持",
+          },
+        }),
+        "en",
+      ),
+    ).toBe("This source layout cannot be traced reliably near line 8.");
   });
 });
 
@@ -103,6 +134,42 @@ describe("trace panel event list", () => {
 });
 
 describe("trace panel interaction", () => {
+  it("uses the canvas toolbar as the single start control and mirrors active state", () => {
+    const fixture = fakeHost();
+    const primary = fixture.host.ownerDocument.createElement("button");
+    primary.textContent = "观察路径";
+    const onStart = vi.fn();
+    const panel = createTracePanel(fixture.host, {
+      primaryStartButton: primary,
+      onStart,
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+
+    expect(fixture.findByAction("start")).toBeUndefined();
+    expect(primary.dataset.traceAction).toBe("start");
+    expect(primary.disabled).toBe(false);
+    primary.click();
+    expect(onStart).toHaveBeenCalledOnce();
+
+    panel.setState(panelState({ status: "preparing" }));
+    expect(primary.disabled).toBe(true);
+    expect(primary.textContent).toBe("观察中…");
+    expect(primary.getAttribute("aria-busy")).toBe("true");
+    expect(fixture.findByAction("cancel")?.hidden).toBe(false);
+
+    panel.setState(panelState({ status: "completed" }));
+    expect(primary.disabled).toBe(false);
+    expect(primary.textContent).toBe("观察路径");
+    expect(primary.getAttribute("aria-busy")).toBe("false");
+    expect(fixture.findByClass("trace-panel__controls")?.hidden).toBe(true);
+
+    panel.destroy();
+    expect(primary.disabled).toBe(false);
+    expect(primary.textContent).toBe("观察路径");
+  });
+
   it("spreads same-millisecond events by real execution order instead of drawing a vertical line", () => {
     const fixture = fakeHost();
     const panel = createTracePanel(fixture.host, {
@@ -130,12 +197,16 @@ describe("trace panel interaction", () => {
     expect(traceChartXAxisMode(events)).toBe("sequence");
     expect(chart?.dataset.xMode).toBe("sequence");
     expect(uniqueX.size).toBe(3);
-    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toContain(
-      "计时分辨率不足",
+    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toContain("事件顺序");
+    const guide = fixture.findByClass("trace-panel__chart-guide");
+    expect(guide?.hidden).toBe(false);
+    expect(guide?.children[0]?.textContent).toBe("怎么看");
+    expect(walk(guide!).map((element) => element.textContent)).toContain(
+      "实测/参考不是速度评分，也不能单独证明 Big-O。",
     );
   });
 
-  it("draws a point for a single event and keeps distinct timestamps on the time axis", () => {
+  it("draws a point for a single event and keeps sequence as the stable default", () => {
     const fixture = fakeHost();
     const panel = createTracePanel(fixture.host, {
       onStart: vi.fn(),
@@ -154,8 +225,46 @@ describe("trace panel interaction", () => {
       event(3, "line", 4, null, 2),
     ];
     panel.setEvents(timed);
-    expect(traceChartXAxisMode(timed)).toBe("time");
-    expect(fixture.findByClass("trace-panel__chart")?.dataset.xMode).toBe("time");
+    expect(traceChartXAxisMode(timed)).toBe("sequence");
+    expect(fixture.findByClass("trace-panel__chart")?.dataset.xMode).toBe("sequence");
+  });
+
+  it("uses only the event span in an explicit time view and keeps wall time separate", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      chartXAxisMode: "time",
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    const events = [
+      event(1, "line", 2, null, 100),
+      event(2, "branch", 3, true, 101),
+      event(3, "line", 4, null, 102),
+    ];
+
+    panel.setEvents(events);
+    panel.setState(
+      panelState({ status: "completed", eventCount: 3, evidence: traceEvidence(3, 30_000) }),
+    );
+
+    const chart = fixture.findByClass("trace-panel__chart");
+    const points = fixture.findByData("series", "trace")?.getAttribute("points") ?? "";
+    const xCoordinates = points
+      .split(" ")
+      .filter(Boolean)
+      .map((point) => Number(point.split(",")[0]));
+    expect(traceChartXAxisMode(events, "time")).toBe("time");
+    expect(traceChartTimeDomain(events)).toEqual({ startMs: 100, endMs: 102, spanMs: 2 });
+    expect(chart?.dataset.xMode).toBe("time");
+    expect(chart?.dataset.eventSpanMs).toBe("2");
+    expect(Math.max(...xCoordinates) - Math.min(...xCoordinates)).toBeGreaterThan(250);
+    expect(
+      walk(panel.element as unknown as FakeElement).find(
+        (element) => element.dataset.traceField === "duration",
+      )?.textContent,
+    ).toBe("30000 ms");
   });
 
   it("keeps real events local, caps DOM rows and distinguishes playback from process control", () => {
@@ -248,6 +357,57 @@ describe("trace panel interaction", () => {
     expect(fixture.findByClass("trace-panel__reference")?.dataset.available).toBe("false");
     expect(fixture.findByData("series", "reference")).toBeUndefined();
   });
+
+  it("relabels the live panel in place without losing trace state or translating external text", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    panel.setReference({ inputSize: 8, referenceOperationCount: 10, label: "course baseline" });
+    panel.setEvents([event(1, "line", 4, null, 2), event(2, "branch", 5, true, 3)]);
+    panel.setState(
+      panelState({
+        status: "completed",
+        message: "compiler supplied message",
+        eventCount: 2,
+        evidence: traceEvidence(12),
+      }),
+    );
+
+    fixture.shell.dataset.locale = "en";
+    fixture.shell.dispatch("workbench-locale-change");
+
+    expect(panel.element.getAttribute("aria-label")).toBe("Real execution flow");
+    expect(fixture.findByClass("trace-panel__title")?.textContent).toBe("Execution Flow");
+    expect(fixture.findByClass("trace-panel__badge")?.textContent).toBe("✓ Completed");
+    expect(fixture.findByClass("trace-panel__status")?.textContent).toBe(
+      "compiler supplied message",
+    );
+    expect(fixture.findByClass("trace-panel__events")?.children).toHaveLength(2);
+    expect(fixture.findByClass("trace-panel__event")?.textContent).toBe(
+      "#1 · line 4 · statement · 2 ms",
+    );
+    expect(fixture.findByClass("trace-panel__reference")?.textContent).toBe(
+      "Measured/reference work ratio: 1.20× (12 / 10) · n=8 · course baseline",
+    );
+    expect(
+      walk(panel.element as unknown as FakeElement).map((element) => element.textContent),
+    ).toContain("Wall time");
+    expect(fixture.findByClass("trace-panel__chart-guide")?.children[0]?.textContent).toBe(
+      "How to read",
+    );
+
+    fixture.shell.dataset.locale = "zh-CN";
+    fixture.shell.dispatch("workbench-locale-change");
+    expect(fixture.findByClass("trace-panel__title")?.textContent).toBe("运行流程");
+    expect(fixture.findByClass("trace-panel__events")?.children).toHaveLength(2);
+    expect(fixture.findByClass("trace-panel__status")?.textContent).toBe(
+      "compiler supplied message",
+    );
+  });
 });
 
 function event(
@@ -275,13 +435,13 @@ function panelState(overrides: Partial<TracePanelState>): TracePanelState {
   };
 }
 
-function traceEvidence(operationCount: number): TraceRunEvidence {
+function traceEvidence(operationCount: number, durationMs = 250): TraceRunEvidence {
   return {
     ok: true,
     exitCode: 0,
     signal: null,
     termination: "process-exit",
-    durationMs: 250,
+    durationMs,
     peakRssBytes: 1_024,
     peakProcessCount: 1,
     outputBytes: 8,
@@ -291,14 +451,20 @@ function traceEvidence(operationCount: number): TraceRunEvidence {
 }
 
 function fakeHost(): {
+  readonly shell: FakeElement;
   readonly host: HTMLElement;
   findByClass(className: string): FakeElement | undefined;
   findByAction(action: string): FakeElement | undefined;
   findByData(name: string, value: string): FakeElement | undefined;
 } {
   const ownerDocument = new FakeDocument();
+  const shell = ownerDocument.createElement("main");
+  shell.setAttribute("id", "workbench-shell");
+  shell.dataset.locale = "zh-CN";
   const host = ownerDocument.createElement("div");
+  shell.append(host);
   return {
+    shell,
     host: host as unknown as HTMLElement,
     findByClass: (className) => walk(host).find((element) => element.className === className),
     findByAction: (action) => walk(host).find((element) => element.dataset.traceAction === action),
@@ -372,6 +538,24 @@ class FakeElement {
 
   click(): void {
     for (const listener of this.#listeners.get("click") ?? []) listener();
+  }
+
+  dispatch(type: string): void {
+    for (const listener of this.#listeners.get(type) ?? []) listener();
+  }
+
+  closest<T extends FakeElement = FakeElement>(selector: string): T | null {
+    let current: FakeElement | null = this;
+    while (current !== null) {
+      if (
+        (selector.includes("[data-locale]") && current.dataset.locale !== undefined) ||
+        (selector.includes("#workbench-shell") && current.getAttribute("id") === "workbench-shell")
+      ) {
+        return current as T;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   cloneNode(deep = false): FakeElement {

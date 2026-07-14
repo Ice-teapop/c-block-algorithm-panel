@@ -30,11 +30,15 @@ import type {
 } from "../shared/workspace-sidecar.js";
 import {
   createAnalysisDashboard,
+  localizeAnalysisStatusMessage,
+  localizedSafeErrorMessage,
+  resolveAnalysisLocale,
   type AnalysisDashboard,
   type AnalysisDashboardState,
   type AnalysisEvidenceCriterion,
   type AnalysisTrendPoint,
 } from "../ui/analysis-dashboard.js";
+import type { InterfaceLocale } from "../ui/interface-preferences.js";
 import {
   createMentorPanel,
   type MentorPanel,
@@ -54,10 +58,9 @@ export interface EvidenceWorkspaceControllerOptions {
   readonly metricsHost: HTMLElement;
   readonly mentorHost: HTMLElement;
   readonly analysisHost?: HTMLElement | undefined;
-  readonly api?: Pick<
-    PanelApi,
-    "getAiProviderConfig" | "startAiMentor" | "readAiMentor" | "cancelAiMentor"
-  > | undefined;
+  readonly api?:
+    | Pick<PanelApi, "getAiProviderConfig" | "startAiMentor" | "readAiMentor" | "cancelAiMentor">
+    | undefined;
   readonly getSource?: (() => string) | undefined;
   readonly readSidecar: (
     entryId: string,
@@ -68,6 +71,7 @@ export interface EvidenceWorkspaceControllerOptions {
   ) => Promise<WorkspaceSidecarSaveResult>;
   readonly delayMs?: number;
   readonly onLocate?: ((target: MentorHintTarget, hint: MentorHint) => void) | undefined;
+  readonly onOpenAiSettings?: (() => void) | undefined;
   readonly now?: (() => Date) | undefined;
   readonly idFactory?: (() => string) | undefined;
 }
@@ -78,6 +82,7 @@ export interface EvidenceWorkspaceController {
   setRealPath(path: RealExecutionPathSummary | null): void;
   setBranchCoverage(coverage: BranchCoverageEvidence | null): void;
   recordRun(completion: RunPanelCompletion): void;
+  getRemoteMentorContext(): MentorRemoteContext | null;
   flush(): Promise<void>;
   destroy(): Promise<void>;
 }
@@ -116,13 +121,15 @@ export function createEvidenceWorkspaceController(
       ? null
       : createAnalysisDashboard(options.analysisHost, {
           ...(options.api === undefined ? {} : { remoteApi: options.api }),
+          ...(options.onOpenAiSettings === undefined
+            ? {}
+            : { onOpenAiSettings: options.onOpenAiSettings }),
           ...(options.onLocate === undefined
             ? {}
             : { onLocate: (target) => options.onLocate!(target, analysisLocateHint(target)) }),
         });
   const mentor = createMentorPanel(options.mentorHost, {
     ...(options.onLocate === undefined ? {} : { onLocate: options.onLocate }),
-    ...(options.api === undefined ? {} : { remoteApi: options.api }),
   });
   const provider = new LocalEvidenceMentor();
   let destroyed = false;
@@ -138,6 +145,7 @@ export function createEvidenceWorkspaceController(
   let lastAttempt: AttemptEvidence | null = null;
   let currentMessage = "尚未关联项目，真实运行不会写入 sidecar。";
   let currentState: Parameters<MetricsView["render"]>[1] = "ready";
+  let currentRemoteContext: MentorRemoteContext | null = null;
 
   const persistence = createWorkspaceSidecarPersistence({
     kind: "run-history",
@@ -161,7 +169,10 @@ export function createEvidenceWorkspaceController(
     metrics.render(currentMessage, currentState, lastAttempt, summary);
     const source = options.getSource?.() ?? "";
     const remoteContext =
-      analysis === null ? null : buildRemoteMentorContext(analysis, history, realPath, source);
+      analysis === null
+        ? null
+        : buildRemoteMentorContext(analysis, history, realPath, source, currentEntryId);
+    currentRemoteContext = remoteContext;
     analysisDashboard?.setRemoteContext(remoteContext);
     analysisDashboard?.setState(
       buildAnalysisDashboardState({
@@ -185,6 +196,7 @@ export function createEvidenceWorkspaceController(
       comparisonKey,
       currentSourceFingerprint,
       source,
+      currentEntryId,
     );
   };
 
@@ -271,6 +283,7 @@ export function createEvidenceWorkspaceController(
     setAnalysis(snapshot: ProgramAnalysisSnapshot | null): void {
       assertAlive(destroyed);
       analysis = snapshot;
+      if (snapshot !== null) currentSourceFingerprint = snapshot.sourceFingerprint;
       if (snapshot === null || realPath?.sourceFingerprint !== snapshot.sourceFingerprint) {
         realPath = null;
       }
@@ -399,6 +412,9 @@ export function createEvidenceWorkspaceController(
         currentState = "failure";
       }
       render();
+    },
+    getRemoteMentorContext(): MentorRemoteContext | null {
+      return currentRemoteContext === null ? null : Object.freeze({ ...currentRemoteContext });
     },
 
     async flush(): Promise<void> {
@@ -539,6 +555,7 @@ function renderMentor(
   comparisonKey: RunComparisonKey | null,
   sourceFingerprint: string | null,
   source: string,
+  workspaceId: string | null,
 ): void {
   if (analysis === null) {
     panel.setHints(Object.freeze([]));
@@ -552,7 +569,9 @@ function renderMentor(
     panel.setRemoteContext(null);
     return;
   }
-  panel.setRemoteContext(buildRemoteMentorContext(analysis, history, realPath, source));
+  panel.setRemoteContext(
+    buildRemoteMentorContext(analysis, history, realPath, source, workspaceId),
+  );
   try {
     panel.setHints(
       provider.getHints({
@@ -573,6 +592,7 @@ function buildRemoteMentorContext(
   history: RunHistoryDocument,
   realPath: RealExecutionPathSummary | null,
   source: string,
+  workspaceId: string | null,
 ): MentorRemoteContext | null {
   if (fingerprintSource(source) !== analysis.sourceFingerprint) return null;
   const currentFunction =
@@ -586,35 +606,44 @@ function buildRemoteMentorContext(
     currentFunction.range.from > currentFunction.range.to
       ? ""
       : source.slice(currentFunction.range.from, currentFunction.range.to);
-  const findings = analysis.findings.slice(0, 64).map(
-    (finding) =>
-      `${finding.ruleId} · ${finding.reason} · ${finding.confidence} · offset ${String(finding.primaryRange.from)}`,
-  );
+  const findings = analysis.findings
+    .slice(0, 64)
+    .map(
+      (finding) =>
+        `${finding.ruleId} · ${finding.reason} · ${finding.confidence} · offset ${String(finding.primaryRange.from)}`,
+    );
   const flow = currentFunction;
   const controlFlowSummary =
     flow === null
-      ? `函数 0；静态分析尚未形成完整 CFG。`
-      : `${flow.name}: ${String(flow.nodes.length)} 个 CFG 节点，${String(flow.edges.length)} 条边，${flow.partial ? "partial" : "complete"}；全文件 ${String(analysis.functions.length)} 个函数。`;
+      ? "functions=0; cfg=unavailable"
+      : [
+          `function=${flow.name}`,
+          `cfgNodes=${String(flow.nodes.length)}`,
+          `cfgEdges=${String(flow.edges.length)}`,
+          `cfg=${flow.partial ? "partial" : "complete"}`,
+          `fileFunctions=${String(analysis.functions.length)}`,
+        ].join("; ");
   const runEvidence = history.entries
     .filter((entry) => entry.sourceFingerprint === analysis.sourceFingerprint)
     .slice(-8)
     .map((entry) => {
-    const measurement = entry.measurement;
-    return [
-      `scenario=${entry.scenario.id}@${entry.scenario.version}`,
-      `inputSize=${entry.inputSize === null ? "n/a" : String(entry.inputSize)}`,
-      `duration=${String(measurement.durationMs)}ms`,
-      `rss=${measurement.peakRssBytes === null ? "n/a" : String(measurement.peakRssBytes)}`,
-      `ops=${measurement.operationCount === null ? "n/a" : String(measurement.operationCount)}`,
-      `termination=${measurement.termination}`,
-      `ok=${String(measurement.ok)}`,
-    ].join("; ");
+      const measurement = entry.measurement;
+      return [
+        `scenario=${entry.scenario.id}@${entry.scenario.version}`,
+        `inputSize=${entry.inputSize === null ? "n/a" : String(entry.inputSize)}`,
+        `duration=${String(measurement.durationMs)}ms`,
+        `rss=${measurement.peakRssBytes === null ? "n/a" : String(measurement.peakRssBytes)}`,
+        `ops=${measurement.operationCount === null ? "n/a" : String(measurement.operationCount)}`,
+        `termination=${measurement.termination}`,
+        `ok=${String(measurement.ok)}`,
+      ].join("; ");
     });
   if (realPath !== null && realPath.sourceFingerprint === analysis.sourceFingerprint) {
     const visits = realPath.nodeVisits.reduce((sum, visit) => sum + visit.count, 0);
     runEvidence.push(`validated real trace: ${String(visits)} node visits`);
   }
   return Object.freeze({
+    workspaceId: workspaceId ?? "unmanaged",
     sourceFingerprint: analysis.sourceFingerprint,
     sourceRevision: analysis.revision,
     currentFunction: functionSource,
@@ -691,9 +720,8 @@ function trendPointsForAnalytics(
   const anchor =
     analytics.growth.anchorInputSize === null
       ? null
-      : (analytics.points.find(
-          (point) => point.inputSize === analytics.growth.anchorInputSize,
-        ) ?? null);
+      : (analytics.points.find((point) => point.inputSize === analytics.growth.anchorInputSize) ??
+        null);
   const anchorOperations = anchor?.operationCount.median ?? null;
   return Object.freeze(
     analytics.points.map((point) => {
@@ -728,7 +756,9 @@ function completionCriteria(
   const snapshot = input.analysis;
   const attempt = input.lastAttempt;
   const functionsComplete =
-    snapshot !== null && snapshot.functions.length > 0 && snapshot.functions.every((fn) => !fn.partial);
+    snapshot !== null &&
+    snapshot.functions.length > 0 &&
+    snapshot.functions.every((fn) => !fn.partial);
   const certainFindings =
     snapshot?.findings.filter((finding) => finding.confidence === "certain").length ?? 0;
   const benchmarkReady =
@@ -751,7 +781,11 @@ function completionCriteria(
     criterion(
       "compile-run",
       "编译与运行",
-      attempt === null ? "pending" : attempt.compileOk && attempt.runResult?.ok === true ? "passed" : "failed",
+      attempt === null
+        ? "pending"
+        : attempt.compileOk && attempt.runResult?.ok === true
+          ? "passed"
+          : "failed",
       attempt === null
         ? "尚无本次运行"
         : attempt.compileOk
@@ -831,10 +865,7 @@ function realPathHotspots(
       .sort((left, right) => right.count - left.count)
       .slice(0, 6)
       .map((visit) => {
-        const snippet = source
-          .slice(visit.range.from, visit.range.to)
-          .replace(/\s+/gu, " ")
-          .trim();
+        const snippet = source.slice(visit.range.from, visit.range.to).replace(/\s+/gu, " ").trim();
         return Object.freeze({
           nodeId: visit.nodeId,
           label: snippet.length === 0 ? visit.nodeId : snippet.slice(0, 72),
@@ -868,7 +899,13 @@ function normalizeBranchCoverage(
 
 function branchOutcomeCount(snapshot: ProgramAnalysisSnapshot | null): number {
   if (snapshot === null) return 0;
-  const kinds = new Set(["branch-true", "branch-false", "switch-case", "switch-default", "switch-miss"]);
+  const kinds = new Set([
+    "branch-true",
+    "branch-false",
+    "switch-case",
+    "switch-default",
+    "switch-miss",
+  ]);
   return snapshot.functions.reduce(
     (total, fn) => total + fn.edges.filter((edge) => kinds.has(edge.kind)).length,
     0,
@@ -909,48 +946,129 @@ function analysisLocateHint(target: MentorHintTarget): MentorHint {
   });
 }
 
+interface MetricsCopy {
+  readonly heading: string;
+  readonly boundary: string;
+  readonly currentHeading: string;
+  readonly comparisonHeading: string;
+  readonly currentFields: Readonly<Record<string, string>>;
+  readonly comparisonFields: Readonly<Record<string, string>>;
+  readonly unavailable: string;
+  readonly noComparable: string;
+  readonly noRun: string;
+  readonly invalidSample: string;
+  readonly comparisonBoundary: string;
+}
+
+const METRICS_COPY: Readonly<Record<InterfaceLocale, MetricsCopy>> = Object.freeze({
+  "zh-CN": Object.freeze({
+    heading: "运行证据",
+    boundary: "分项展示 · 无综合分 · 实测不等于 Big-O",
+    currentHeading: "本次运行",
+    comparisonHeading: "严格可比历史",
+    currentFields: Object.freeze({
+      compile: "编译耗时",
+      duration: "运行墙钟耗时",
+      rss: "峰值 RSS",
+      processes: "峰值进程数",
+      output: "输出字节",
+      nodes: "执行节点数",
+      operations: "操作计数",
+      termination: "终止原因",
+    }),
+    comparisonFields: Object.freeze({
+      samples: "成功样本",
+      "compile-median": "编译耗时中位数",
+      "duration-median": "运行耗时中位数",
+      "rss-median": "峰值 RSS 中位数",
+      "operations-median": "操作计数中位数",
+      growth: "操作计数增长",
+    }),
+    unavailable: "不可用",
+    noComparable: "无可比证据",
+    noRun: "未运行",
+    invalidSample: "未取得有效样本",
+    comparisonBoundary: "比较必须同时匹配源码指纹、情景版本和工具链身份。",
+  }),
+  en: Object.freeze({
+    heading: "Run evidence",
+    boundary: "Separate metrics · no composite score · measurements are not Big-O",
+    currentHeading: "Current run",
+    comparisonHeading: "Strictly comparable history",
+    currentFields: Object.freeze({
+      compile: "Compile duration",
+      duration: "Run wall-clock duration",
+      rss: "Peak RSS",
+      processes: "Peak process count",
+      output: "Output bytes",
+      nodes: "Executed nodes",
+      operations: "Operation count",
+      termination: "Termination",
+    }),
+    comparisonFields: Object.freeze({
+      samples: "Successful samples",
+      "compile-median": "Median compile duration",
+      "duration-median": "Median run duration",
+      "rss-median": "Median peak RSS",
+      "operations-median": "Median operation count",
+      growth: "Operation-count growth",
+    }),
+    unavailable: "Unavailable",
+    noComparable: "No comparable evidence",
+    noRun: "Not run",
+    invalidSample: "No valid sample",
+    comparisonBoundary:
+      "Comparisons must match source fingerprint, scenario version, and toolchain identity.",
+  }),
+});
+
 function createMetricsView(host: HTMLElement): MetricsView {
   const document = host.ownerDocument;
+  const documentElement = document.documentElement as HTMLElement | undefined;
+  const localeHost =
+    typeof host.closest === "function"
+      ? (host.closest<HTMLElement>("[data-locale]") ?? documentElement ?? host)
+      : (documentElement ?? host);
+  let locale = resolveAnalysisLocale(localeHost.dataset.locale ?? documentElement?.lang);
+  let copy = METRICS_COPY[locale];
   const root = document.createElement("section");
   root.className = "evidence-metrics";
   root.dataset.state = "ready";
   const heading = document.createElement("h2");
   heading.className = "evidence-metrics__title";
-  heading.textContent = "运行证据";
   const boundary = document.createElement("p");
   boundary.className = "evidence-metrics__boundary";
-  boundary.textContent = "分项展示 · 无综合分 · 实测不等于 Big-O";
   const status = document.createElement("output");
   status.className = "evidence-metrics__status";
   status.setAttribute("aria-live", "polite");
   const persistence = document.createElement("small");
   persistence.className = "evidence-metrics__persistence";
   const currentHeading = document.createElement("h3");
-  currentHeading.textContent = "本次运行";
   const current = document.createElement("dl");
   current.className = "evidence-metrics__list";
-  const currentFields = createMetricFields(document, current, [
-    ["compile", "编译耗时"],
-    ["duration", "运行墙钟耗时"],
-    ["rss", "峰值 RSS"],
-    ["processes", "峰值进程数"],
-    ["output", "输出字节"],
-    ["nodes", "执行节点数"],
-    ["operations", "操作计数"],
-    ["termination", "终止原因"],
+  const currentFieldGroup = createMetricFields(document, current, [
+    ["compile", ""],
+    ["duration", ""],
+    ["rss", ""],
+    ["processes", ""],
+    ["output", ""],
+    ["nodes", ""],
+    ["operations", ""],
+    ["termination", ""],
   ]);
+  const currentFields = currentFieldGroup.values;
   const comparisonHeading = document.createElement("h3");
-  comparisonHeading.textContent = "严格可比历史";
   const comparison = document.createElement("dl");
   comparison.className = "evidence-metrics__list";
-  const comparisonFields = createMetricFields(document, comparison, [
-    ["samples", "成功样本"],
-    ["compile-median", "编译耗时中位数"],
-    ["duration-median", "运行耗时中位数"],
-    ["rss-median", "峰值 RSS 中位数"],
-    ["operations-median", "操作计数中位数"],
-    ["growth", "操作计数增长"],
+  const comparisonFieldGroup = createMetricFields(document, comparison, [
+    ["samples", ""],
+    ["compile-median", ""],
+    ["duration-median", ""],
+    ["rss-median", ""],
+    ["operations-median", ""],
+    ["growth", ""],
   ]);
+  const comparisonFields = comparisonFieldGroup.values;
   const evidence = document.createElement("p");
   evidence.className = "evidence-metrics__evidence";
   root.append(
@@ -966,20 +1084,137 @@ function createMetricsView(host: HTMLElement): MetricsView {
   );
   host.replaceChildren(root);
 
+  let lastMessage = "尚未关联项目，真实运行不会写入 sidecar。";
+  let lastState: "ready" | "working" | "failure" | "simulation" = "ready";
+  let lastAttempt: AttemptEvidence | null = null;
+  let lastSummary: RunHistorySummary | null = null;
+  let persistenceMessage = "";
+  let persistenceState = "inactive";
+  let destroyed = false;
+
+  const applyStaticCopy = (): void => {
+    copy = METRICS_COPY[locale];
+    root.dataset.locale = locale;
+    heading.textContent = copy.heading;
+    boundary.textContent = copy.boundary;
+    currentHeading.textContent = copy.currentHeading;
+    comparisonHeading.textContent = copy.comparisonHeading;
+    for (const [id, label] of Object.entries(copy.currentFields)) {
+      currentFieldGroup.labels.get(id)!.textContent = label;
+    }
+    for (const [id, label] of Object.entries(copy.comparisonFields)) {
+      comparisonFieldGroup.labels.get(id)!.textContent = label;
+    }
+  };
+
   const resetAttempt = (): void => {
-    for (const field of currentFields.values()) field.textContent = "不可用";
+    for (const field of currentFields.values()) field.textContent = copy.unavailable;
   };
   const resetComparison = (): void => {
-    for (const field of comparisonFields.values()) field.textContent = "无可比证据";
-    evidence.textContent = "比较必须同时匹配源码指纹、情景版本和工具链身份。";
+    for (const field of comparisonFields.values()) field.textContent = copy.noComparable;
+    evidence.textContent = copy.comparisonBoundary;
   };
-  resetAttempt();
-  resetComparison();
+
+  const renderPersistence = (): void => {
+    persistence.textContent =
+      locale === "en" ? localizePersistenceMessage(persistenceMessage) : persistenceMessage;
+    persistence.dataset.state = persistenceState;
+  };
+
+  const render = (): void => {
+    root.dataset.state = lastState;
+    status.textContent = locale === "en" ? localizeAnalysisStatusMessage(lastMessage) : lastMessage;
+    resetAttempt();
+    if (lastAttempt !== null) {
+      currentFields.get("compile")!.textContent = formatMilliseconds(
+        lastAttempt.compileDurationMs,
+        copy,
+      );
+      currentFields.get("termination")!.textContent =
+        lastAttempt.runResult?.termination ?? copy.noRun;
+      if (lastAttempt.runResult !== null) {
+        const result = lastAttempt.runResult;
+        currentFields.get("duration")!.textContent = formatMilliseconds(result.durationMs, copy);
+        currentFields.get("rss")!.textContent = formatBytes(
+          positiveSafeIntegerOrNull(result.peakRssBytes),
+          copy,
+        );
+        currentFields.get("processes")!.textContent = formatInteger(
+          positiveSafeIntegerOrNull(result.peakProcessCount),
+          copy,
+        );
+        currentFields.get("output")!.textContent = `${String(outputByteCount(result))} B`;
+        currentFields.get("nodes")!.textContent = formatInteger(
+          nonNegativeSafeIntegerOrNull(result.executedNodeCount),
+          copy,
+        );
+        currentFields.get("operations")!.textContent = formatInteger(
+          nonNegativeSafeIntegerOrNull(result.operationCount),
+          copy,
+        );
+      }
+    }
+    resetComparison();
+    if (lastSummary !== null) {
+      comparisonFields.get("samples")!.textContent = String(lastSummary.runIds.length);
+      comparisonFields.get("compile-median")!.textContent = formatMilliseconds(
+        lastSummary.compileDurationMs.median,
+        copy,
+      );
+      comparisonFields.get("duration-median")!.textContent = formatMilliseconds(
+        lastSummary.durationMs.median,
+        copy,
+      );
+      comparisonFields.get("rss-median")!.textContent = formatBytes(
+        lastSummary.peakRssBytes.median,
+        copy,
+      );
+      comparisonFields.get("operations-median")!.textContent = formatInteger(
+        lastSummary.operationCount.median,
+        copy,
+      );
+      comparisonFields.get("growth")!.textContent = growthLabel(lastSummary, locale);
+      evidence.textContent =
+        locale === "en"
+          ? `${String(lastSummary.runIds.length)} successful runs match the current source, scenario, and toolchain. Operation growth is empirical evidence, not a Big-O proof.`
+          : `${lastSummary.evidence} ${lastSummary.growth.evidence}`;
+    }
+    renderPersistence();
+  };
+
+  const onLocaleChange = (event: Event): void => {
+    if (destroyed) return;
+    const detail = (event as CustomEvent<unknown>).detail;
+    const candidate =
+      typeof detail === "object" && detail !== null && "locale" in detail
+        ? detail.locale
+        : localeHost.dataset.locale;
+    locale = resolveAnalysisLocale(candidate);
+    applyStaticCopy();
+    render();
+  };
+  const MutationObserverConstructor = document.defaultView?.MutationObserver;
+  const localeObserver =
+    MutationObserverConstructor === undefined
+      ? null
+      : new MutationObserverConstructor(() => {
+          locale = resolveAnalysisLocale(localeHost.dataset.locale);
+          applyStaticCopy();
+          render();
+        });
+  localeObserver?.observe(localeHost, {
+    attributes: true,
+    attributeFilter: ["data-locale"],
+  });
+  localeHost.addEventListener?.("workbench-locale-change", onLocaleChange);
+  applyStaticCopy();
+  render();
 
   return Object.freeze({
     setPersistence(message: string, state: string): void {
-      persistence.textContent = message;
-      persistence.dataset.state = state;
+      persistenceMessage = message;
+      persistenceState = state;
+      renderPersistence();
     },
     render(
       message: string,
@@ -987,48 +1222,17 @@ function createMetricsView(host: HTMLElement): MetricsView {
       attempt: AttemptEvidence | null,
       summary: RunHistorySummary | null,
     ): void {
-      root.dataset.state = state;
-      status.textContent = message;
-      resetAttempt();
-      if (attempt !== null) {
-        currentFields.get("compile")!.textContent = formatMilliseconds(attempt.compileDurationMs);
-        currentFields.get("termination")!.textContent = attempt.runResult?.termination ?? "未运行";
-        if (attempt.runResult !== null) {
-          const result = attempt.runResult;
-          currentFields.get("duration")!.textContent = formatMilliseconds(result.durationMs);
-          currentFields.get("rss")!.textContent = formatBytes(
-            positiveSafeIntegerOrNull(result.peakRssBytes),
-          );
-          currentFields.get("processes")!.textContent = formatInteger(
-            positiveSafeIntegerOrNull(result.peakProcessCount),
-          );
-          currentFields.get("output")!.textContent = `${String(outputByteCount(result))} B`;
-          currentFields.get("nodes")!.textContent = formatInteger(
-            nonNegativeSafeIntegerOrNull(result.executedNodeCount),
-          );
-          currentFields.get("operations")!.textContent = formatInteger(
-            nonNegativeSafeIntegerOrNull(result.operationCount),
-          );
-        }
-      }
-      resetComparison();
-      if (summary !== null) {
-        comparisonFields.get("samples")!.textContent = String(summary.runIds.length);
-        comparisonFields.get("compile-median")!.textContent = formatMilliseconds(
-          summary.compileDurationMs.median,
-        );
-        comparisonFields.get("duration-median")!.textContent = formatMilliseconds(
-          summary.durationMs.median,
-        );
-        comparisonFields.get("rss-median")!.textContent = formatBytes(summary.peakRssBytes.median);
-        comparisonFields.get("operations-median")!.textContent = formatInteger(
-          summary.operationCount.median,
-        );
-        comparisonFields.get("growth")!.textContent = growthLabel(summary);
-        evidence.textContent = `${summary.evidence} ${summary.growth.evidence}`;
-      }
+      lastMessage = message;
+      lastState = state;
+      lastAttempt = attempt;
+      lastSummary = summary;
+      render();
     },
     destroy(): void {
+      if (destroyed) return;
+      destroyed = true;
+      localeHost.removeEventListener?.("workbench-locale-change", onLocaleChange);
+      localeObserver?.disconnect();
       host.replaceChildren();
     },
   });
@@ -1038,31 +1242,65 @@ function createMetricFields(
   document: Document,
   list: HTMLElement,
   definitions: readonly (readonly [id: string, label: string])[],
-): ReadonlyMap<string, HTMLElement> {
-  const fields = new Map<string, HTMLElement>();
+): Readonly<{
+  values: ReadonlyMap<string, HTMLElement>;
+  labels: ReadonlyMap<string, HTMLElement>;
+}> {
+  const values = new Map<string, HTMLElement>();
+  const labels = new Map<string, HTMLElement>();
   for (const [id, label] of definitions) {
     const row = document.createElement("div");
     row.className = "evidence-metrics__row";
     const term = document.createElement("dt");
     term.textContent = label;
+    term.dataset.metricLabel = id;
     const value = document.createElement("dd");
     value.dataset.metric = id;
     row.append(term, value);
     list.append(row);
-    fields.set(id, value);
+    labels.set(id, term);
+    values.set(id, value);
   }
-  return fields;
+  return Object.freeze({ values, labels });
 }
 
-function growthLabel(summary: RunHistorySummary): string {
-  const labels = {
-    insufficient: "证据不足",
-    stable: "经验上稳定",
-    increasing: "经验上增长",
-    "non-monotonic": "非单调",
-  } as const;
+function growthLabel(summary: RunHistorySummary, locale: InterfaceLocale = "zh-CN"): string {
+  const labels =
+    locale === "en"
+      ? ({
+          insufficient: "Insufficient evidence",
+          stable: "Empirically stable",
+          increasing: "Empirically increasing",
+          "non-monotonic": "Non-monotonic",
+        } as const)
+      : ({
+          insufficient: "证据不足",
+          stable: "经验上稳定",
+          increasing: "经验上增长",
+          "non-monotonic": "非单调",
+        } as const);
   const slope = summary.growth.estimatedLogLogSlope;
+  if (locale === "en") {
+    return `${labels[summary.growth.trend]}${slope === null ? "" : `; empirical slope ${String(slope)}`} (${summary.growth.confidence})`;
+  }
   return `${labels[summary.growth.trend]}${slope === null ? "" : `；经验斜率 ${String(slope)}`}（${summary.growth.confidence}）`;
+}
+
+function localizePersistenceMessage(message: string): string {
+  if (message.length === 0) return "";
+  const kind = "run-history";
+  if (message === `${kind} 未关联工作区`) return "Run history is not linked to a workspace";
+  if (message === `正在读取 ${kind}…`) return "Loading run history…";
+  if (message === `正在保存 ${kind}…`) return "Saving run history…";
+  if (message === `${kind} 已保存`) return "Run history saved";
+  if (message === `${kind} 尚未创建`) return "Run history has not been created yet";
+  if (message === `${kind} 已载入`) return "Run history loaded";
+  if (message === `${kind} 未改变`) return "Run history unchanged";
+  if (message === `${kind} 有修改待保存`) return "Run-history changes are waiting to be saved";
+  if (message.includes("失败") || /[\u3400-\u9fff]/u.test(message)) {
+    return "Could not update run-history persistence. Existing source code was not changed.";
+  }
+  return message;
 }
 
 function nullableFiniteMetric(value: number | undefined): number | null {
@@ -1087,16 +1325,19 @@ function outputByteCount(result: RunResult): number {
     : result.stdout.byteLength + result.stderr.byteLength;
 }
 
-function formatMilliseconds(value: number | null): string {
-  return value === null ? "不可用" : `${formatNumber(value)} ms`;
+function formatMilliseconds(
+  value: number | null,
+  copy: MetricsCopy = METRICS_COPY["zh-CN"],
+): string {
+  return value === null ? copy.unavailable : `${formatNumber(value)} ms`;
 }
 
-function formatBytes(value: number | null): string {
-  return value === null ? "未取得有效样本" : `${String(value)} B`;
+function formatBytes(value: number | null, copy: MetricsCopy = METRICS_COPY["zh-CN"]): string {
+  return value === null ? copy.invalidSample : `${String(value)} B`;
 }
 
-function formatInteger(value: number | null): string {
-  return value === null ? "不可用" : formatNumber(value);
+function formatInteger(value: number | null, copy: MetricsCopy = METRICS_COPY["zh-CN"]): string {
+  return value === null ? copy.unavailable : formatNumber(value);
 }
 
 function formatNumber(value: number): string {

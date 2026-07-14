@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { undoDepth } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
-import { createCodePaneInputExtensions } from "../../src/ui/code-pane.js";
+import { codePaneAriaLabel, createCodePaneInputExtensions } from "../../src/ui/code-pane.js";
 import { createExactSourceState, getExactSource } from "../../src/ui/exact-source-history.js";
 
 const codePaneSource = readFileSync(new URL("../../src/ui/code-pane.ts", import.meta.url), "utf8");
@@ -71,7 +71,10 @@ describe("code pane direct-input contract", () => {
   });
 
   it("keeps content accessibility metadata aligned with the editable facet", () => {
-    expect(codePaneSource).toContain('"aria-label": editable ? "C 源码编辑器" : "C 源码（只读）"');
+    expect(codePaneAriaLabel(true, "en")).toBe("C source editor");
+    expect(codePaneAriaLabel(false, "en")).toBe("C source (read only)");
+    expect(codePaneAriaLabel(true, "en")).not.toMatch(/[\p{Script=Han}]/u);
+    expect(codePaneSource).toContain('"aria-label": codePaneAriaLabel(editable, currentLocale())');
     expect(codePaneSource).toContain('"aria-readonly": String(!editable)');
     expect(codePaneSource).toContain('"aria-multiline": "true"');
   });

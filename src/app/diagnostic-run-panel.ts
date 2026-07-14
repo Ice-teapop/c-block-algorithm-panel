@@ -47,6 +47,7 @@ export function createDiagnosticRunPanel(
   };
   return Object.freeze({
     refreshCapabilities: () => runPanel.refreshCapabilities(),
+    runCurrent: () => runPanel.runCurrent(),
     invalidateSource: () => {
       clearDiagnostics();
       runPanel.invalidateSource();

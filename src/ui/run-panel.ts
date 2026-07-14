@@ -5,6 +5,7 @@ import type {
   RunResult,
   TerminationReason,
 } from "../shared/api.js";
+import type { InterfaceLocale } from "../shared/interface-locale.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 
 const RUNNER_SOURCE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.c$/u;
@@ -42,6 +43,7 @@ export interface RunPanelCompletion {
 
 export interface RunPanel {
   refreshCapabilities(): Promise<void>;
+  runCurrent(): Promise<void>;
   invalidateSource(): void;
   destroy(): void;
 }
@@ -117,11 +119,19 @@ export function toRunnerSourceName(displayName: string): string {
   return sourceName;
 }
 
-export function formatCompileDurationEvidence(value: number | undefined): string {
-  return isNonNegativeFinite(value) ? `${formatMetricNumber(value)} ms` : "不可用";
+export function formatCompileDurationEvidence(
+  value: number | undefined,
+  locale: InterfaceLocale = "zh-CN",
+): string {
+  return isNonNegativeFinite(value)
+    ? `${formatMetricNumber(value)} ms`
+    : localized(locale, "不可用", "Unavailable");
 }
 
-export function formatRunEvidence(result: RunResult): RunEvidencePresentation {
+export function formatRunEvidence(
+  result: RunResult,
+  locale: InterfaceLocale = "zh-CN",
+): RunEvidencePresentation {
   const sampled = isNonNegativeSafeInteger(result.peakProcessCount) && result.peakProcessCount > 0;
   const capturedOutput = isNonNegativeSafeInteger(result.outputBytes)
     ? result.outputBytes
@@ -129,21 +139,42 @@ export function formatRunEvidence(result: RunResult): RunEvidencePresentation {
   return Object.freeze({
     runDuration: isNonNegativeFinite(result.durationMs)
       ? `${formatMetricNumber(result.durationMs)} ms`
-      : "不可用",
+      : localized(locale, "不可用", "Unavailable"),
     peakRss:
       sampled && isNonNegativeSafeInteger(result.peakRssBytes)
-        ? `${formatByteCount(result.peakRssBytes)}（采样峰值）`
-        : "未取得有效样本",
-    peakProcessCount: sampled ? `${String(result.peakProcessCount)}（采样峰值）` : "未取得有效样本",
-    outputBytes: `${formatByteCount(capturedOutput)}（stdout + stderr 已捕获）`,
-    executedNodeCount: formatInstrumentedCount(result.executedNodeCount),
-    operationCount: formatInstrumentedCount(result.operationCount),
+        ? localized(
+            locale,
+            `${formatByteCount(result.peakRssBytes)}（采样峰值）`,
+            `${formatByteCount(result.peakRssBytes)} (sampled peak)`,
+          )
+        : localized(locale, "未取得有效样本", "No valid sample"),
+    peakProcessCount: sampled
+      ? localized(
+          locale,
+          `${String(result.peakProcessCount)}（采样峰值）`,
+          `${String(result.peakProcessCount)} (sampled peak)`,
+        )
+      : localized(locale, "未取得有效样本", "No valid sample"),
+    outputBytes: localized(
+      locale,
+      `${formatByteCount(capturedOutput)}（stdout + stderr 已捕获）`,
+      `${formatByteCount(capturedOutput)} (captured stdout + stderr)`,
+    ),
+    executedNodeCount: formatInstrumentedCount(result.executedNodeCount, locale),
+    operationCount: formatInstrumentedCount(result.operationCount, locale),
   });
 }
 
 export function createRunPanel(host: HTMLElement, options: RunPanelOptions): RunPanel {
   const panelId = nextRunPanelId;
   nextRunPanelId += 1;
+  const advancedDisclosure =
+    typeof host.closest === "function"
+      ? host.closest<HTMLDetailsElement>("details.runtime-advanced")
+      : null;
+  const localeHost =
+    typeof host.closest === "function" ? host.closest<HTMLElement>("#workbench-shell") : null;
+  let locale: InterfaceLocale = localeHost?.dataset.locale === "en" ? "en" : "zh-CN";
 
   const root = createElement("div", "run-panel");
   root.dataset.state = "loading";
@@ -180,9 +211,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const capabilityDetails = createElement("details", "run-panel__capability-details");
   const capabilitySummary = createElement("summary", "run-panel__capability-summary", "运行环境");
   const capabilityList = createElement("dl", "run-panel__capabilities");
-  const modeValue = appendDescriptionRow(capabilityList, "安全模式", "mode");
-  const seatbeltValue = appendDescriptionRow(capabilityList, "Seatbelt", "seatbelt");
-  const trustValue = appendDescriptionRow(capabilityList, "可信确认", "trust-confirmation");
+  const modeRow = appendDescriptionRow(capabilityList, "安全模式", "mode");
+  const seatbeltRow = appendDescriptionRow(capabilityList, "Seatbelt", "seatbelt");
+  const trustRow = appendDescriptionRow(capabilityList, "可信确认", "trust-confirmation");
+  const modeValue = modeRow.value;
+  const seatbeltValue = seatbeltRow.value;
+  const trustValue = trustRow.value;
   modeValue.textContent = "正在检查";
   seatbeltValue.textContent = "正在检查";
   trustValue.textContent = "正在检查";
@@ -212,24 +246,28 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     "分项数据来自本次本机受限进程；不代表 Big-O，也不合成为评分。",
   );
   evidenceNotice.hidden = true;
-  const compileDurationValue = appendDescriptionRow(
-    processList,
-    "编译进程耗时",
-    "compile-duration",
-  );
-  const exitValue = appendDescriptionRow(processList, "退出码", "exit-code");
-  const signalValue = appendDescriptionRow(processList, "信号", "signal");
-  const terminationValue = appendDescriptionRow(processList, "终止原因", "termination");
-  const durationValue = appendDescriptionRow(processList, "运行墙钟耗时", "duration");
-  const peakRssValue = appendDescriptionRow(processList, "进程组峰值内存", "peak-rss");
-  const peakProcessValue = appendDescriptionRow(
-    processList,
-    "进程组峰值数量",
-    "peak-process-count",
-  );
-  const outputBytesValue = appendDescriptionRow(processList, "捕获输出量", "output-bytes");
-  const executedNodesValue = appendDescriptionRow(processList, "执行节点数", "executed-node-count");
-  const operationCountValue = appendDescriptionRow(processList, "操作计数", "operation-count");
+  const compileDurationRow = appendDescriptionRow(processList, "编译进程耗时", "compile-duration");
+  const exitRow = appendDescriptionRow(processList, "退出码", "exit-code");
+  const signalRow = appendDescriptionRow(processList, "信号", "signal");
+  const terminationRow = appendDescriptionRow(processList, "终止原因", "termination");
+  const durationRow = appendDescriptionRow(processList, "运行墙钟耗时", "duration");
+  const peakRssRow = appendDescriptionRow(processList, "进程组峰值内存", "peak-rss");
+  const peakProcessRow = appendDescriptionRow(processList, "进程组峰值数量", "peak-process-count");
+  const outputBytesRow = appendDescriptionRow(processList, "捕获输出量", "output-bytes");
+  const executedNodesRow = appendDescriptionRow(processList, "执行节点数", "executed-node-count");
+  const operationCountRow = appendDescriptionRow(processList, "操作计数", "operation-count");
+  const compileDurationValue = compileDurationRow.value;
+  const exitValue = exitRow.value;
+  const signalValue = signalRow.value;
+  const terminationValue = terminationRow.value;
+  const durationValue = durationRow.value;
+  const peakRssValue = peakRssRow.value;
+  const peakProcessValue = peakProcessRow.value;
+  const outputBytesValue = outputBytesRow.value;
+  const executedNodesValue = executedNodesRow.value;
+  const operationCountValue = operationCountRow.value;
+  let compileDurationEvidence: number | undefined | null = null;
+  let runEvidence: RunResult | null = null;
   resetProcessDetails();
   setOutput(diagnosticsHeading, diagnostics, "");
   setOutput(stdoutHeading, stdout, "");
@@ -261,6 +299,29 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   let capabilities: Capabilities | undefined;
   let capabilityRequestId = 0;
   let runRequestId = 0;
+  let capabilityFailed = false;
+  let operationMessage = bilingual("正在检查本地运行能力…", "Checking local runner…");
+  let resultMessage = bilingual("尚未运行", "Not run yet");
+
+  function renderMessages(): void {
+    operationStatus.textContent = messageForLocale(operationMessage, locale);
+    resultStatus.textContent = messageForLocale(resultMessage, locale);
+  }
+
+  function setOperationMessage(zh: string, en: string): void {
+    operationMessage = bilingual(zh, en);
+    operationStatus.textContent = messageForLocale(operationMessage, locale);
+  }
+
+  function setResultMessage(zh: string, en: string): void {
+    resultMessage = bilingual(zh, en);
+    resultStatus.textContent = messageForLocale(resultMessage, locale);
+  }
+
+  function setBothMessages(zh: string, en: string): void {
+    setOperationMessage(zh, en);
+    setResultMessage(zh, en);
+  }
 
   function updateRunButton(): void {
     const disabled = destroyed || busy || capabilities?.runnerEnabled !== true;
@@ -276,20 +337,31 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     delete root.dataset.failureReason;
     if (capabilities?.runnerEnabled === true) {
       root.dataset.state = "ready";
-      operationStatus.textContent = "本地运行器可用。";
+      setOperationMessage("本地运行器可用。", "Local runner available.");
       return;
     }
     root.dataset.state = "disabled";
-    operationStatus.textContent = "运行器当前不可用；其他学习功能不受影响。";
+    setOperationMessage(
+      "运行器当前不可用；其他学习功能不受影响。",
+      "The runner is unavailable; other learning features still work.",
+    );
   }
 
   function renderCapabilities(snapshot: Capabilities): void {
     safetyNotice.hidden = !snapshot.requiresNativeTrustConfirmation;
-    modeValue.textContent = runnerModeLabel(snapshot);
-    seatbeltValue.textContent = seatbeltStatusLabel(snapshot);
+    modeValue.textContent = runnerModeLabel(snapshot, locale);
+    seatbeltValue.textContent = seatbeltStatusLabel(snapshot, locale);
     trustValue.textContent = snapshot.requiresNativeTrustConfirmation
-      ? "需要；完整内存诊断整套流程仅确认一次"
-      : "当前模式不需要原生可信确认";
+      ? localized(
+          locale,
+          "需要；完整内存诊断整套流程仅确认一次",
+          "Required; the full memory-diagnostic flow asks only once",
+        )
+      : localized(
+          locale,
+          "当前模式不需要原生可信确认",
+          "Native trust confirmation is not required in this mode",
+        );
   }
 
   async function refreshCapabilities(): Promise<void> {
@@ -300,9 +372,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     capabilityRequestId = requestId;
     if (!busy) {
       root.dataset.state = "loading";
-      operationStatus.textContent = "正在检查本地运行能力…";
+      setOperationMessage("正在检查本地运行能力…", "Checking local runner…");
     }
+    capabilityFailed = false;
     capabilities = undefined;
+    renderCapabilityPlaceholders();
     updateRunButton();
 
     try {
@@ -319,13 +393,15 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         return;
       }
       capabilities = undefined;
-      modeValue.textContent = "无法获取";
-      seatbeltValue.textContent = "无法确认";
-      trustValue.textContent = "无法确认";
+      capabilityFailed = true;
+      renderCapabilityPlaceholders();
       updateRunButton();
       if (!busy) {
         root.dataset.state = "error";
-        operationStatus.textContent = "无法连接本地运行器；编译与运行已停用。";
+        setOperationMessage(
+          "无法连接本地运行器；编译与运行已停用。",
+          "Cannot connect to the local runner; compile and run are disabled.",
+        );
       }
     }
   }
@@ -336,13 +412,13 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     }
 
     const runCapabilities = snapshotCapabilities(capabilities);
+    if (advancedDisclosure !== null) advancedDisclosure.open = true;
     busy = true;
     const requestId = runRequestId + 1;
     runRequestId = requestId;
     root.dataset.state = "running";
     delete root.dataset.failureReason;
-    operationStatus.textContent = "正在编译…";
-    resultStatus.textContent = "正在编译…";
+    setBothMessages("正在编译…", "Compiling…");
     result.hidden = false;
     setOutput(diagnosticsHeading, diagnostics, "");
     setOutput(stdoutHeading, stdout, "");
@@ -366,7 +442,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     } catch {
       finishFailure(
         requestId,
-        "本次运行失败：无法取得当前源码或有效运行情景，未启动编译。",
+        bilingual(
+          "本次运行失败：无法取得当前源码或有效运行情景，未启动编译。",
+          "Run failed: current source or a valid run case is unavailable; compilation was not started.",
+        ),
         "source-unavailable",
       );
       finishRun(requestId);
@@ -410,22 +489,23 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         return;
       }
       setOutput(diagnosticsHeading, diagnostics, compileResult.diagnostics);
-      compileDurationValue.textContent = formatCompileDurationEvidence(
-        compileResult.compileDurationMs,
-      );
+      compileDurationEvidence = compileResult.compileDurationMs;
+      renderProcessDetails();
       setProcessEvidenceVisible(true);
       if (!compileResult.ok) {
         deliverCompletion(null);
         finishFailure(
           requestId,
-          `本次运行失败：编译未通过（${compileResult.error.code}：${compileResult.error.message}）`,
+          bilingual(
+            `本次运行失败：编译未通过（${compileResult.error.code}：${compileResult.error.message}）`,
+            `Run failed: compilation did not pass (${compileResult.error.code}: ${compileResult.error.message})`,
+          ),
           "compile-failed",
         );
         return;
       }
 
-      operationStatus.textContent = "编译完成，正在运行…";
-      resultStatus.textContent = "编译完成，正在运行…";
+      setBothMessages("编译完成，正在运行…", "Compilation complete; running…");
       const runResult = await window.panelApi.run({
         artifactId: compileResult.artifactId,
         ...(scenario === null
@@ -447,31 +527,39 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       setOutput(stderrHeading, stderr, decodeOutput(runResult.stderr));
       exitValue.textContent = runResult.exitCode === null ? "—" : String(runResult.exitCode);
       signalValue.textContent = runResult.signal ?? "—";
-      terminationValue.textContent = terminationLabel(runResult.termination);
-      const evidence = formatRunEvidence(runResult);
-      durationValue.textContent = evidence.runDuration;
-      peakRssValue.textContent = evidence.peakRss;
-      peakProcessValue.textContent = evidence.peakProcessCount;
-      outputBytesValue.textContent = evidence.outputBytes;
-      executedNodesValue.textContent = evidence.executedNodeCount;
-      operationCountValue.textContent = evidence.operationCount;
+      runEvidence = runResult;
+      renderProcessDetails();
       setProcessEvidenceVisible(true);
       deliverCompletion(runResult);
 
       if (runResult.ok) {
         root.dataset.state = "success";
-        operationStatus.textContent = "本次运行成功。";
-        resultStatus.textContent = "本次运行成功";
+        setOperationMessage("本次运行成功。", "Run completed successfully.");
+        setResultMessage("本次运行成功", "Run completed successfully");
       } else {
         const reason = runResult.error
           ? `${runResult.error.code}：${runResult.error.message}`
           : "程序返回了非成功状态";
-        finishFailure(requestId, `本次运行失败：${reason}`, "run-failed");
+        const reasonEn = runResult.error
+          ? `${runResult.error.code}: ${runResult.error.message}`
+          : "The program returned a non-success status";
+        finishFailure(
+          requestId,
+          bilingual(`本次运行失败：${reason}`, `Run failed: ${reasonEn}`),
+          "run-failed",
+        );
       }
     } catch {
       if (isCurrentSource(source)) {
         deliverCompletion(null);
-        finishFailure(requestId, "本次运行失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
+        finishFailure(
+          requestId,
+          bilingual(
+            "本次运行失败：无法完成本地运行器 IPC 调用。",
+            "Run failed: the local runner IPC call could not be completed.",
+          ),
+          "ipc-failed",
+        );
       } else {
         finishStale(requestId);
       }
@@ -482,15 +570,20 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
 
   async function diagnoseSource(includeMemory: boolean): Promise<void> {
     if (destroyed || busy || capabilities?.runnerEnabled !== true) return;
+    if (advancedDisclosure !== null) advancedDisclosure.open = true;
     busy = true;
     const requestId = runRequestId + 1;
     runRequestId = requestId;
     root.dataset.state = "running";
     delete root.dataset.failureReason;
-    operationStatus.textContent = includeMemory
-      ? "正在运行静态与双闸内存诊断…"
-      : "正在运行 clang 静态诊断…";
-    resultStatus.textContent = operationStatus.textContent;
+    if (includeMemory) {
+      setBothMessages(
+        "正在运行静态与双闸内存诊断…",
+        "Running static and two-gate memory diagnostics…",
+      );
+    } else {
+      setBothMessages("正在运行 clang 静态诊断…", "Running clang static diagnostics…");
+    }
     result.hidden = false;
     setProcessEvidenceVisible(false);
     setOutput(diagnosticsHeading, diagnostics, "");
@@ -509,7 +602,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         throw new TypeError("source callbacks must return strings");
       }
     } catch {
-      finishFailure(requestId, "诊断失败：无法取得当前源码。", "source-unavailable");
+      finishFailure(
+        requestId,
+        bilingual("诊断失败：无法取得当前源码。", "Diagnostics failed: source is unavailable."),
+        "source-unavailable",
+      );
       finishRun(requestId);
       return;
     }
@@ -530,7 +627,10 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         options.onDiagnostics?.(source, Object.freeze([]));
         finishFailure(
           requestId,
-          `诊断失败：${diagnoseResult.error.code}：${diagnoseResult.error.message}`,
+          bilingual(
+            `诊断失败：${diagnoseResult.error.code}：${diagnoseResult.error.message}`,
+            `Diagnostics failed: ${diagnoseResult.error.code}: ${diagnoseResult.error.message}`,
+          ),
           "diagnose-failed",
         );
         return;
@@ -550,21 +650,44 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       const staticErrors = diagnoseResult.hasErrors;
       if (staticErrors || memoryFinding) {
         root.dataset.state = "finding";
-        operationStatus.textContent = staticErrors
-          ? includeMemory
-            ? `静态诊断完成：发现 ${String(findingCount)} 条问题；内存运行已跳过。`
-            : `静态诊断完成：发现 ${String(findingCount)} 条问题。`
-          : "完整诊断完成：内存风险面板发现需要检查的结果。";
+        if (staticErrors) {
+          setOperationMessage(
+            includeMemory
+              ? `静态诊断完成：发现 ${String(findingCount)} 条问题；内存运行已跳过。`
+              : `静态诊断完成：发现 ${String(findingCount)} 条问题。`,
+            includeMemory
+              ? `Static diagnostics found ${String(findingCount)} issues; the memory run was skipped.`
+              : `Static diagnostics found ${String(findingCount)} issues.`,
+          );
+        } else {
+          setOperationMessage(
+            "完整诊断完成：内存风险面板发现需要检查的结果。",
+            "Full diagnostics complete; the memory panel found results that need review.",
+          );
+        }
       } else {
         root.dataset.state = "success";
-        operationStatus.textContent = includeMemory
-          ? `完整诊断完成：${String(findingCount)} 条 clang 提示，双闸未报告内存问题。`
-          : `静态诊断完成：${String(findingCount)} 条提示。`;
+        setOperationMessage(
+          includeMemory
+            ? `完整诊断完成：${String(findingCount)} 条 clang 提示，双闸未报告内存问题。`
+            : `静态诊断完成：${String(findingCount)} 条提示。`,
+          includeMemory
+            ? `Full diagnostics complete: ${String(findingCount)} clang findings and no memory issue from either gate.`
+            : `Static diagnostics complete: ${String(findingCount)} findings.`,
+        );
       }
-      resultStatus.textContent = operationStatus.textContent;
+      resultMessage = operationMessage;
+      renderMessages();
     } catch {
       if (isCurrentSource(source)) {
-        finishFailure(requestId, "诊断失败：无法完成本地运行器 IPC 调用。", "ipc-failed");
+        finishFailure(
+          requestId,
+          bilingual(
+            "诊断失败：无法完成本地运行器 IPC 调用。",
+            "Diagnostics failed: the local runner IPC call could not be completed.",
+          ),
+          "ipc-failed",
+        );
       } else {
         finishStale(requestId);
       }
@@ -590,20 +713,23 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     if (!isCurrentRun(requestId)) return;
     root.dataset.state = capabilities?.runnerEnabled === true ? "ready" : "disabled";
     delete root.dataset.failureReason;
-    operationStatus.textContent = "源码已改变；旧运行或诊断结果已丢弃。";
-    resultStatus.textContent = operationStatus.textContent;
+    setBothMessages(
+      "源码已改变；旧运行或诊断结果已丢弃。",
+      "Source changed; stale run or diagnostic results were discarded.",
+    );
     result.hidden = true;
   }
 
-  function finishFailure(requestId: number, message: string, reason: string): void {
+  function finishFailure(requestId: number, message: BilingualText, reason: string): void {
     if (!isCurrentRun(requestId)) {
       return;
     }
     root.dataset.state = "failure";
     root.dataset.failureReason = reason;
     result.hidden = false;
-    operationStatus.textContent = message;
-    resultStatus.textContent = message;
+    operationMessage = message;
+    resultMessage = message;
+    renderMessages();
   }
 
   function finishRun(requestId: number): void {
@@ -615,22 +741,117 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   }
 
   function resetProcessDetails(): void {
-    compileDurationValue.textContent = "—";
-    exitValue.textContent = "—";
-    signalValue.textContent = "—";
-    terminationValue.textContent = "—";
-    durationValue.textContent = "—";
-    peakRssValue.textContent = "—";
-    peakProcessValue.textContent = "—";
-    outputBytesValue.textContent = "—";
-    executedNodesValue.textContent = "—";
-    operationCountValue.textContent = "—";
+    compileDurationEvidence = null;
+    runEvidence = null;
+    renderProcessDetails();
+  }
+
+  function renderProcessDetails(): void {
+    const dash = "—";
+    compileDurationValue.textContent =
+      compileDurationEvidence === null
+        ? dash
+        : formatCompileDurationEvidence(compileDurationEvidence, locale);
+    if (runEvidence === null) {
+      exitValue.textContent = dash;
+      signalValue.textContent = dash;
+      terminationValue.textContent = dash;
+      durationValue.textContent = dash;
+      peakRssValue.textContent = dash;
+      peakProcessValue.textContent = dash;
+      outputBytesValue.textContent = dash;
+      executedNodesValue.textContent = dash;
+      operationCountValue.textContent = dash;
+      return;
+    }
+    exitValue.textContent = runEvidence.exitCode === null ? dash : String(runEvidence.exitCode);
+    signalValue.textContent = runEvidence.signal ?? dash;
+    terminationValue.textContent = terminationLabel(runEvidence.termination, locale);
+    const evidence = formatRunEvidence(runEvidence, locale);
+    durationValue.textContent = evidence.runDuration;
+    peakRssValue.textContent = evidence.peakRss;
+    peakProcessValue.textContent = evidence.peakProcessCount;
+    outputBytesValue.textContent = evidence.outputBytes;
+    executedNodesValue.textContent = evidence.executedNodeCount;
+    operationCountValue.textContent = evidence.operationCount;
   }
 
   function setProcessEvidenceVisible(visible: boolean): void {
     processList.hidden = !visible;
     evidenceNotice.hidden = !visible;
   }
+
+  function renderCapabilityPlaceholders(): void {
+    if (capabilityFailed) {
+      modeValue.textContent = localized(locale, "无法获取", "Unavailable");
+      seatbeltValue.textContent = localized(locale, "无法确认", "Unknown");
+      trustValue.textContent = localized(locale, "无法确认", "Unknown");
+      return;
+    }
+    const checking = localized(locale, "正在检查", "Checking");
+    modeValue.textContent = checking;
+    seatbeltValue.textContent = checking;
+    trustValue.textContent = checking;
+  }
+
+  function renderLocale(): void {
+    safetyNotice.textContent = localized(
+      locale,
+      "仅运行你编写或逐行审阅过的代码。可信模式没有 Seatbelt 文件或网络隔离。",
+      "Run only code you wrote or reviewed line by line. Trusted mode has no Seatbelt file or network isolation.",
+    );
+    runButton.textContent = localized(locale, "直接执行当前代码", "Run current code");
+    runButton.setAttribute("aria-label", runButton.textContent);
+    diagnoseButton.textContent = localized(locale, "静态诊断", "Static diagnostics");
+    diagnoseButton.setAttribute("aria-label", diagnoseButton.textContent);
+    memoryButton.textContent = localized(locale, "完整内存诊断", "Full memory diagnostics");
+    memoryButton.setAttribute("aria-label", memoryButton.textContent);
+    toolSummary.textContent = localized(locale, "手动运行与诊断", "Manual run and diagnostics");
+    capabilitySummary.textContent = localized(locale, "运行环境", "Run environment");
+    modeRow.label.textContent = localized(locale, "安全模式", "Safety mode");
+    seatbeltRow.label.textContent = "Seatbelt";
+    trustRow.label.textContent = localized(locale, "可信确认", "Trust confirmation");
+    resultHeading.textContent = localized(locale, "结果", "Result");
+    diagnosticsHeading.textContent = localized(locale, "编译诊断", "Compiler diagnostics");
+    stdoutHeading.textContent = localized(locale, "标准输出 stdout", "Standard output (stdout)");
+    stderrHeading.textContent = localized(locale, "标准错误 stderr", "Standard error (stderr)");
+    sanitizerHeading.textContent = "ASan / UBSan";
+    leaksHeading.textContent = localized(locale, "独立 leaks", "Standalone leaks");
+    evidenceNotice.textContent = localized(
+      locale,
+      "分项数据来自本次本机受限进程；不代表 Big-O，也不合成为评分。",
+      "Metrics come from this local constrained process; they are not Big-O and are not combined into a score.",
+    );
+    compileDurationRow.label.textContent = localized(locale, "编译进程耗时", "Compile duration");
+    exitRow.label.textContent = localized(locale, "退出码", "Exit code");
+    signalRow.label.textContent = localized(locale, "信号", "Signal");
+    terminationRow.label.textContent = localized(locale, "终止原因", "Termination reason");
+    durationRow.label.textContent = localized(locale, "运行墙钟耗时", "Wall-clock runtime");
+    peakRssRow.label.textContent = localized(locale, "进程组峰值内存", "Peak process-group memory");
+    peakProcessRow.label.textContent = localized(
+      locale,
+      "进程组峰值数量",
+      "Peak process-group size",
+    );
+    outputBytesRow.label.textContent = localized(locale, "捕获输出量", "Captured output");
+    executedNodesRow.label.textContent = localized(locale, "执行节点数", "Executed nodes");
+    operationCountRow.label.textContent = localized(locale, "操作计数", "Operation count");
+    if (capabilities === undefined) renderCapabilityPlaceholders();
+    else renderCapabilities(capabilities);
+    renderMessages();
+    renderProcessDetails();
+  }
+
+  const onLocaleChange = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    locale =
+      typeof detail === "object" && detail !== null && "locale" in detail && detail.locale === "en"
+        ? "en"
+        : localeHost?.dataset.locale === "en"
+          ? "en"
+          : "zh-CN";
+    renderLocale();
+  };
 
   const onRunClick = (): void => {
     void compileAndRun();
@@ -640,10 +861,13 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   runButton.addEventListener("click", onRunClick);
   diagnoseButton.addEventListener("click", onDiagnoseClick);
   memoryButton.addEventListener("click", onMemoryClick);
+  localeHost?.addEventListener("workbench-locale-change", onLocaleChange);
+  renderLocale();
   void refreshCapabilities();
 
   return Object.freeze({
     refreshCapabilities,
+    runCurrent: compileAndRun,
     invalidateSource(): void {
       if (destroyed) return;
       result.hidden = true;
@@ -655,11 +879,17 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       setProcessEvidenceVisible(false);
       resetProcessDetails();
       if (busy) {
-        operationStatus.textContent = "源码已改变；当前任务结束后将丢弃旧结果。";
+        setOperationMessage(
+          "源码已改变；当前任务结束后将丢弃旧结果。",
+          "Source changed; stale results will be discarded when the current task ends.",
+        );
       } else {
         root.dataset.state = capabilities?.runnerEnabled === true ? "ready" : "disabled";
         delete root.dataset.failureReason;
-        operationStatus.textContent = "源码已改变；旧运行或诊断结果已清除。";
+        setOperationMessage(
+          "源码已改变；旧运行或诊断结果已清除。",
+          "Source changed; stale run or diagnostic results were cleared.",
+        );
       }
     },
     destroy(): void {
@@ -673,6 +903,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       runButton.removeEventListener("click", onRunClick);
       diagnoseButton.removeEventListener("click", onDiagnoseClick);
       memoryButton.removeEventListener("click", onMemoryClick);
+      localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
       root.remove();
     },
   });
@@ -691,14 +922,18 @@ function createElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-function appendDescriptionRow(list: HTMLDListElement, label: string, field: string): HTMLElement {
+function appendDescriptionRow(
+  list: HTMLDListElement,
+  label: string,
+  field: string,
+): { readonly label: HTMLElement; readonly value: HTMLElement } {
   const row = createElement("div", "run-panel__detail-row");
   const term = createElement("dt", "run-panel__detail-label", label);
   const value = createElement("dd", "run-panel__detail-value");
   value.dataset.runField = field;
   row.append(term, value);
   list.append(row);
-  return value;
+  return Object.freeze({ label: term, value });
 }
 
 function createOutputBlock(
@@ -721,27 +956,31 @@ function setOutput(heading: HTMLHeadingElement, block: HTMLPreElement, text: str
   block.hidden = empty;
 }
 
-function runnerModeLabel(capabilities: Capabilities): string {
+function runnerModeLabel(capabilities: Capabilities, locale: InterfaceLocale): string {
   switch (capabilities.mode) {
     case "seatbelt-best-effort":
       return "Seatbelt best-effort";
     case "trusted-only":
-      return "可信代码模式（无 Seatbelt 文件与网络隔离）";
+      return localized(
+        locale,
+        "可信代码模式（无 Seatbelt 文件与网络隔离）",
+        "Trusted-code mode (no Seatbelt file or network isolation)",
+      );
     case "disabled":
-      return "运行器已禁用";
+      return localized(locale, "运行器已禁用", "Runner disabled");
   }
 }
 
-function seatbeltStatusLabel(capabilities: Capabilities): string {
+function seatbeltStatusLabel(capabilities: Capabilities, locale: InterfaceLocale): string {
   const detail = capabilities.seatbeltProbe.detail.trim();
-  const suffix = detail.length > 0 ? `：${detail}` : "";
+  const suffix = detail.length > 0 ? localized(locale, `：${detail}`, `: ${detail}`) : "";
   switch (capabilities.seatbeltProbe.status) {
     case "probe-succeeded":
-      return `可用${suffix}`;
+      return `${localized(locale, "可用", "Available")}${suffix}`;
     case "unavailable":
-      return `不可用${suffix}`;
+      return `${localized(locale, "不可用", "Unavailable")}${suffix}`;
     case "not-checked":
-      return `尚未检查${suffix}`;
+      return `${localized(locale, "尚未检查", "Not checked")}${suffix}`;
   }
 }
 
@@ -749,24 +988,63 @@ function decodeOutput(bytes: Uint8Array): string {
   return outputDecoder.decode(bytes);
 }
 
-function terminationLabel(reason: TerminationReason): string {
-  const labels: Readonly<Record<TerminationReason, string>> = {
-    "not-started": "未启动",
-    "process-exit": "进程退出",
-    "spawn-error": "启动失败",
-    "input-error": "标准输入失败",
-    "wall-time-limit": "超过墙钟时间限制",
-    "output-limit": "超过输出限制",
-    "rss-limit": "超过内存限制",
-    "process-count-limit": "超过进程数限制",
-    "rss-monitor-error": "内存看门狗失败",
+function terminationLabel(reason: TerminationReason, locale: InterfaceLocale): string {
+  const labels: Readonly<Record<InterfaceLocale, Readonly<Record<TerminationReason, string>>>> = {
+    "zh-CN": {
+      "not-started": "未启动",
+      "process-exit": "进程退出",
+      "spawn-error": "启动失败",
+      "input-error": "标准输入失败",
+      "wall-time-limit": "超过墙钟时间限制",
+      "output-limit": "超过输出限制",
+      "rss-limit": "超过内存限制",
+      "process-count-limit": "超过进程数限制",
+      "rss-monitor-error": "内存看门狗失败",
+    },
+    en: {
+      "not-started": "Not started",
+      "process-exit": "Process exited",
+      "spawn-error": "Spawn failed",
+      "input-error": "Standard input failed",
+      "wall-time-limit": "Wall-clock limit exceeded",
+      "output-limit": "Output limit exceeded",
+      "rss-limit": "Memory limit exceeded",
+      "process-count-limit": "Process-count limit exceeded",
+      "rss-monitor-error": "Memory watchdog failed",
+    },
   };
-  return `${labels[reason]}（${reason}）`;
+  return localized(
+    locale,
+    `${labels[locale][reason]}（${reason}）`,
+    `${labels[locale][reason]} (${reason})`,
+  );
 }
 
-function formatInstrumentedCount(value: number | null | undefined): string {
-  if (value === null) return "未启用轨迹插桩";
-  return isNonNegativeSafeInteger(value) ? String(value) : "不可用";
+function formatInstrumentedCount(
+  value: number | null | undefined,
+  locale: InterfaceLocale,
+): string {
+  if (value === null) return localized(locale, "未启用轨迹插桩", "Trace instrumentation disabled");
+  return isNonNegativeSafeInteger(value)
+    ? String(value)
+    : localized(locale, "不可用", "Unavailable");
+}
+
+interface BilingualText {
+  readonly "zh-CN": string;
+  readonly en: string;
+}
+
+function bilingual(zh: string, en: string): BilingualText {
+  return Object.freeze({ "zh-CN": zh, en });
+}
+
+function messageForLocale(message: BilingualText, locale: InterfaceLocale): string {
+  return message[locale];
+}
+
+function localized(locale: InterfaceLocale, zh: string, en: string): string {
+  return locale === "en" ? en : zh;
 }
 
 function formatByteCount(bytes: number): string {

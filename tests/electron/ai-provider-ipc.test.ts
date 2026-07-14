@@ -243,7 +243,9 @@ function mentorRequest() {
     sourceRevision: 2,
     providerRevision: 0,
     contextMode: "current-function" as const,
+    locale: "en" as const,
     prompt: "Explain",
+    history: [],
     context: {
       currentFunction: "int main(void){return 0;}",
       diagnosticSummary: [],

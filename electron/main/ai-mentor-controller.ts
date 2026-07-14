@@ -9,6 +9,7 @@ import {
   type AiProviderId,
   type StartAiMentorRequest,
 } from "../../src/shared/ai-provider.js";
+import { validateAiSourceEditProposal } from "../../src/shared/ai-edit.js";
 import type { AiProviderClient } from "./ai-provider-client.js";
 
 const MAX_TERMINAL_SESSIONS = 32;
@@ -88,17 +89,45 @@ export function createAiMentorController(client: AiProviderClient): AiMentorCont
           credential,
           model,
           request.prompt,
+          request.history,
           request.context,
           session.abortController.signal,
+          request.intent ?? "chat",
+          request.locale,
         )
         .then((result) => {
           if (session.status !== "running") return;
           if (result.status === "failed") {
             session.failure = result;
+          } else if ((request.intent ?? "chat") === "propose-edit" && !("proposal" in result)) {
+            session.failure = aiProviderFailure(
+              "AI_PROVIDER_INVALID_RESPONSE",
+              "AI 改码请求没有返回受验证的提案封包，源码未修改。",
+            );
           } else {
-            session.events = Object.freeze([
+            const events: AiMentorEvent[] = [
               Object.freeze({ sequence: 1, kind: "answer" as const, text: result.text }),
-            ]);
+            ];
+            if ("proposal" in result && result.proposal !== null) {
+              const proposal = validateAiSourceEditProposal(result.proposal);
+              if (proposal === null) {
+                session.failure = aiProviderFailure(
+                  "AI_PROVIDER_INVALID_RESPONSE",
+                  "AI 改码提案未通过结构验证，源码未修改。",
+                );
+                session.status = "completed";
+                return;
+              }
+              events.push(
+                Object.freeze({
+                  sequence: 2,
+                  kind: "proposal" as const,
+                  text: proposal.summary,
+                  proposal,
+                }),
+              );
+            }
+            session.events = Object.freeze(events);
           }
           session.status = "completed";
         })

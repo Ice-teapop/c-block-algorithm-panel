@@ -24,6 +24,7 @@ import {
   type FlowCanvasDraftConnectionIntent,
   type FlowCanvasDraftNode,
   type FlowCanvasDraftVisualState,
+  type FlowCanvasInteractionContext,
   type FlowCanvasVirtualConnectionIntent,
 } from "../ui/flow-canvas.js";
 import {
@@ -53,10 +54,19 @@ import {
 } from "./virtual-flow-overlay.js";
 import type { ProgramAnalysisSnapshot } from "../analysis/index.js";
 import {
+  WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
+  WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
+  quickOpenActivateDetail,
+  quickOpenCollectDetail,
+  quickOpenItemId,
+  type QuickOpenItem,
+} from "../commands/index.js";
+import {
   evidenceForFlowNode,
   type FlowNodeEvidence,
   type FlowNodeRuntimeSnapshot,
 } from "./flow-node-evidence.js";
+import { FlowSourceCommitError } from "./flow-source-editor.js";
 
 export interface FlowWorkbenchControllerOptions {
   readonly elements: WorkbenchElements;
@@ -224,6 +234,65 @@ export function createFlowWorkbenchController(
     readonly drafts: FlowCanvasDraftVisualState;
     readonly sourceMutation: boolean;
   }> = [];
+  const canvasToolbar = required(options.elements.shell, ".canvas-toolbar__actions");
+  const canvasHint = required(options.elements.shell, ".canvas-toolbar__hint");
+  const alignLeftButton = required(
+    canvasToolbar,
+    "button[data-flow-command='align-left']",
+  ) as HTMLButtonElement;
+  const distributeButton = required(
+    canvasToolbar,
+    "button[data-flow-command='distribute-y']",
+  ) as HTMLButtonElement;
+  let canvasInteractionContext: FlowCanvasInteractionContext = Object.freeze({
+    mode: "idle",
+    selectedCount: 0,
+  });
+  let lastLocalizedStatus: {
+    readonly zh: string;
+    readonly en: string;
+    readonly state: "ready" | "warning" | "error";
+  } | null = null;
+
+  const presentLocalizedStatus = (
+    zh: string,
+    en: string,
+    state: "ready" | "warning" | "error",
+  ): void => {
+    lastLocalizedStatus = Object.freeze({ zh, en, state });
+    options.onStatus(options.elements.shell.dataset.locale === "en" ? en : zh, state);
+  };
+
+  const renderCanvasInteractionContext = (): void => {
+    const english = options.elements.shell.dataset.locale === "en";
+    const { mode, selectedCount } = canvasInteractionContext;
+    canvasHint.textContent =
+      mode === "wiring"
+        ? english
+          ? "Drop on a port marked connect · blank space cancels"
+          : "拖到标记“可连接”的端口 · 空白取消"
+        : mode === "edge"
+          ? english
+            ? "Drag the rewire input plug · output stays fixed · Esc cancels"
+            : "拖动“拖动改接”输入插头 · 输出端固定 · Esc 取消"
+          : mode === "multi"
+            ? english
+              ? `${String(selectedCount)} selected · align or distribute`
+              : `已选 ${String(selectedCount)} 个 · 可对齐或纵向分布`
+            : mode === "draft"
+              ? english
+                ? "Drag draft · wire from its right port · double-click to edit"
+                : "拖动草稿 · 从右侧端口接入 · 双击编辑"
+              : mode === "node"
+                ? english
+                  ? "Drag node · drag a port to wire · double-click for details"
+                  : "拖动积木 · 拖端口接线 · 双击打开详情"
+                : english
+                  ? "Drag in blocks · drag blank canvas to pan · wheel to zoom"
+                  : "拖入积木 · 拖空白平移 · 滚轮缩放";
+    alignLeftButton.hidden = mode !== "multi" || selectedCount < 2;
+    distributeButton.hidden = mode !== "multi" || selectedCount < 3;
+  };
 
   const layouts = createWorkbenchLayouts(options.elements, (snapshot) => {
     if (!restoring) persistSnapshot(snapshot.id, snapshot.value);
@@ -298,6 +367,13 @@ export function createFlowWorkbenchController(
     onVirtualConnectionIntent(intent) {
       handleVirtualConnectionIntent(intent);
     },
+    onWireStatus(message, state) {
+      options.onStatus(message, state);
+    },
+    onInteractionContextChange(context) {
+      canvasInteractionContext = context;
+      renderCanvasInteractionContext();
+    },
     onHistoryCheckpoint: () => checkpoint(false),
     onUndo: undo,
     onDraftStateChange(state, reason) {
@@ -366,10 +442,22 @@ export function createFlowWorkbenchController(
         projection === null
           ? Object.freeze({ diagnostics: Object.freeze([]), runtime: null })
           : evidenceForFlowNode(context.node, projection, analysis, runtimeEvidence),
+        options.elements.shell.dataset.locale === "en",
       );
     },
   });
-  const canvasToolbar = required(options.elements.shell, ".canvas-toolbar__actions");
+  const onCanvasLocaleChange = (): void => {
+    renderCanvasInteractionContext();
+    if (lastLocalizedStatus !== null) {
+      const current = lastLocalizedStatus;
+      options.onStatus(
+        options.elements.shell.dataset.locale === "en" ? current.en : current.zh,
+        current.state,
+      );
+    }
+  };
+  options.elements.shell.addEventListener("workbench-locale-change", onCanvasLocaleChange);
+  renderCanvasInteractionContext();
   const onCanvasToolbarClick = (event: Event): void => {
     const target = (event.target as Element | null)?.closest<HTMLButtonElement>(
       "button[data-flow-command]",
@@ -392,6 +480,68 @@ export function createFlowWorkbenchController(
     if (node !== undefined) canvas.focusNode(node.id);
   };
   options.elements.shell.addEventListener(WORKBENCH_REVEAL_FLOW_DETAIL_EVENT, onRevealFlowDetail);
+  const onQuickOpenCollect = (event: Event): void => {
+    const detail = quickOpenCollectDetail(event);
+    const current = projection;
+    if (
+      detail === null ||
+      (detail.scope !== null && detail.scope !== "node") ||
+      current === null ||
+      options.elements.parserStatus.dataset.analysisState === "pending"
+    ) {
+      return;
+    }
+    const english = options.elements.shell.dataset.locale === "en";
+    const functionNames = new Map(current.functions.map((entry) => [entry.id, entry.name]));
+    const items: readonly QuickOpenItem[] = Object.freeze(
+      current.nodes
+        .filter((node) =>
+          quickOpenNodeMatches(
+            node,
+            detail.query,
+            node.functionId === null ? "" : (functionNames.get(node.functionId) ?? ""),
+          ),
+        )
+        .map((node, index) => {
+          const functionName =
+            node.functionId === null ? "全局" : functionNames.get(node.functionId);
+          return Object.freeze({
+            id: quickOpenItemId("node", node.id),
+            kind: "node" as const,
+            targetId: node.id,
+            label: english ? compactQuickOpenNodeSource(node.sourceText, node.kind) : node.label,
+            detail: english
+              ? `${node.functionId === null ? "Global" : (functionName ?? "Function")} · ${node.kind}${node.locked ? " · read-only" : ""}`
+              : `${functionName ?? "函数"} · ${node.kind}${node.locked ? " · 只读" : ""}`,
+            keywords: Object.freeze([
+              node.kind,
+              node.nodeType ?? "",
+              node.sourceText,
+              functionName ?? "",
+            ]),
+            order: index,
+            contextKey: `${current.sourceFingerprint}:${String(current.sourceRevision)}`,
+          });
+        }),
+    );
+    detail.add(items);
+  };
+  const onQuickOpenActivate = (event: Event): void => {
+    const detail = quickOpenActivateDetail(event);
+    if (detail?.item.kind !== "node") return;
+    const current = projection;
+    const contextKey =
+      current === null ? "" : `${current.sourceFingerprint}:${String(current.sourceRevision)}`;
+    const node = current?.nodes.find((candidate) => candidate.id === detail.item.targetId);
+    if (node === undefined || detail.item.contextKey !== contextKey) {
+      options.onStatus("节点结果已因源码变化失效，请重新搜索。", "warning");
+      return;
+    }
+    options.elements.showPage("build");
+    canvas.focusNode(node.id);
+  };
+  options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_COLLECT_EVENT, onQuickOpenCollect);
+  options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT, onQuickOpenActivate);
 
   function handleVirtualConnectionIntent(intent: FlowCanvasVirtualConnectionIntent): void {
     const current = projection;
@@ -459,9 +609,6 @@ export function createFlowWorkbenchController(
       options.onStatus("连接缺少明确的 C 控制流类型；源码未修改。", "error");
       return;
     }
-    const occupiedEdges = current.edges.filter(
-      (edge) => edge.from.nodeId === gesture.fromNodeId && edge.from.portId === gesture.fromPortId,
-    );
     const intent: ConnectionIntent = Object.freeze({
       sourceFingerprint: gesture.sourceFingerprint,
       fromNodeId: gesture.fromNodeId,
@@ -469,15 +616,18 @@ export function createFlowWorkbenchController(
       toNodeId: gesture.toNodeId,
       toPortId: gesture.toPortId,
       kind: gesture.edgeKind,
-      replaceEdgeId: occupiedEdges.length === 1 ? occupiedEdges[0]!.id : null,
+      replaceEdgeId: gesture.replaceEdgeId,
     });
     const plan = planFlowConnection(current, intent);
     if (plan.status === "rejected") {
       options.onStatus(`连接被拒绝：${plan.message}。main.c 未修改。`, "error");
       return;
     }
+    const historyDepth = undoHistory.length;
+    checkpoint(true);
     try {
       const committed = options.onConnectionIntent(intent);
+      if (!committed) undoHistory.splice(historyDepth);
       options.onStatus(
         committed
           ? "连线已通过精确 diff、重解析、无损往返和 CFG 后置条件并写入 main.c。"
@@ -485,8 +635,14 @@ export function createFlowWorkbenchController(
         committed ? "ready" : "warning",
       );
     } catch (error: unknown) {
+      if (!(error instanceof FlowSourceCommitError)) undoHistory.splice(historyDepth);
       const detail = error instanceof Error ? error.message : String(error);
-      options.onStatus(`连线被拒绝：${detail}。main.c 未修改。`, "error");
+      options.onStatus(
+        error instanceof FlowSourceCommitError
+          ? `${detail}。源码撤销快照已保留，请使用 Command/Control+Z 恢复。`
+          : `连线被拒绝：${detail}。main.c 未修改。`,
+        "error",
+      );
     }
   }
 
@@ -587,7 +743,10 @@ export function createFlowWorkbenchController(
     restoring = true;
     try {
       restoreLayouts(sidecar.layouts, layouts, layoutSnapshots);
-      options.elements.applyLayoutPreset(sidecar.layoutPreset);
+      // Sidecar I/O completes asynchronously. Restore the underlying workspace layout without
+      // navigating: otherwise a late read can overwrite a Library/Analysis page the user opened
+      // while the project was loading.
+      options.elements.applyLayoutPreset(sidecar.layoutPreset, { activateWorkspace: false });
       options.elements.setPanelVisibility(sidecar.panelVisibility);
       layoutPreset = sidecar.layoutPreset;
       const sourceMatches =
@@ -603,8 +762,9 @@ export function createFlowWorkbenchController(
       applyProjectionSidecarRestore(restored);
       pendingSidecarRestore = restored.retryable ? Object.freeze({ sidecar, sourceMatches }) : null;
       if (restored.retryable) {
-        options.onStatus(
+        presentLocalizedStatus(
           "布局锚点正在等待后台 CFG；分析完成后会自动恢复，期间不会覆盖 flow-view.json。",
+          "Layout anchors are waiting for the background CFG. They will restore after analysis without overwriting flow-view.json.",
           "ready",
         );
       } else if (restored.issues.length > 0) {
@@ -613,7 +773,11 @@ export function createFlowWorkbenchController(
           "warning",
         );
       } else if (sidecar.schemaVersion === 1) {
-        options.onStatus("旧版 flow-view 已载入；下一次保存将迁移为锚点格式 v2。", "ready");
+        presentLocalizedStatus(
+          "旧版 flow-view 已载入；下一次保存将迁移为锚点格式 v2。",
+          "Legacy flow-view loaded. The next save will migrate it to anchor format v2.",
+          "ready",
+        );
       }
     } finally {
       restoring = false;
@@ -907,9 +1071,18 @@ export function createFlowWorkbenchController(
         WORKBENCH_REVEAL_FLOW_DETAIL_EVENT,
         onRevealFlowDetail,
       );
+      options.elements.shell.removeEventListener(
+        WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
+        onQuickOpenCollect,
+      );
+      options.elements.shell.removeEventListener(
+        WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
+        onQuickOpenActivate,
+      );
       options.elements.flowCanvas.removeEventListener("dragover", onCanvasDragOver);
       options.elements.flowCanvas.removeEventListener("dragleave", onCanvasDragLeave);
       options.elements.flowCanvas.removeEventListener("drop", onCanvasDrop);
+      options.elements.shell.removeEventListener("workbench-locale-change", onCanvasLocaleChange);
       canvasToolbar.removeEventListener("click", onCanvasToolbarClick);
       persistence.destroy();
       canvas.destroy();
@@ -996,38 +1169,49 @@ function renderWorkbenchNodeDetail(
   replaceSource: (node: FlowNode, source: string) => void,
   onStatus: (message: string, state: "ready" | "warning" | "error") => void,
   evidenceSnapshot: FlowNodeEvidence,
+  english = false,
 ): void {
   const { node, body } = context;
   const ownerDocument = body.ownerDocument;
   const explanation = ownerDocument.createElement("section");
   explanation.className = "flow-detail__explanation";
   const heading = ownerDocument.createElement("h3");
-  heading.textContent = "通俗解释";
+  heading.textContent = english ? "Plain-language explanation" : "通俗解释";
   const copy = ownerDocument.createElement("p");
-  copy.textContent = explainNode(node);
+  copy.textContent = explainNode(node, english);
   explanation.append(heading, copy);
 
   const editor = ownerDocument.createElement("section");
   editor.className = "flow-detail__editor";
   const editorHeading = ownerDocument.createElement("h3");
-  editorHeading.textContent = "精确源码编辑";
+  editorHeading.textContent = english ? "Exact source editing" : "精确源码编辑";
   const textarea = ownerDocument.createElement("textarea");
   textarea.value = node.sourceText;
   textarea.spellcheck = false;
   textarea.disabled = node.locked || node.kind === "start" || node.kind === "end";
-  textarea.setAttribute("aria-label", `${node.label} 的 C 源码`);
+  textarea.setAttribute("aria-label", `${node.label}${english ? " C source" : " 的 C 源码"}`);
   const save = ownerDocument.createElement("button");
   save.type = "button";
   save.className = "button button--primary";
-  save.textContent = "验证并写入 main.c";
+  save.textContent = english ? "Validate and write to main.c" : "验证并写入 main.c";
   save.disabled = textarea.disabled;
   save.addEventListener("click", () => {
     try {
       replaceSource(node, textarea.value);
-      onStatus("节点源码已通过重解析与无损往返验证。", "ready");
+      onStatus(
+        english
+          ? "The node source passed reparse and lossless round-trip validation."
+          : "节点源码已通过重解析与无损往返验证。",
+        "ready",
+      );
     } catch (error: unknown) {
       const detail = error instanceof Error ? error.message : String(error);
-      onStatus(`节点修改被拒绝：${detail}`, "error");
+      onStatus(
+        english
+          ? `The node edit was rejected${/[\u3400-\u9fff]/u.test(detail) ? "." : `: ${detail}`}`
+          : `节点修改被拒绝：${detail}`,
+        "error",
+      );
     }
   });
   editor.append(editorHeading, textarea, save);
@@ -1035,45 +1219,86 @@ function renderWorkbenchNodeDetail(
   const evidence = ownerDocument.createElement("section");
   evidence.className = "flow-detail__evidence";
   const evidenceHeading = ownerDocument.createElement("h3");
-  evidenceHeading.textContent = "诊断 / 运行证据 / 生命周期";
+  evidenceHeading.textContent = english
+    ? "Diagnostics / runtime evidence / lifecycle"
+    : "诊断 / 运行证据 / 生命周期";
   const evidenceCopy = ownerDocument.createElement("p");
   const diagnostics =
     evidenceSnapshot.diagnostics.length === 0
-      ? "静态诊断：当前没有与此节点精确绑定的 finding"
-      : `静态诊断：${evidenceSnapshot.diagnostics
+      ? english
+        ? "Static diagnostics: no finding is precisely bound to this node"
+        : "静态诊断：当前没有与此节点精确绑定的 finding"
+      : `${english ? "Static diagnostics: " : "静态诊断："}${evidenceSnapshot.diagnostics
           .map(
             (finding) =>
-              `${finding.ruleId}（${finding.confidence}${finding.subject === null ? "" : ` · ${finding.subject}`}）`,
+              `${finding.ruleId}${english ? " (" : "（"}${finding.confidence}${finding.subject === null ? "" : ` · ${finding.subject}`}${english ? ")" : "）"}`,
           )
-          .join("；")}`;
+          .join(english ? "; " : "；")}`;
   const runtime =
     evidenceSnapshot.runtime === null
-      ? "运行证据：尚无同源码轨迹"
-      : `运行证据：${evidenceSnapshot.runtime.mode === "real" ? "真实" : "教学模拟"}路径访问 ${String(evidenceSnapshot.runtime.visitCount)} 次${evidenceSnapshot.runtime.current ? " · 当前节点" : ""}`;
+      ? english
+        ? "Runtime evidence: no same-source path yet"
+        : "运行证据：尚无同源码轨迹"
+      : english
+        ? `Runtime evidence: ${evidenceSnapshot.runtime.mode === "real" ? "real" : "teaching-simulation"} path visited ${String(evidenceSnapshot.runtime.visitCount)} times${evidenceSnapshot.runtime.current ? " · current node" : ""}`
+        : `运行证据：${evidenceSnapshot.runtime.mode === "real" ? "真实" : "教学模拟"}路径访问 ${String(evidenceSnapshot.runtime.visitCount)} 次${evidenceSnapshot.runtime.current ? " · 当前节点" : ""}`;
   const lock = node.locked
-    ? `锁定：${node.lockReasons.map((reason) => reason.message).join("；")}。现有源码仍可编译运行。`
-    : "生命周期：当前节点来自 main.c 的精确投影。";
-  evidenceCopy.textContent = `${diagnostics}。${runtime}。${lock}`;
+    ? english
+      ? `Locked: ${node.lockReasons.map(englishLockReason).join("; ")}. Existing source can still compile and run.`
+      : `锁定：${node.lockReasons.map((reason) => reason.message).join("；")}。现有源码仍可编译运行。`
+    : english
+      ? "Lifecycle: this node is an exact projection of main.c."
+      : "生命周期：当前节点来自 main.c 的精确投影。";
+  evidenceCopy.textContent = `${diagnostics}${english ? ". " : "。"}${runtime}${english ? ". " : "。"}${lock}`;
   evidence.append(evidenceHeading, evidenceCopy);
   body.append(explanation, editor, evidence);
 }
 
-function explainNode(node: FlowNode): string {
-  const explanations: Readonly<Record<FlowNode["kind"], string>> = Object.freeze({
-    module:
-      "函数外的 include、宏、typedef 或全局声明；它属于 Translation Unit，保留精确源码但不参与函数控制改线。",
-    start: "函数的控制流入口；它用于定位与回放，不会额外生成 C 语句。",
-    end: "函数的控制流出口；return 与自然结束最终汇合到这里。",
-    statement: "按顺序执行的一条 C 语句，通常只有一个控制输出。",
-    declaration: "创建或声明变量，并确定后续语句可引用的名字与类型。",
-    branch: "根据真实条件选择一条分支；分支不是由画布随意指定的。",
-    loop: "重复执行循环体，并在条件不成立时离开循环。",
-    switch: "按表达式值选择 case/default 路径，可合法连接多个分支。",
-    assert: "检查运行时条件；失败会终止当前执行。",
-    control: "改变当前函数的正常顺序，例如 return、break、continue 或 goto。",
-    raw: "解析器无法安全结构化的原始 C 区域；保留源码但禁止危险改线。",
-  });
+function explainNode(node: FlowNode, english = false): string {
+  const explanations: Readonly<Record<FlowNode["kind"], string>> = english
+    ? Object.freeze({
+        module:
+          "An include, macro, typedef, or global declaration outside a function. It belongs to the Translation Unit and preserves exact source without participating in function-level control rewiring.",
+        start:
+          "The function's control-flow entry. It supports location and replay without generating an extra C statement.",
+        end: "The function's control-flow exit. Return statements and natural completion converge here.",
+        statement: "One C statement executed in sequence, usually with a single control output.",
+        declaration:
+          "Creates or declares a variable and establishes the name and type used by later statements.",
+        branch:
+          "Selects a path from the real condition; the canvas cannot choose a branch arbitrarily.",
+        loop: "Repeats the loop body and exits when its condition is false.",
+        switch:
+          "Selects a case/default path from an expression and may legally connect to several branches.",
+        assert: "Checks a runtime condition and terminates the current execution if it fails.",
+        control: "Changes normal function order, such as return, break, continue, or goto.",
+        raw: "A raw C region that the parser cannot safely structure. Source is preserved, while unsafe rewiring remains disabled.",
+      })
+    : Object.freeze({
+        module:
+          "函数外的 include、宏、typedef 或全局声明；它属于 Translation Unit，保留精确源码但不参与函数控制改线。",
+        start: "函数的控制流入口；它用于定位与回放，不会额外生成 C 语句。",
+        end: "函数的控制流出口；return 与自然结束最终汇合到这里。",
+        statement: "按顺序执行的一条 C 语句，通常只有一个控制输出。",
+        declaration: "创建或声明变量，并确定后续语句可引用的名字与类型。",
+        branch: "根据真实条件选择一条分支；分支不是由画布随意指定的。",
+        loop: "重复执行循环体，并在条件不成立时离开循环。",
+        switch: "按表达式值选择 case/default 路径，可合法连接多个分支。",
+        assert: "检查运行时条件；失败会终止当前执行。",
+        control: "改变当前函数的正常顺序，例如 return、break、continue 或 goto。",
+        raw: "解析器无法安全结构化的原始 C 区域；保留源码但禁止危险改线。",
+      });
   return explanations[node.kind];
+}
+
+function englishLockReason(reason: FlowNode["lockReasons"][number]): string {
+  if (reason.code === "partial-cfg") {
+    return `incomplete CFG${reason.partialCode === null ? "" : `: ${reason.partialCode}`}`;
+  }
+  if (reason.code === "raw-block") {
+    return `raw source cannot be safely rewired${reason.rawReason === null ? "" : `: ${reason.rawReason}`}`;
+  }
+  return "source outside a function belongs to the Translation Unit and cannot be control-rewired";
 }
 
 function createWorkbenchLayouts(
@@ -1088,7 +1313,7 @@ function createWorkbenchLayouts(
   const runPanel = required(owner, "#run-panel");
   const scenarioPanel = required(owner, "#scenario-workbench-host");
   const tracePanel = required(owner, "#trace-workbench-host");
-  const executionPanel = required(owner, "#run-host");
+  const executionPanel = required(owner, ".runtime-advanced");
   return Object.freeze([
     layout("main", elements.buildLayout, "horizontal", [
       pane("left", elements.leftPane, 240, 150, 420),
@@ -1126,6 +1351,7 @@ function createWorkbenchLayouts(
     const controller = createResizableLayout(host, {
       axis,
       panes,
+      localeHost: elements.shell,
       onPersist(value) {
         onPersist(Object.freeze({ id, value }));
       },
@@ -1251,6 +1477,33 @@ function isResizableSnapshot(value: unknown): value is ResizableLayoutSnapshot {
     isRecord(value.sizes) &&
     Object.values(value.sizes).every((size) => typeof size === "number" && Number.isFinite(size))
   );
+}
+
+function quickOpenNodeMatches(node: FlowNode, query: string, functionName: string): boolean {
+  const tokens = query
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-Hans-CN")
+    .split(/[^\p{Letter}\p{Number}_#<>.-]+/u)
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+  const searchable = [
+    node.id,
+    node.kind,
+    node.nodeType ?? "",
+    node.label,
+    node.sourceText,
+    functionName,
+  ]
+    .join(" ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-Hans-CN");
+  return tokens.every((token) => searchable.includes(token));
+}
+
+function compactQuickOpenNodeSource(source: string, fallback: string): string {
+  const compact = source.replaceAll(/\s+/gu, " ").trim();
+  if (compact.length === 0) return fallback;
+  return compact.length <= 52 ? compact : `${compact.slice(0, 49)}…`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

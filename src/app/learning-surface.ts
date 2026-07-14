@@ -1,5 +1,13 @@
 import type { CAnalysisSnapshot } from "../core/index.js";
 import {
+  WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
+  WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
+  quickOpenActivateDetail,
+  quickOpenCollectDetail,
+  quickOpenItemId,
+  type QuickOpenItem,
+} from "../commands/index.js";
+import {
   createLearningCatalog,
   type LearningCatalogStorage,
   type PresetBlockKind,
@@ -12,6 +20,7 @@ import {
 } from "../ui/block-library-manager.js";
 import {
   createBlockPalette,
+  filterLearningTemplates,
   type BlockPalette,
   type BlockPaletteCategory,
 } from "../ui/block-palette.js";
@@ -19,6 +28,7 @@ import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
 import { createSoftwareLibrary, type SoftwareLibrary } from "../ui/software-library.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import type { FlowCanvasCompatibleBlockSearchRequest } from "../ui/flow-canvas.js";
+import { searchLibrary } from "../library/index.js";
 import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
 import {
   validateLearningTemplateSource,
@@ -97,7 +107,8 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     options.elements.getPageHost("software-library"),
     {
       onOpenFeature(pageId, targetId) {
-        options.elements.showPage(pageId);
+        if (targetId === "mentor-hints") options.elements.focusPanel("mentor");
+        else options.elements.showPage(pageId);
         globalThis.requestAnimationFrame(() =>
           revealFeatureTarget(options.elements.shell, targetId),
         );
@@ -125,17 +136,90 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     options.elements.focusPanel("presets");
     palette.focusSearch();
   };
-  const onGlobalBlockSearch = (): void => {
-    palette.setCompatibilityFilter(null);
-    options.elements.focusPanel("presets");
-    palette.focusSearch();
+  const onQuickOpenCollect = (event: Event): void => {
+    const detail = quickOpenCollectDetail(event);
+    if (detail === null) return;
+    const snapshot = catalog.snapshot();
+    const english = options.elements.shell.dataset.locale === "en";
+    const stageLabels = new Map(snapshot.stages.map((stage) => [stage.id, stage.label]));
+    const presets: readonly QuickOpenItem[] = Object.freeze(
+      detail.scope !== null && detail.scope !== "preset"
+        ? []
+        : filterLearningTemplates(snapshot, "all", "", "all", null).map((preset, index) =>
+            Object.freeze({
+              id: quickOpenItemId("preset", preset.id),
+              kind: "preset" as const,
+              targetId: preset.id,
+              label: english
+                ? preset.source === null
+                  ? preset.id
+                  : compactQuickOpenSource(preset.source)
+                : preset.label,
+              detail: english
+                ? `Block · ${preset.category} / ${preset.stage}`
+                : `积木 · ${stageLabels.get(preset.stage) ?? preset.stage}`,
+              keywords: Object.freeze([
+                preset.id,
+                preset.label,
+                preset.category,
+                preset.description,
+                preset.source ?? "虚拟流程节点",
+              ]),
+              order: index,
+            }),
+          ),
+    );
+    const library: readonly QuickOpenItem[] = Object.freeze(
+      detail.scope !== null && detail.scope !== "library"
+        ? []
+        : searchLibrary(detail.query, { audiences: ["learner", "help"], limit: 400 }).map(
+            ({ entry }, index) =>
+              Object.freeze({
+                id: quickOpenItemId("library", entry.id),
+                kind: "library" as const,
+                targetId: entry.id,
+                label: english ? (englishAlias(entry.aliases) ?? entry.id) : entry.title,
+                detail: english ? `Library · ${entry.branchId}` : entry.summary,
+                keywords: Object.freeze([
+                  entry.id,
+                  entry.title,
+                  entry.summary,
+                  entry.branchId,
+                  ...entry.aliases,
+                  ...entry.keywords,
+                  entry.syntax?.code ?? "",
+                  entry.complexity ?? "",
+                ]),
+                order: index,
+              }),
+          ),
+    );
+    detail.add(presets);
+    detail.add(library);
+  };
+  const onQuickOpenActivate = (event: Event): void => {
+    const detail = quickOpenActivateDetail(event);
+    if (detail?.item.kind === "preset") {
+      try {
+        options.elements.focusPanel("presets");
+        palette.revealPreset(detail.item.targetId);
+      } catch (error: unknown) {
+        options.elements.importStatus.textContent =
+          error instanceof Error ? error.message : "积木结果已失效，请重新搜索。";
+        options.elements.importStatus.dataset.state = "warning";
+      }
+    } else if (detail?.item.kind === "library") {
+      options.elements.showPage("software-library");
+      softwareLibrary.selectEntry(detail.item.targetId);
+    }
   };
   options.elements.shell.addEventListener("workbench-action", onWorkbenchAction);
   options.elements.shell.addEventListener(
     "flow-canvas-compatible-block-search",
     onCompatibleBlockSearch,
   );
-  options.elements.shell.addEventListener("flow-canvas-global-search", onGlobalBlockSearch);
+  options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_COLLECT_EVENT, onQuickOpenCollect);
+  options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT, onQuickOpenActivate);
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
       if (destroyed) return Promise.resolve();
@@ -168,7 +252,14 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
         "flow-canvas-compatible-block-search",
         onCompatibleBlockSearch,
       );
-      options.elements.shell.removeEventListener("flow-canvas-global-search", onGlobalBlockSearch);
+      options.elements.shell.removeEventListener(
+        WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
+        onQuickOpenCollect,
+      );
+      options.elements.shell.removeEventListener(
+        WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
+        onQuickOpenActivate,
+      );
       softwareLibrary.destroy();
       blockLibrary.destroy();
       palette.destroy();
@@ -210,4 +301,13 @@ function browserStorage(): LearningCatalogStorage | undefined {
   } catch {
     return undefined;
   }
+}
+
+function compactQuickOpenSource(source: string): string {
+  const compact = source.replaceAll(/\s+/gu, " ").trim();
+  return compact.length <= 52 ? compact : `${compact.slice(0, 49)}…`;
+}
+
+function englishAlias(aliases: readonly string[]): string | null {
+  return aliases.find((alias) => /[A-Za-z]/u.test(alias)) ?? null;
 }

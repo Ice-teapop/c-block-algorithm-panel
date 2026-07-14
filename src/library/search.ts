@@ -48,22 +48,25 @@ export function searchLibrary(
 
 function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySearchResult | null {
   const branch = LIBRARY_BRANCHES.find((candidate) => candidate.id === entry.branchId);
+  const english = entry.localizations?.en;
   const fields = {
-    title: normalize(`${entry.id} ${entry.title} ${branch?.label ?? ""}`),
-    alias: normalize(entry.aliases.join(" ")),
-    summary: normalize(entry.summary),
-    detail: normalize(entry.details.join(" ")),
-    keyword: normalize(entry.keywords.join(" ")),
-    code: normalize(entry.example?.code ?? ""),
-    syntax: normalize(entry.syntax?.code ?? ""),
-    complexity: normalize(entry.complexity ?? ""),
-    pitfall: normalize(entry.pitfalls?.join(" ") ?? ""),
-    tutorial: normalize(tutorialSearchText(entry)),
+    title: normalize(`${entry.id} ${entry.title} ${english?.title ?? ""} ${branch?.label ?? ""}`),
+    alias: normalize(`${entry.aliases.join(" ")} ${english?.aliases?.join(" ") ?? ""}`),
+    summary: normalize(`${entry.summary} ${english?.summary ?? ""}`),
+    detail: normalize(`${entry.details.join(" ")} ${english?.details?.join(" ") ?? ""}`),
+    keyword: normalize(`${entry.keywords.join(" ")} ${english?.keywords?.join(" ") ?? ""}`),
+    code: normalize(`${entry.example?.code ?? ""} ${english?.example?.code ?? ""}`),
+    syntax: normalize(`${entry.syntax?.code ?? ""} ${english?.syntax?.code ?? ""}`),
+    complexity: normalize(`${entry.complexity ?? ""} ${english?.complexity ?? ""}`),
+    pitfall: normalize(`${entry.pitfalls?.join(" ") ?? ""} ${english?.pitfalls?.join(" ") ?? ""}`),
+    tutorial: normalize(`${tutorialSearchText(entry)} ${localizedTutorialSearchText(entry)}`),
     related: normalize(
       entry.relatedEntryIds
         .map((id) => {
           const related = LIBRARY_ENTRY_BY_ID.get(id);
-          return related === undefined ? id : `${id} ${related.title} ${related.aliases.join(" ")}`;
+          return related === undefined
+            ? id
+            : `${id} ${related.title} ${related.localizations?.en?.title ?? ""} ${related.aliases.join(" ")}`;
         })
         .join(" "),
     ),
@@ -95,6 +98,25 @@ function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySear
     score,
     matchedFields: Object.freeze([...matched]),
   });
+}
+
+function localizedTutorialSearchText(entry: LibraryEntry): string {
+  const tutorial = entry.localizations?.en?.tutorial;
+  if (tutorial === null || tutorial === undefined) return "";
+  return [
+    tutorial.learningGoals?.join(" ") ?? "",
+    tutorial.completionChecks?.join(" ") ?? "",
+    ...Object.values(tutorial.steps ?? {}).flatMap((step) => [
+      step.title ?? "",
+      step.instruction ?? "",
+      step.check ?? "",
+      step.featureLinkLabel ?? "",
+      ...(step.artifactExamples ?? []).flatMap((example) => [
+        example.caption ?? "",
+        example.code ?? "",
+      ]),
+    ]),
+  ].join(" ");
 }
 
 function tutorialSearchText(entry: LibraryEntry): string {

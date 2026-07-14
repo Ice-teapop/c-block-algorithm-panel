@@ -67,6 +67,31 @@ describe("conservative flow connection planning", () => {
     );
   });
 
+  it("refuses to unplug a read-only canonical control edge", () => {
+    const { projection } = analyzeFlowFixture(
+      parser,
+      "int f(void) { int x = 0; x++; x += 2; return x; }",
+    );
+    const increment = nodeBySource(projection, "x++;");
+    const returnNode = nodeBySource(projection, "return x;");
+    const existing = outgoingEdge(projection, increment, "next");
+    const readOnlyProjection = Object.freeze({
+      ...projection,
+      edges: Object.freeze(
+        projection.edges.map((edge) =>
+          edge.id === existing.id ? Object.freeze({ ...edge, editable: false }) : edge,
+        ),
+      ),
+    });
+
+    expect(
+      planFlowConnection(
+        readOnlyProjection,
+        intent(readOnlyProjection, increment, returnNode, "next", existing),
+      ),
+    ).toEqual(expect.objectContaining({ status: "rejected", code: "replacement-mismatch" }));
+  });
+
   it("keeps if ports independent and requires replacement for an occupied branch", () => {
     const { projection } = analyzeFlowFixture(
       parser,

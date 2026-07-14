@@ -20,6 +20,7 @@ import { tags } from "@lezer/highlight";
 
 import type { TextPatch } from "../core/editing/index.js";
 import type { TextRange } from "../core/model.js";
+import type { InterfaceLocale } from "../shared/interface-locale.js";
 import {
   createSourceOffsetMap,
   editorToSource,
@@ -54,6 +55,7 @@ export interface CodePaneInputOptions {
 }
 
 export interface CodePaneOptions extends CodePaneInputOptions {
+  readonly localeHost?: HTMLElement | undefined;
   readonly onSourceOffset: (sourceOffset: number) => void;
   readonly onSourceChange?: (source: string, reason: CodeSourceChangeReason) => void;
 }
@@ -134,6 +136,9 @@ const highlightField = StateField.define<DecorationSet>({
 /** Creates an exact-source CodeMirror surface whose direct typing is explicitly opt-in. */
 export function createCodePane(host: HTMLElement, options: CodePaneOptions): CodePane {
   const editable = options.editable ?? false;
+  const localeHost = options.localeHost ?? host;
+  const currentLocale = (): InterfaceLocale =>
+    localeHost.dataset.locale === "en" ? "en" : "zh-CN";
   const inputExtensions = createCodePaneInputExtensions(options);
   let exactSource = "";
   let offsetMap = createSourceOffsetMap(exactSource);
@@ -161,7 +166,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
     inputExtensions,
     EditorView.cspNonce.of(__CODEMIRROR_STYLE_NONCE__),
     EditorView.contentAttributes.of({
-      "aria-label": editable ? "C 源码编辑器" : "C 源码（只读）",
+      "aria-label": codePaneAriaLabel(editable, currentLocale()),
       "aria-readonly": String(!editable),
       "aria-multiline": "true",
       tabindex: "0",
@@ -188,6 +193,10 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   ];
   const state = createExactSourceState("", editorExtensions);
   const view = new EditorView({ state, parent: mount });
+  const onLocaleChange = (): void => {
+    view.contentDOM.setAttribute("aria-label", codePaneAriaLabel(editable, currentLocale()));
+  };
+  localeHost.addEventListener("workbench-locale-change", onLocaleChange);
 
   const renderHighlightLayers = (): void => {
     const decorations = [...selectionHighlights, ...diagnosticHighlights].map((highlight) => {
@@ -294,10 +303,16 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       }
       destroyed = true;
       sourceNotifications.destroy();
+      localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       view.destroy();
       mount.remove();
     },
   };
+}
+
+export function codePaneAriaLabel(editable: boolean, locale: InterfaceLocale): string {
+  if (locale === "en") return editable ? "C source editor" : "C source (read only)";
+  return editable ? "C 源码编辑器" : "C 源码（只读）";
 }
 
 /** Builds the direct-input gate separately so its atomic behavior can be verified without a DOM. */

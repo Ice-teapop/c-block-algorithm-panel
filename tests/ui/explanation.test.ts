@@ -109,27 +109,63 @@ describe("M2 deterministic explanation", () => {
   });
 
   it.each([
-    ["function_definition", "function", "函数"],
-    ["declaration", "declaration", "声明"],
-    ["if_statement", "statement", "if 条件分支"],
-    ["while_statement", "statement", "while 循环"],
-    ["do_statement", "statement", "do-while 循环"],
-    ["switch_statement", "statement", "switch 分支"],
-    ["case_statement", "statement", "case 分支"],
-    ["return_statement", "statement", "return 返回"],
-    ["break_statement", "statement", "break 跳出"],
-    ["continue_statement", "statement", "continue 继续下一轮"],
-    ["goto_statement", "statement", "goto 跳转"],
-    ["labeled_statement", "statement", "语句标签"],
-    ["expression_statement", "statement", "表达式语句"],
-    ["preproc_include", "preprocessor", "包含头文件"],
-    ["preproc_def", "preprocessor", "定义对象宏"],
-    ["preproc_ifdef", "preprocessor", "条件编译"],
-  ] as const)("uses the %s syntax template", (nodeType, role, expectedTitle) => {
-    const source = "placeholder";
-    const block = syntaxBlock(nodeType, role, 0, source.length);
+    ["function_definition", "function", "函数", "Function"],
+    ["declaration", "declaration", "声明", "Declaration"],
+    ["if_statement", "statement", "if 条件分支", "if branch"],
+    ["while_statement", "statement", "while 循环", "while loop"],
+    ["do_statement", "statement", "do-while 循环", "do-while loop"],
+    ["switch_statement", "statement", "switch 分支", "switch branch"],
+    ["case_statement", "statement", "case 分支", "case branch"],
+    ["return_statement", "statement", "return 返回", "return"],
+    ["break_statement", "statement", "break 跳出", "break"],
+    ["continue_statement", "statement", "continue 继续下一轮", "continue"],
+    ["goto_statement", "statement", "goto 跳转", "goto"],
+    ["labeled_statement", "statement", "语句标签", "Statement label"],
+    ["expression_statement", "statement", "表达式语句", "Expression statement"],
+    ["preproc_include", "preprocessor", "包含头文件", "Include header"],
+    ["preproc_def", "preprocessor", "定义对象宏", "Define object-like macro"],
+    ["preproc_ifdef", "preprocessor", "条件编译", "Conditional compilation"],
+  ] as const)(
+    "uses the %s syntax template in both locales",
+    (nodeType, role, expectedChineseTitle, expectedEnglishTitle) => {
+      const source = "placeholder";
+      const block = syntaxBlock(nodeType, role, 0, source.length);
 
-    expect(explainBlock(sourceDoc(source, block), block).title).toBe(expectedTitle);
+      expect(explainBlock(sourceDoc(source, block), block).title).toBe(expectedChineseTitle);
+      expect(explainBlock(sourceDoc(source, block), block, undefined, "en").title).toBe(
+        expectedEnglishTitle,
+      );
+    },
+  );
+
+  it("localizes raw and fallback templates without translating source-derived content", () => {
+    const rawSource = "int main( {";
+    const rawBlock: Block = Object.freeze({
+      kind: "raw",
+      reason: "parse-error",
+      range: textRange(0, rawSource.length),
+      children: Object.freeze([]),
+    });
+    const raw = explainBlock(sourceDoc(rawSource, rawBlock), rawBlock, undefined, "en");
+    expect(raw.title).toBe("Raw C (parse recovery)");
+    expect(raw.summary).toContain("preserved verbatim");
+
+    const source = "custom_node;";
+    const fallbackBlock = syntaxBlock("custom_statement", "statement", 0, source.length);
+    const document = sourceDoc(source, fallbackBlock, {
+      concerns: [
+        Object.freeze({
+          code: "unknown-type-name",
+          confidence: "low",
+          blockRange: fallbackBlock.range,
+          evidenceRange: textRange(0, 6),
+          message: "用户提供的诊断原文",
+        }),
+      ],
+    });
+    const fallback = explainBlock(document, fallbackBlock, undefined, "en");
+    expect(fallback.title).toBe("C statement");
+    expect(fallback.concerns).toEqual(["用户提供的诊断原文"]);
   });
 
   it("deep-freezes the complete explanation graph", () => {

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "io.han.c-block-algorithm-panel",
+  "productName": "C 积木算法面板",
+  "asar": true,
+  "electronDownload": {
+    "force": false,
+    "checksums": {
+      "electron-v43.0.0-darwin-arm64.zip": "e6994f68dba65a6371577eaf68ac69a5858d2c52371869837c64affc6157eca5",
+      "electron-v43.0.0-darwin-x64.zip": "c0102711ff41d8329426e2ca7378fa13a467775e721b69ebe413c0898da14f6e"
+    }
+  },
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json",
+    "package-lock.json",
+    "LICENSE",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "PRIVACY.md",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ],
+  "mac": {
+    "category": "public.app-category.education",
+    "icon": "build/icon.icns",
+    "identity": null,
+    "hardenedRuntime": false,
+    "notarize": false,
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["universal"]
+      }
+    ],
+    "artifactName": "c-block-algorithm-panel-${version}-${arch}.${ext}"
+  },
+  "dmg": {
+    "sign": false,
+    "title": "C 积木算法面板 ${version}",
+    "backgroundColor": "#ffffff",
+    "contents": [
+      {
+        "x": 140,
+        "y": 220
+      },
+      {
+        "x": 400,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  }
+}

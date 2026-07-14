@@ -46,6 +46,36 @@ describe("CodeMirror CSP nonce Vite configuration", () => {
       ),
     ).toThrow(/只能包含一个/u);
   });
+
+  it("emits each sandboxed preload as one self-contained CJS file", async () => {
+    const [mainPreload, aiPreload] = await Promise.all([
+      resolveViteConfig({ command: "build", mode: "electron-preload" }),
+      resolveViteConfig({ command: "build", mode: "electron-ai-preload" }),
+    ]);
+    expect(preloadOutput(mainPreload)).toMatchObject({
+      entryFileNames: "index.cjs",
+      format: "cjs",
+      codeSplitting: false,
+    });
+    expect(preloadOutput(aiPreload)).toMatchObject({
+      entryFileNames: "ai-window.cjs",
+      format: "cjs",
+      codeSplitting: false,
+    });
+    expect(mainPreload.build?.emptyOutDir).toBe(true);
+    expect(aiPreload.build?.emptyOutDir).toBe(false);
+  });
+
+  it("loads the native AI window CSS as a CSP-compatible external stylesheet", async () => {
+    const [html, componentSource] = await Promise.all([
+      readFile(new URL("../../ai-window.html", import.meta.url), "utf8"),
+      readFile(new URL("../../src/ui/ai-workspace-window.ts", import.meta.url), "utf8"),
+    ]);
+    expect(html).toContain('<link rel="stylesheet" href="/src/ui/ai-workspace-window.css" />');
+    expect(html).toContain("style-src 'self'");
+    expect(html).not.toContain("unsafe-inline");
+    expect(componentSource).not.toContain('import "./ai-workspace-window.css"');
+  });
 });
 
 async function resolveViteConfig(environment: ConfigEnv): Promise<UserConfig> {
@@ -65,4 +95,13 @@ function configuredNonce(config: UserConfig): string {
     throw new TypeError("CodeMirror nonce define 必须序列化为 string");
   }
   return nonce;
+}
+
+function preloadOutput(config: UserConfig): Record<string, unknown> {
+  const output = config.build?.rollupOptions?.output;
+  const resolved = Array.isArray(output) ? output[0] : output;
+  if (resolved === undefined || typeof resolved === "function") {
+    throw new TypeError("Preload output configuration is unavailable");
+  }
+  return resolved as Record<string, unknown>;
 }

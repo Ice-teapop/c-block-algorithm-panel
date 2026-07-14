@@ -58,9 +58,37 @@ describe("projection presenter", () => {
       expect(unstable.editStatus).not.toHaveBeenCalled();
     }
   });
+
+  it("reprojects every visible state when the interface switches to English", () => {
+    const harness = presenterHarness("synced", "en");
+    harness.presenter.pending("int main(", "undo");
+    expect(harness.parserStatus.textContent).toBe("Reparsing the current C source…");
+    expect(harness.importStatus).toHaveBeenLastCalledWith(
+      "Undo written to the source; synchronizing blocks.",
+      "loading",
+    );
+
+    harness.presenter.held("int main(", {
+      kind: "analysis-failed",
+      error: new Error("解析失败"),
+    });
+    expect(harness.projectionState).toHaveBeenLastCalledWith(
+      "held",
+      "The current source cannot form a stable projection: the parser did not return a stable structure",
+    );
+    expect(harness.parserStatus.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+
+    harness.setLocale("zh-CN");
+    expect(harness.parserStatus.textContent).toBe("积木投影已暂停，等待代码恢复稳定");
+    harness.presenter.destroy();
+    expect(harness.localeListeners.size).toBe(0);
+  });
 });
 
-function presenterHarness(mode: "synced" | "pending" | "held" | "recovery") {
+function presenterHarness(
+  mode: "synced" | "pending" | "held" | "recovery",
+  initialLocale: "zh-CN" | "en" = "zh-CN",
+) {
   const blockInteraction = vi.fn();
   const structureSelection = vi.fn();
   const projectionState = vi.fn();
@@ -68,7 +96,21 @@ function presenterHarness(mode: "synced" | "pending" | "held" | "recovery") {
   const editStatus = vi.fn();
   const adopt = vi.fn();
   const sourceMeta = { textContent: "", dataset: {} };
-  const parserStatus = { textContent: "", dataset: {} as Record<string, string> };
+  const localeListeners = new Set<() => void>();
+  const localeHost = {
+    dataset: { locale: initialLocale },
+    addEventListener(_name: string, listener: () => void) {
+      localeListeners.add(listener);
+    },
+    removeEventListener(_name: string, listener: () => void) {
+      localeListeners.delete(listener);
+    },
+  };
+  const parserStatus = {
+    textContent: "",
+    dataset: {} as Record<string, string>,
+    closest: () => localeHost,
+  };
   const presenter = createProjectionPresenter({
     elements: { sourceMeta, parserStatus } as never,
     blockTree: { setInteractionEnabled: blockInteraction },
@@ -87,5 +129,11 @@ function presenterHarness(mode: "synced" | "pending" | "held" | "recovery") {
     importStatus,
     editStatus,
     adopt,
+    parserStatus,
+    localeListeners,
+    setLocale(locale: "zh-CN" | "en") {
+      localeHost.dataset.locale = locale;
+      for (const listener of localeListeners) listener();
+    },
   };
 }

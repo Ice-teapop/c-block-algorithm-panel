@@ -3,11 +3,11 @@ import { createRequire } from "node:module";
 import { assertReleaseGateOrder } from "./lib/installed-dmg-gate.mjs";
 
 const expected = Object.freeze({
-  version: "0.1.0-beta.12",
+  version: "0.0.1",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   repository: "https://github.com/Ice-teapop/c-block-algorithm-panel.git",
-  builderConfig: "build/electron-builder.beta.json",
+  builderConfig: "build/electron-builder.release.json",
 });
 
 const root = new URL("../", import.meta.url);
@@ -48,7 +48,7 @@ const [
   readJson("package-lock.json"),
   readJson(expected.builderConfig),
   readText(".github/workflows/ci.yml"),
-  readText(".github/workflows/release-beta.yml"),
+  readText(".github/workflows/release.yml"),
   readText("scripts/verify-toolchain.mjs"),
   readText("scripts/verify-installed-dmg.mjs"),
   readText("scripts/lib/installed-dmg-gate.mjs"),
@@ -61,7 +61,7 @@ const [
 ]);
 
 check(manifest.version === expected.version, `package version 必须为 ${expected.version}`);
-check(/^\d+\.\d+\.\d+-beta\.\d+$/u.test(manifest.version), "未签名构建只允许 beta 预发布版本");
+check(/^0\.\d+\.\d+$/u.test(manifest.version), "当前未签名发布链只允许 0.x.y 初始版本");
 check(manifest.private === true, "npm 包必须保持 private，防止误发布到 npm");
 check(manifest.license === "MIT", "package license 必须为 MIT");
 check(manifest.packageManager === expected.npm, `packageManager 必须为 ${expected.npm}`);
@@ -70,11 +70,15 @@ check(nvmrc.trim() === "24.14.0", ".nvmrc 必须固定当前 Node 24 LTS");
 check(nodeVersion.trim() === "24.14.0", ".node-version 必须固定当前 Node 24 LTS");
 check(manifest.repository?.url === expected.repository, "GitHub repository 元数据不正确");
 check(
-  manifest.build?.extends === "file:build/electron-builder.beta.json",
-  "package.json 默认 build 必须继承 beta 配置，禁止形成第二套发布边界",
+  manifest.build?.extends === `file:${expected.builderConfig}`,
+  "package.json 默认 build 必须继承 release 配置",
 );
 check(manifest.build?.mac?.icon === "build/icon.icns", "package.json 缺少 macOS 图标入口");
 check(manifest.scripts?.["accept:m9"] === "node scripts/accept-m9.mjs", "缺少 accept:m9");
+check(
+  manifest.scripts?.["notices:check"] === "node scripts/generate-third-party-notices.mjs --check",
+  "缺少 notices:check",
+);
 check(
   manifest.scripts?.["verify:installed-dmg"] === "node scripts/verify-installed-dmg.mjs",
   "缺少 verify:installed-dmg",
@@ -89,8 +93,8 @@ for (const milestone of ["m6", "m7", "m8", "m6-m8"]) {
     `缺少 accept:${milestone}`,
   );
 }
-includes(manifest.scripts?.["dist:mac:beta"] ?? "", expected.builderConfig, "dist:mac:beta");
-includes(manifest.scripts?.["dist:mac:beta"] ?? "", "--publish never", "dist:mac:beta");
+includes(manifest.scripts?.["dist:mac"] ?? "", expected.builderConfig, "dist:mac");
+includes(manifest.scripts?.["dist:mac"] ?? "", "--publish never", "dist:mac");
 
 const directPlatformPin = "@typescript/typescript-darwin-arm64";
 check(
@@ -123,29 +127,41 @@ for (const packagedDocument of [
   "package-lock.json",
   "LICENSE",
   "NOTICE.md",
+  "THIRD_PARTY_NOTICES.md",
   "PRIVACY.md",
   "SECURITY.md",
 ]) {
-  check(builder.files?.includes(packagedDocument), `beta 包未包含 ${packagedDocument}`);
+  check(builder.files?.includes(packagedDocument), `发布包未包含 ${packagedDocument}`);
 }
-check(builder.mac?.identity === null, "beta 配置必须显式设置 mac.identity=null");
-check(builder.mac?.hardenedRuntime === false, "beta 配置必须显式禁用 Hardened Runtime");
-check(builder.mac?.notarize === false, "beta 配置必须显式禁用 notarization");
-check(builder.dmg?.sign === false, "beta DMG 必须显式设置 sign=false");
+check(builder.mac?.identity === null, "未签名配置必须显式设置 mac.identity=null");
+check(builder.electronDownload?.force === false, "Electron 下载缓存不得被强制绕过");
+check(
+  builder.electronDownload?.checksums?.["electron-v43.0.0-darwin-arm64.zip"] ===
+    "e6994f68dba65a6371577eaf68ac69a5858d2c52371869837c64affc6157eca5",
+  "Electron arm64 官方 SHA-256 必须固定",
+);
+check(
+  builder.electronDownload?.checksums?.["electron-v43.0.0-darwin-x64.zip"] ===
+    "c0102711ff41d8329426e2ca7378fa13a467775e721b69ebe413c0898da14f6e",
+  "Electron x64 官方 SHA-256 必须固定",
+);
+check(builder.mac?.hardenedRuntime === false, "未签名配置必须显式禁用 Hardened Runtime");
+check(builder.mac?.notarize === false, "未签名配置必须显式禁用 notarization");
+check(builder.dmg?.sign === false, "未签名 DMG 必须显式设置 sign=false");
 check(
   builder.mac?.artifactName === "c-block-algorithm-panel-${version}-${arch}.${ext}",
   "DMG artifactName 必须包含版本、架构和扩展名",
 );
 
 const macTargets = builder.mac?.target;
-check(Array.isArray(macTargets) && macTargets.length === 1, "beta 只应声明一个 macOS target");
+check(Array.isArray(macTargets) && macTargets.length === 1, "发布配置只应声明一个 macOS target");
 const dmgTarget = Array.isArray(macTargets) ? macTargets[0] : undefined;
-check(dmgTarget?.target === "dmg", "beta target 必须为 DMG");
+check(dmgTarget?.target === "dmg", "发布 target 必须为 DMG");
 check(
   Array.isArray(dmgTarget?.arch) &&
     dmgTarget.arch.length === 1 &&
     dmgTarget.arch[0] === "universal",
-  "beta DMG 必须只构建 universal 架构",
+  "发布 DMG 必须只构建 universal 架构",
 );
 
 try {
@@ -166,7 +182,7 @@ includes(installedDmgGate, 'runFile("/usr/bin/ditto"', "verify-installed-dmg");
 includes(installedDmgGate, '"/usr/bin/lipo"', "verify-installed-dmg");
 includes(installedDmgGate, 'asarCli, "list", asarPath', "verify-installed-dmg");
 includes(installedDmgGate, "app.isPackaged", "verify-installed-dmg");
-includes(installedDmgGate, 'name: "新建"', "verify-installed-dmg");
+includes(installedDmgGate, '[data-tour-target="create-entry"]', "verify-installed-dmg");
 includes(installedDmgGate, "mountDmgArguments(dmgPath, mountPoint)", "verify-installed-dmg");
 includes(installedDmgGate, "await detachMountedDmg(mountPoint)", "verify-installed-dmg");
 includes(installedDmgGate, "executablePath,", "verify-installed-dmg");
@@ -190,7 +206,7 @@ check(
     installedDmgGate.indexOf("application = await electron.launch"),
   "verify-installed-dmg 必须先卸载 DMG 再启动复制后的应用",
 );
-includes(gitignore, "!/build/electron-builder.beta.json", ".gitignore");
+includes(gitignore, "!/build/electron-builder.release.json", ".gitignore");
 includes(license, "MIT License", "LICENSE");
 includes(license, "Copyright (c) 2026 HAN Chen", "LICENSE");
 
@@ -210,6 +226,7 @@ includes(ci, "node-version: 24", "CI");
 includes(ci, "npm install --global npm@11.11.0", "CI");
 includes(ci, "npm ci", "CI");
 includes(ci, "npm run accept:m9", "CI");
+includes(ci, "npm run notices:check", "CI");
 includes(ci, "npm test", "CI");
 includes(ci, "npm run accept:m0-m5-regression", "CI");
 includes(ci, "npm run build", "CI");
@@ -218,10 +235,15 @@ includes(ci, "id: electron_e2e", "CI");
 includes(ci, "steps.electron_e2e.outcome == 'failure'", "CI");
 includes(ci, "Upload Electron failure traces", "CI");
 includes(ci, "${{ runner.temp }}/c-block-algorithm-panel-playwright", "CI");
+includes(ci, "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683", "CI");
+includes(ci, "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020", "CI");
+includes(ci, "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "CI");
+includes(ci, "persist-credentials: false", "CI");
 
 includes(release, '      - "v*"', "release workflow");
 includes(release, "RELEASE_TAG: ${{ github.ref_name }}", "release workflow");
 includes(release, "npm run accept:m9", "release workflow");
+includes(release, "npm run notices:check", "release workflow");
 includes(release, "npm run accept:m6", "release workflow");
 includes(release, "npm run accept:m7", "release workflow");
 includes(release, "npm run accept:m8", "release workflow");
@@ -231,17 +253,36 @@ includes(release, "id: electron_e2e", "release workflow");
 includes(release, "steps.electron_e2e.outcome == 'failure'", "release workflow");
 includes(release, "Upload Electron failure traces", "release workflow");
 includes(release, "${{ runner.temp }}/c-block-algorithm-panel-playwright", "release workflow");
-includes(release, "npm run dist:mac:beta", "release workflow");
+includes(release, "npm run dist:mac", "release workflow");
 includes(release, "npm run verify:installed-dmg", "release workflow");
 includes(release, "shasum -a 256", "release workflow");
 includes(release, "shasum -a 256 --check", "release workflow");
-includes(release, "uses: actions/upload-artifact@v4", "release workflow");
+includes(
+  release,
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "release workflow",
+);
+includes(
+  release,
+  "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+  "release workflow",
+);
+includes(release, "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683", "release workflow");
+includes(
+  release,
+  "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+  "release workflow",
+);
+includes(release, "persist-credentials: false", "release workflow");
+includes(release, "permissions:\n      contents: write", "release publish job");
 includes(release, "gh release view", "release workflow");
 includes(release, "gh release edit", "release workflow");
 includes(release, "gh release create", "release workflow");
 includes(release, "gh release upload", "release workflow");
 includes(release, "--verify-tag", "release workflow");
-includes(release, "--prerelease", "release workflow");
+includes(release, "--latest", "release workflow");
+includes(release, 'notes_file="docs/releases/${GITHUB_REF_NAME}.md"', "release workflow");
+check(!release.includes("--prerelease"), "v0.0.1 正式 GitHub Release 不得标记为 prerelease");
 includes(playwrightConfiguration, "process.env.RUNNER_TEMP ?? tmpdir()", "Playwright config");
 includes(playwrightConfiguration, '"c-block-algorithm-panel-playwright"', "Playwright config");
 try {
@@ -265,5 +306,5 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(`✓ M9 发布基础通过：${checks} 项离线配置检查`);
-  console.log("  Universal DMG 仍是未签名、未公证 beta；稳定版不得使用此配置。");
+  console.log("  v0.0.1 为公开 GitHub Release；Universal DMG 仍明确未签名、未公证。");
 }

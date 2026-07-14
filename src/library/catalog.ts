@@ -4,11 +4,14 @@ import type {
   LibraryBranchId,
   LibraryCodeExample,
   LibraryEntry,
+  LibraryEntryLocalization,
+  LibraryEntryLocalizations,
   LibraryEntryInput,
   LibraryFeatureLink,
   LibraryTutorial,
   LibraryTutorialArtifactKind,
 } from "./contracts.js";
+import { ENGLISH_LIBRARY_ENTRY_LOCALIZATIONS } from "./english-localizations.js";
 import { DSA_LIBRARY_ENTRIES } from "./entries-dsa.js";
 import { LANGUAGE_LIBRARY_ENTRIES } from "./entries-language.js";
 import { PLATFORM_LIBRARY_ENTRIES } from "./entries-platform.js";
@@ -86,6 +89,11 @@ function normalizeCatalog(inputs: readonly LibraryEntryInput[]): readonly Librar
     const pitfalls = uniqueText(input.pitfalls ?? []);
     const featureLink = normalizeFeatureLink(input.featureLink, `${input.id}.featureLink`);
     const tutorial = normalizeTutorial(input);
+    const localizations = normalizeLocalizations(
+      input.localizations?.en ?? ENGLISH_LIBRARY_ENTRY_LOCALIZATIONS[input.id],
+      input.id,
+      tutorial,
+    );
     return Object.freeze({
       id: input.id,
       branchId: input.branchId,
@@ -102,6 +110,7 @@ function normalizeCatalog(inputs: readonly LibraryEntryInput[]): readonly Librar
       complexity: normalizeComplexity(input),
       pitfalls,
       tutorial,
+      localizations,
     });
   });
 
@@ -136,6 +145,135 @@ function normalizeCatalog(inputs: readonly LibraryEntryInput[]): readonly Librar
         left.id.localeCompare(right.id, "en"),
     ),
   );
+}
+
+function normalizeLocalizations(
+  english: LibraryEntryLocalization | undefined,
+  entryId: string,
+  tutorial: LibraryTutorial | null,
+): LibraryEntryLocalizations | undefined {
+  if (english === undefined) return undefined;
+  const text = (value: string | undefined, field: string): string | undefined =>
+    value === undefined ? undefined : requireText(value, `${entryId}.localizations.en.${field}`);
+  const textList = (
+    values: readonly string[] | undefined,
+    field: string,
+  ): readonly string[] | undefined =>
+    values === undefined
+      ? undefined
+      : Object.freeze(
+          values.map((value, index) =>
+            requireText(value, `${entryId}.localizations.en.${field}[${String(index)}]`),
+          ),
+        );
+  const example = (
+    value: LibraryEntryLocalization["example"],
+    field: string,
+  ): LibraryEntryLocalization["example"] => {
+    if (value === undefined || value === null) return value;
+    return Object.freeze({
+      ...(value.caption === undefined ? {} : { caption: text(value.caption, `${field}.caption`) }),
+      ...(value.code === undefined ? {} : { code: text(value.code, `${field}.code`) }),
+    });
+  };
+  const tutorialLocalization = english.tutorial;
+  let localizedTutorial: LibraryEntryLocalization["tutorial"];
+  if (tutorialLocalization === undefined || tutorialLocalization === null) {
+    localizedTutorial = tutorialLocalization;
+  } else {
+    if (tutorial === null) {
+      throw new TypeError(`${entryId}.localizations.en.tutorial 缺少对应教程`);
+    }
+    const steps: Record<string, NonNullable<typeof tutorialLocalization.steps>[string]> = {};
+    for (const [stepId, stepLocalization] of Object.entries(tutorialLocalization.steps ?? {})) {
+      const sourceStep = tutorial.steps.find((step) => step.id === stepId);
+      if (sourceStep === undefined) {
+        throw new TypeError(`${entryId}.localizations.en.tutorial.steps.${stepId} 不存在`);
+      }
+      const artifacts = stepLocalization.artifactExamples;
+      if (artifacts !== undefined && artifacts.length > sourceStep.artifacts.length) {
+        throw new TypeError(`${entryId}.localizations.en.tutorial.steps.${stepId} 附件翻译过多`);
+      }
+      steps[stepId] = Object.freeze({
+        ...(stepLocalization.title === undefined
+          ? {}
+          : { title: text(stepLocalization.title, `tutorial.steps.${stepId}.title`) }),
+        ...(stepLocalization.instruction === undefined
+          ? {}
+          : {
+              instruction: text(
+                stepLocalization.instruction,
+                `tutorial.steps.${stepId}.instruction`,
+              ),
+            }),
+        ...(artifacts === undefined
+          ? {}
+          : {
+              artifactExamples: Object.freeze(
+                artifacts.map((artifact, index) => {
+                  const normalizedArtifact = example(
+                    artifact,
+                    `tutorial.steps.${stepId}.artifacts[${String(index)}]`,
+                  );
+                  if (normalizedArtifact === null || normalizedArtifact === undefined) {
+                    throw new TypeError(
+                      `${entryId}.localizations.en.tutorial.steps.${stepId} 附件翻译无效`,
+                    );
+                  }
+                  return normalizedArtifact;
+                }),
+              ),
+            }),
+        ...(stepLocalization.featureLinkLabel === undefined
+          ? {}
+          : {
+              featureLinkLabel: text(
+                stepLocalization.featureLinkLabel,
+                `tutorial.steps.${stepId}.featureLinkLabel`,
+              ),
+            }),
+        ...(stepLocalization.check === undefined
+          ? {}
+          : { check: text(stepLocalization.check, `tutorial.steps.${stepId}.check`) }),
+      });
+    }
+    localizedTutorial = Object.freeze({
+      ...(tutorialLocalization.learningGoals === undefined
+        ? {}
+        : {
+            learningGoals: textList(tutorialLocalization.learningGoals, "tutorial.learningGoals"),
+          }),
+      steps: Object.freeze(steps),
+      ...(tutorialLocalization.completionChecks === undefined
+        ? {}
+        : {
+            completionChecks: textList(
+              tutorialLocalization.completionChecks,
+              "tutorial.completionChecks",
+            ),
+          }),
+    });
+  }
+  const normalized: LibraryEntryLocalization = Object.freeze({
+    ...(english.title === undefined ? {} : { title: text(english.title, "title") }),
+    ...(english.summary === undefined ? {} : { summary: text(english.summary, "summary") }),
+    ...(english.details === undefined ? {} : { details: textList(english.details, "details") }),
+    ...(english.aliases === undefined ? {} : { aliases: textList(english.aliases, "aliases") }),
+    ...(english.keywords === undefined ? {} : { keywords: textList(english.keywords, "keywords") }),
+    ...(english.example === undefined ? {} : { example: example(english.example, "example") }),
+    ...(english.syntax === undefined ? {} : { syntax: example(english.syntax, "syntax") }),
+    ...(english.complexity === undefined
+      ? {}
+      : {
+          complexity: english.complexity === null ? null : text(english.complexity, "complexity"),
+        }),
+    ...(english.pitfalls === undefined ? {} : { pitfalls: textList(english.pitfalls, "pitfalls") }),
+    ...(english.featureLinkLabel === undefined
+      ? {}
+      : { featureLinkLabel: text(english.featureLinkLabel, "featureLinkLabel") }),
+    ...(localizedTutorial === undefined ? {} : { tutorial: localizedTutorial }),
+  });
+  return Object.freeze({ en: normalized });
 }
 
 function normalizeTutorial(input: LibraryEntryInput): LibraryTutorial | null {

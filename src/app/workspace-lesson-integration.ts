@@ -2,6 +2,7 @@ import * as core from "../core/index.js";
 import type { PanelApi } from "../shared/api.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import type { ImportedSource } from "../shared/api.js";
+import type { WorkspaceEntrySummary } from "../shared/workspace.js";
 import type { CodePane } from "../ui/code-pane.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import type { FlowWorkbenchController } from "./flow-workbench-controller.js";
@@ -21,6 +22,7 @@ export interface WorkspaceLessonIntegrationOptions {
   readonly runtime: RuntimeWorkspaceController;
   readonly loadSource: (source: ImportedSource) => void;
   readonly onError: (message: string) => void;
+  readonly onActiveEntryChange?: ((entry: WorkspaceEntrySummary | null) => void) | undefined;
 }
 
 export interface WorkspaceLessonIntegration {
@@ -42,6 +44,7 @@ export function createWorkspaceLessonIntegration(
     load: options.loadSource,
     enterWorkbench: () => options.elements.showPage("build"),
     onActiveEntryChange: (entry) => {
+      options.onActiveEntryChange?.(entry);
       const entryId = entry?.id ?? null;
       const fingerprint = entryId === null ? null : fingerprintSource(options.codePane.getSource());
       void Promise.all([
@@ -72,6 +75,9 @@ export function createWorkspaceLessonIntegration(
     configureScenario(scenarioId, size) {
       options.runtime.scenario.selectScenario(scenarioId);
       options.runtime.scenario.setInputSize(size);
+    },
+    configureBenchmark(sizes, repetitions) {
+      options.runtime.scenario.configureBenchmark(sizes, repetitions);
     },
     onError: (error) => options.onError(error.message),
   });

@@ -11,6 +11,9 @@ describe("Library full-text search", () => {
     );
     expect(searchLibrary("memmove")[0]?.entry.id).toBe("std.memory");
     expect(searchLibrary("sourceFingerprint viewport")[0]?.entry.id).toBe("canvas.view-state");
+    expect(searchLibrary("AI 助手 运行证据")[0]?.entry.id).toBe("manual.ai-assistant");
+    expect(searchLibrary("repeatable regression cases")[0]?.entry.id).toBe("tutorial.input-cases");
+    expect(searchLibrary("nonterminating loop")[0]?.entry.id).toBe("tutorial.failure-recovery");
   });
 
   it("uses AND semantics for multiple tokens and supports branch filtering", () => {

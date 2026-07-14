@@ -34,12 +34,15 @@ import {
   forwardFlowLearningObservation,
   forwardRuntimeLearningObservation,
 } from "./app/guided-lesson-observation-adapter.js";
-import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
+import { createWorkbenchRuntime, initializeRendererLocale } from "./app/workbench-runtime.js";
+import { createMainStatus } from "./app/main-status-copy.js";
 import { createWorkspaceLessonIntegration } from "./app/workspace-lesson-integration.js";
+import type { AiWorkspaceIntegration } from "./app/ai-workspace-integration.js";
+import { createMainAiWorkspace } from "./app/main-ai-workspace.js";
 import { installApplicationPersistence } from "./app/application-persistence.js";
 import { initializeWorkbenchApplication } from "./renderer/application-bootstrap.js";
 import { createFlowProjection } from "./flow/index.js";
-import { validateSourceText } from "./shared/source-import.js";
+import { assertValidSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
 import { createBlockTree } from "./ui/block-tree.js";
 import { createCodePane, type CodeSourceChangeReason } from "./ui/code-pane.js";
@@ -49,7 +52,8 @@ import { createProjectionStatus } from "./ui/projection-status.js";
 import { createStructureEditPanel, type StructureEditPanel } from "./ui/structure-edit-panel.js";
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
-const runtime = createWorkbenchRuntime(app, window.panelApi);
+const systemLocale = await initializeRendererLocale(window.panelApi);
+const runtime = createWorkbenchRuntime(app, window.panelApi, systemLocale);
 const { elements, startupLoader } = runtime;
 const explanationHost = elements.getInspectorHost("explanation");
 let parser: core.CParser | null = null;
@@ -65,10 +69,21 @@ let flowWorkbench: FlowWorkbenchController | null = null;
 let runtimeWorkspace: RuntimeWorkspaceController | null = null;
 let sourceSelection: SourceSelectionController | null = null;
 let guidedLesson: GuidedLessonWorkspaceController | null = null;
+let aiWorkspace: AiWorkspaceIntegration | null = null;
+const mainStatus = createMainStatus(elements, (status) => editPanel?.setStatus(status));
+const requireEditPanel = () => requireService(editPanel, "编辑检查器不可用");
+const requireStructureEditPanel = () => requireService(structureEditPanel, "结构编辑面板不可用");
+const requireStructureEdits = () => requireService(structureEdits, "结构编辑控制器不可用");
+const requireProjectionPresenter = () =>
+  requireService(projectionPresenter, "投影状态 presenter 不可用");
+const requireFlowWorkbench = () => requireService(flowWorkbench, "自由流程工作台不可用");
+const requireRuntimeWorkspace = () => requireService(runtimeWorkspace, "运行工作台不可用");
+const requireSourceSelection = () => requireService(sourceSelection, "源码选择控制器不可用");
 const projectionStatus = createProjectionStatus(elements.codePane);
 const codePane = createCodePane(elements.codePane, {
   editable: true,
-  validateSource: assertEditableSource,
+  localeHost: elements.shell,
+  validateSource: assertValidSourceText,
   onInputRejected: (error) => requireProjectionPresenter().inputRejected(error),
   onSourceOffset: (offset) => sourceSelection?.selectFromOffset(offset),
   onSourceChange: onCodeSourceChange,
@@ -111,7 +126,7 @@ const flowSourceEditor = createFlowSourceEditor({
   adopt: (imported, analysis, preferredTarget) =>
     adoptAnalysis(imported, analysis, false, preferredTarget),
   confirm: (message) => globalThis.confirm(message),
-  onCommitted: (message) => sourceImport.setStatus(message, "ready"),
+  onCommitted: (message) => mainStatus.setBanner(message, "ready", "Source updated."),
 });
 flowWorkbench = createFlowWorkbenchController({
   elements,
@@ -137,8 +152,7 @@ flowWorkbench = createFlowWorkbenchController({
     if (node.presetId === "builtin.flow.pause") runtimeWorkspace?.trace.pausePlayback();
   },
   onStatus(message, state) {
-    elements.importStatus.textContent = message;
-    elements.importStatus.dataset.state = state;
+    mainStatus.setBanner(message, state, "The flow operation could not be completed.");
   },
 });
 const programAnalysisCoordinator = createProgramAnalysisCoordinator({
@@ -174,15 +188,18 @@ const programAnalysisCoordinator = createProgramAnalysisCoordinator({
   },
   onError(error) {
     elements.parserStatus.dataset.analysisState = "worker-error";
-    elements.importStatus.textContent = `后台 CFG 分析不可用：${error.message}。源码编辑与编译运行仍可使用。`;
-    elements.importStatus.dataset.state = "warning";
+    mainStatus.setLocalizedBanner(
+      `后台 CFG 分析不可用：${error.message}。源码编辑与编译运行仍可使用。`,
+      "Background CFG analysis is unavailable. Source editing, compiling, and running remain available.",
+      "warning",
+    );
   },
 });
 const panelEdits = createStructuredEditCoordinator({
   getSession: () => session,
   getParser: () => parser,
   assertStructureReady: () => requireStructureEdits().assertReady(),
-  validateSource: assertEditableSource,
+  validateSource: assertValidSourceText,
   getProjectionMode: () => sourceSync.getMode(),
   getEditorSource: () => codePane.getSource(),
   applyPatches: (patches) => codePane.applyPatches(patches),
@@ -190,8 +207,7 @@ const panelEdits = createStructuredEditCoordinator({
   adopt: (imported, analysis, preferredTarget) =>
     adoptAnalysis(imported, analysis, false, preferredTarget),
   onCommitted() {
-    editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
-    sourceImport.setStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
+    mainStatus.setCommitted("edit");
   },
 });
 editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("edit"), {
@@ -224,7 +240,7 @@ sourceSelection = createSourceSelectionController({
   setStructureSelection: (selection) => structureEditPanel?.setSelection(selection),
   setInsertEnabled: (enabled) => learningSurface?.setSelectedInsertEnabled(enabled),
   setHistoryDepth: (depth) => editPanel?.setHistoryDepth(depth),
-  setParseError: (message) => editPanel?.setStatus({ kind: "parse-error", message }),
+  setParseError: (message) => mainStatus.setParseError(message),
   setHighlights: (highlights) => codePane.setHighlights(highlights),
   reveal: (range) => codePane.reveal(range),
 });
@@ -251,10 +267,9 @@ const workspaceLesson = createWorkspaceLessonIntegration({
   flow: requireFlowWorkbench(),
   runtime: requireRuntimeWorkspace(),
   loadSource,
-  onError(message) {
-    elements.importStatus.textContent = message;
-    elements.importStatus.dataset.state = "error";
-  },
+  onActiveEntryChange: (entry) => void aiWorkspace?.setWorkspace(entry),
+  onError: (message) =>
+    mainStatus.setError(message, "The guided workspace operation could not be completed."),
 });
 const workspaceController = workspaceLesson.workspace;
 guidedLesson = workspaceLesson.guidedLesson;
@@ -280,7 +295,7 @@ projectionPresenter = createProjectionPresenter({
 const sourceSync = createSourceSyncController<core.CAnalysisSnapshot>({
   getCurrentSource: () => codePane.getSource(),
   getDisplayedSource: () => session?.imported.source ?? null,
-  validateSource: assertEditableSource,
+  validateSource: assertValidSourceText,
   analyze: analyzeCurrentSource,
   onPending: (source, reason) => requireProjectionPresenter().pending(source, reason),
   onAdopt: (source, analysis, mode, reason) =>
@@ -293,19 +308,29 @@ structureEdits = createStructureEditController({
   getCurrentSource: () => codePane.getSource(),
   getProjectionMode: () => sourceSync.getMode(),
   resetProjection: () => sourceSync.reset("synced"),
-  validateSource: assertEditableSource,
+  validateSource: assertValidSourceText,
   applyPatches: (patches) => codePane.applyPatches(patches),
   confirm: (plan) => requireEditPanel().confirmExternal(plan),
   adopt: (imported, analysis) => adoptAnalysis(imported, analysis, false, null),
   onSuccess: () => {
-    editPanel?.setStatus({ kind: "success", message: "结构修改已提交；可随时撤销。" });
-    sourceImport.setStatus("结构修改已提交；可使用撤销恢复上一版本。", "ready");
+    mainStatus.setCommitted("structure");
     elements.showPage("build");
   },
-  onError: (error) => {
-    editPanel?.setStatus(error);
-    sourceImport.setStatus(error.message, "error");
-  },
+  onError: (error) => mainStatus.setEditError(error, "The structural edit could not be completed."),
+});
+aiWorkspace = createMainAiWorkspace({
+  elements,
+  api: window.panelApi,
+  codePane,
+  getRuntime: () => runtimeWorkspace,
+  getSession: () => session,
+  getProjection: () => flowWorkbench?.projection ?? null,
+  getParser: () => parser,
+  getProjectionMode: () => sourceSync.getMode(),
+  resetProjection: () => sourceSync.reset("synced"),
+  nextRevision: nextSessionRevision,
+  adopt: (imported, analysis) => adoptAnalysis(imported, analysis, false, null),
+  onStatus: (message) => mainStatus.setBanner(message, "ready", "AI workspace updated."),
 });
 void initializeWorkbenchApplication({
   elements,
@@ -320,15 +345,16 @@ void initializeWorkbenchApplication({
   onStartGuidedLesson: () =>
     void guidedLesson
       ?.startLesson()
-      .catch((error: Error) => sourceImport.setStatus(error.message, "error")),
+      .catch((error: Error) =>
+        mainStatus.setBanner(error.message, "error", "The lesson could not be started."),
+      ),
   onReady(loadedParser, surface, storage) {
     parser = loadedParser;
     learningSurface = surface;
     learningCatalogStorage = storage;
   },
   onLearningError(error) {
-    editPanel?.setStatus(error);
-    sourceImport.setStatus(error.message, "error");
+    mainStatus.setEditError(error, "The learning block operation could not be completed.");
   },
 }).then(() => guidedLesson?.showFirstRunIfNeeded());
 function loadSource(imported: ImportedSource): void {
@@ -374,9 +400,7 @@ function adoptAnalysis(
   const functionCount = blockIndex.entries.filter(
     (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
   ).length;
-  elements.parserStatus.textContent = document.parse.hasError
-    ? `C 解析器就绪 · ${document.issues.length} 个恢复提示`
-    : "C 解析器已加载 · 语句级无损投影可用";
+  mainStatus.setParserReady(document.parse.hasError, document.issues.length);
   elements.parserStatus.dataset.state = document.parse.hasError ? "warning" : "ready";
   elements.parserStatus.dataset.rootType = "translation_unit";
   elements.parserStatus.dataset.functionCount = String(functionCount);
@@ -422,6 +446,7 @@ function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): voi
   elements.parserStatus.dataset.analyzedFunctions = "0";
   flowWorkbench?.setAnalysis(null);
   runtimeWorkspace?.invalidateSource();
+  aiWorkspace?.invalidateSource();
   if (session?.imported.source !== source) clearStaleSourcePresentation(codePane, explanationHost);
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   sourceSync.handleSourceChange(source, reason);
@@ -436,36 +461,6 @@ function analyzeCurrentSource(source: string): core.CAnalysisSnapshot {
   if (parser === null) throw new Error("C 解析器尚未加载");
   return parser.analyze(source, nextSessionRevision());
 }
-function requireEditPanel(): EditPanel<core.StructuredEditPlan> {
-  return requireService(editPanel, "编辑检查器不可用");
-}
-function requireStructureEditPanel(): StructureEditPanel {
-  return requireService(structureEditPanel, "结构编辑面板不可用");
-}
-function requireStructureEdits(): StructureEditController {
-  return requireService(structureEdits, "结构编辑控制器不可用");
-}
-function requireProjectionPresenter(): ProjectionPresenter {
-  return requireService(projectionPresenter, "投影状态 presenter 不可用");
-}
-function requireFlowWorkbench(): FlowWorkbenchController {
-  return requireService(flowWorkbench, "自由流程工作台不可用");
-}
-function requireRuntimeWorkspace(): RuntimeWorkspaceController {
-  return requireService(runtimeWorkspace, "运行工作台不可用");
-}
-
-function requireSourceSelection(): SourceSelectionController {
-  return requireService(sourceSelection, "源码选择控制器不可用");
-}
-
-function assertEditableSource(source: string): void {
-  const validation = validateSourceText(source);
-  if (!validation.ok) {
-    throw new Error(`${validation.code}：${validation.message}`);
-  }
-}
-
 function destroyApplication(): void {
   if (destroyed) return;
   destroyed = true;
@@ -476,6 +471,8 @@ function destroyApplication(): void {
   learningSurface?.destroy();
   learningCatalogStorage?.destroy();
   guidedLesson?.destroy();
+  aiWorkspace?.destroy();
+  mainStatus.destroy();
   void runtimeWorkspace?.destroy().catch(() => undefined);
   flowWorkbench?.destroy();
   workspaceController.destroy();
