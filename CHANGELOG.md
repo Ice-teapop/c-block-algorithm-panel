@@ -11,6 +11,11 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ### Added
 
+- A fail-closed macOS distribution path that requires Developer ID signing,
+  Hardened Runtime, fixed minimal entitlements, Apple notarization, stapling,
+  quarantine-aware Gatekeeper assessment, and installed-application regression.
+- Separate explicit signed-release and unsigned-development DMG commands so a
+  development package cannot be mistaken for a formal download.
 - A current-system architecture overview covering process boundaries, module
   ownership, persistence, semantic write paths, extension contracts, and
   executable architecture gates.
@@ -20,8 +25,22 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ### Changed
 
+- Renamed the user-facing product to **AlgoLatch** while preserving the bundle
+  identifier, npm package name, repository path, local preference keys, managed
+  Documents workspace, and existing application data compatibility.
+- Advanced the unreleased package version to `0.0.2`; the historical `v0.0.1`
+  tag, old product name, and unsigned artifacts remain immutable.
 - Rewrote the README around the user workflow, evidence model, safety boundary,
   installation path, and current constraints instead of milestone history.
+
+### Security
+
+- Formal release credentials are validated without logging values. GitHub
+  releases now require a protected environment, a tag reachable from `main`,
+  immutable assets, and cleanup of the temporary notarization key.
+- The installed-DMG gate rejects ad-hoc signatures, missing Hardened Runtime,
+  unexpected entitlements, absent notarization tickets, failed Gatekeeper
+  assessment, non-Universal binaries, or a bundle not named `AlgoLatch.app`.
 
 ## [0.0.1] - 2026-07-14
 

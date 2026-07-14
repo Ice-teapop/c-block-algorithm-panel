@@ -89,7 +89,7 @@ describe("M6 workbench shell contract", () => {
     expect(source).not.toContain("brand__mark");
     expect(source).not.toMatch(/<img\b/gu);
     expect(source).not.toContain('id="app-title"');
-    expect(source).not.toContain("C 积木算法面板");
+    expect(source).not.toContain("<h1>AlgoLatch</h1>");
     expect(source).toContain('id="open-source"');
     expect(source).toContain('id="open-paste"');
     expect(source).toContain('id="theme-toggle"');

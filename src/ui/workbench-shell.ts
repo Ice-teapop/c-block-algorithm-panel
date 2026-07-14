@@ -3,7 +3,7 @@ import type {
   RegisteredWorkbenchPage,
   WorkbenchRegistrySnapshot,
 } from "../workbench/contracts.js";
-import type { AppInfoSnapshot } from "../shared/app-info.js";
+import { APP_PRODUCT_NAME, type AppInfoSnapshot } from "../shared/app-info.js";
 import type { InterfaceLocale } from "./interface-preferences.js";
 import {
   createWorkbenchMenu,
@@ -145,7 +145,7 @@ const SETTINGS_COPY: Readonly<Record<InterfaceLocale, Readonly<Record<string, st
       general: "语言、背景和明暗主题只影响本机界面，不会写入项目源码。",
       "ai-privacy": "连接你自己的模型，解锁工作区中的 AI 对话与分析页复核。",
       keyboard: "方向键移动菜单焦点；Delete 删除草稿；⌘/Ctrl+K 搜索；⌘/Ctrl+Z 撤销。",
-      "about-logs": "C Block Algorithm Panel · 本地 C 算法学习与设计工作台。",
+      "about-logs": `${APP_PRODUCT_NAME} · 本地 C 算法学习与设计工作台。`,
     }),
     en: Object.freeze({
       general:
@@ -154,7 +154,7 @@ const SETTINGS_COPY: Readonly<Record<InterfaceLocale, Readonly<Record<string, st
         "Connect your own model to unlock workspace chat and optional reviews in Analysis.",
       keyboard:
         "Arrow keys move menu focus; Delete removes drafts; Cmd/Ctrl+K searches; Cmd/Ctrl+Z undoes.",
-      "about-logs": "C Block Algorithm Panel · a local C algorithm learning and design workbench.",
+      "about-logs": `${APP_PRODUCT_NAME} · a local C algorithm learning and design workbench.`,
     }),
   });
 
@@ -1014,8 +1014,8 @@ function settingsCopy(
 function aboutCopy(locale: InterfaceLocale, info: AppInfoSnapshot | null): string {
   if (info === null) {
     return locale === "en"
-      ? "C Block Algorithm Panel\n\nLocal, source-authoritative C algorithm learning and design workbench.\n\nVersion information is unavailable."
-      : "C 积木算法面板\n\n本地、源码权威的 C 算法学习与设计工作台。\n\n版本信息暂不可用。";
+      ? `${APP_PRODUCT_NAME}\n\nLocal, source-authoritative C algorithm learning and design workbench.\n\nVersion information is unavailable.`
+      : `${APP_PRODUCT_NAME}\n\n本地、源码权威的 C 算法学习与设计工作台。\n\n版本信息暂不可用。`;
   }
   const platform = info.platform === "darwin" ? "macOS" : info.platform;
   const build =
@@ -1028,7 +1028,7 @@ function aboutCopy(locale: InterfaceLocale, info: AppInfoSnapshot | null): strin
         : "开发版本";
   if (locale === "en") {
     return [
-      `C Block Algorithm Panel v${info.version}`,
+      `${APP_PRODUCT_NAME} v${info.version}`,
       "",
       "A local, source-authoritative workbench for learning, visualizing, running, and analyzing C algorithms.",
       "",
@@ -1040,7 +1040,7 @@ function aboutCopy(locale: InterfaceLocale, info: AppInfoSnapshot | null): strin
     ].join("\n");
   }
   return [
-    `C 积木算法面板 v${info.version}`,
+    `${APP_PRODUCT_NAME} v${info.version}`,
     "",
     "用于学习、可视化、运行和分析 C 算法的本地源码权威工作台。",
     "",

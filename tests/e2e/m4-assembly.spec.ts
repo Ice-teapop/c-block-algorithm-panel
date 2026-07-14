@@ -45,7 +45,7 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
 
   const dockLabels = await page.locator("[data-menu-root-trigger]").allTextContents();
   expect(dockLabels).toEqual(["设置", "预设块", "Library", "面板预览"]);
-  await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "AlgoLatch" })).toHaveCount(0);
   await openMenuBranch("预设块", "自定义块生命周期");
   await expect(page.locator("#block-library-panel")).toBeVisible();
   await expect(page.locator("#build-panel")).toBeHidden();

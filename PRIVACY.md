@@ -2,7 +2,7 @@
 
 Last updated: July 14, 2026
 
-C 积木算法面板 is local-first software. It does not include telemetry,
+AlgoLatch is local-first software. It does not include telemetry,
 behavioral analytics, advertising, user accounts, or cloud synchronization.
 Projects, source, traces, run history, lesson progress, and AI conversations
 remain on the device unless you explicitly send selected context to a network

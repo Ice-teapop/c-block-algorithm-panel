@@ -26,7 +26,7 @@ describe("M6 workbench shell behavior", () => {
     const shell = mount();
     const roots = app.findAllByClass("workbench-menu__trigger");
 
-    expect(app.innerHTML).not.toContain("C 积木算法面板");
+    expect(app.innerHTML).not.toContain("<h1>AlgoLatch</h1>");
     expect(app.innerHTML).not.toContain("app-title");
     expect(app.innerHTML).not.toMatch(/[⌂◇]/u);
     expect(app.innerHTML).toContain(">项目</button>");
@@ -112,16 +112,14 @@ describe("M6 workbench shell behavior", () => {
     });
 
     shell.executeMenuAction("settings", "about-logs");
-    expect(app.require("workbench-drawer-copy").textContent).toContain("C 积木算法面板 v0.0.1");
+    expect(app.require("workbench-drawer-copy").textContent).toContain("AlgoLatch v0.0.1");
     expect(app.require("workbench-drawer-copy").textContent).toContain("macOS arm64");
     expect(app.require("workbench-drawer-copy").textContent).toContain(
       "github.com/Ice-teapop/c-block-algorithm-panel",
     );
 
     shell.setLocale("en");
-    expect(app.require("workbench-drawer-copy").textContent).toContain(
-      "C Block Algorithm Panel v0.0.1",
-    );
+    expect(app.require("workbench-drawer-copy").textContent).toContain("AlgoLatch v0.0.1");
     expect(app.require("workbench-drawer-copy").textContent).not.toMatch(/[\p{Script=Han}]/u);
   });
 

@@ -12,15 +12,15 @@ describe("interface preferences locale precedence", () => {
     expect(harness.controller.locale).toBe("en");
     expect(harness.root.dataset.locale).toBe("en");
     expect(harness.document.documentElement.lang).toBe("en");
-    expect(harness.document.title).toBe("C Block Algorithm Panel");
+    expect(harness.document.title).toBe("AlgoLatch");
     expect(harness.language.value).toBe("en");
     expect(harness.onLocaleChange).toHaveBeenCalledWith("en");
     expect(harness.storage.setItem).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["zh-CN", "en", "C 积木算法面板"],
-    ["en", "zh-CN", "C Block Algorithm Panel"],
+    ["zh-CN", "en", "AlgoLatch"],
+    ["en", "zh-CN", "AlgoLatch"],
   ] as const)(
     "keeps saved user choice %s above system locale %s",
     (stored, systemLocale, title) => {
@@ -46,7 +46,7 @@ describe("interface preferences locale precedence", () => {
     expect(harness.controller.locale).toBe("zh-CN");
     expect(harness.storage.setItem).toHaveBeenCalledWith(INTERFACE_LOCALE_STORAGE_KEY, "zh-CN");
     expect(harness.document.documentElement.lang).toBe("zh-CN");
-    expect(harness.document.title).toBe("C 积木算法面板");
+    expect(harness.document.title).toBe("AlgoLatch");
   });
 });
 

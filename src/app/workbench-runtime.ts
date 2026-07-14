@@ -5,6 +5,7 @@ import { createThemeController } from "../ui/theme-controller.js";
 import { mountWorkbench, type WorkbenchElements } from "../ui/workbench-shell.js";
 import { createBuiltinWorkbenchRegistry } from "../workbench/builtin-modules.js";
 import type { PanelApi } from "../shared/api.js";
+import { APP_PRODUCT_NAME } from "../shared/app-info.js";
 import { resolveSystemInterfaceLocale, type InterfaceLocale } from "../shared/interface-locale.js";
 import type { WorkbenchRegistrySnapshot } from "../workbench/contracts.js";
 import { createWorkbenchCommandSurface } from "./workbench-command-surface.js";
@@ -37,7 +38,7 @@ export async function initializeRendererLocale(
   const locale = await resolveInitialRendererLocale(panelApi);
   document.documentElement.lang = locale;
   document.documentElement.dataset.locale = locale;
-  document.title = locale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
+  document.title = APP_PRODUCT_NAME;
   return locale;
 }
 

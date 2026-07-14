@@ -2,7 +2,23 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = new URL("../", import.meta.url);
-const lockfile = JSON.parse(await readFile(new URL("package-lock.json", root), "utf8"));
+const [lockfile, manifest, builder] = await Promise.all(
+  ["package-lock.json", "package.json", "build/electron-builder.release.json"].map(async (path) =>
+    JSON.parse(await readFile(new URL(path, root), "utf8")),
+  ),
+);
+if (
+  lockfile.version !== manifest.version ||
+  lockfile.packages?.[""]?.version !== manifest.version
+) {
+  throw new Error("Package and lockfile versions must match before generating notices.");
+}
+if (
+  typeof builder.productName !== "string" ||
+  !/^[A-Za-z][A-Za-z0-9 -]{0,63}$/u.test(builder.productName)
+) {
+  throw new Error("electron-builder productName is not safe for notice metadata.");
+}
 const outputUrl = new URL("THIRD_PARTY_NOTICES.md", root);
 const packages = [];
 const texts = new Map();
@@ -46,7 +62,7 @@ for (const [lockPath, metadata] of Object.entries(lockfile.packages ?? {})) {
 packages.sort((left, right) =>
   left.identity.localeCompare(right.identity, "en", { numeric: true }),
 );
-const rendered = render(packages, texts);
+const rendered = render(packages, texts, builder.productName, manifest.version);
 if (process.argv.includes("--check")) {
   const current = await readFile(outputUrl, "utf8").catch(() => "");
   if (current !== rendered) {
@@ -69,11 +85,11 @@ function normalizeText(value) {
   return value.replace(/\r\n?/gu, "\n").trim();
 }
 
-function render(packageEntries, textEntries) {
+function render(packageEntries, textEntries, productName, version) {
   const lines = [
     "# Third-Party Notices",
     "",
-    "Generated from the exact `package-lock.json` used for C Block Algorithm Panel v0.0.1.",
+    `Generated from the exact \`package-lock.json\` used for ${productName} v${version}.`,
     "The table records every locked package and its declared license. License and NOTICE files",
     "present in the installed dependency tree are reproduced below, with identical texts grouped",
     "together. Packages unavailable on the generating platform remain listed by SPDX declaration.",

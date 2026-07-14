@@ -1,6 +1,6 @@
 # Notices
 
-C 积木算法面板
+AlgoLatch
 
 Copyright (c) 2026 HAN Chen. Released under the MIT License; see `LICENSE`.
 
@@ -30,6 +30,7 @@ editing is disabled by default and remains subject to explicit permission and
 the workbench's source-authoritative validation path when enabled.
 
 No Apple endorsement is implied by use of macOS, Apple clang, Gatekeeper,
-Developer ID, Hardened Runtime, or notarization terminology. The `v0.0.1`
-Universal DMG is intentionally unsigned and unnotarized. It may require
-explicit Gatekeeper approval and is not distributed through the Mac App Store.
+Developer ID, Hardened Runtime, or notarization terminology. The historical
+`v0.0.1` Universal DMG is intentionally unsigned and unnotarized. AlgoLatch
+formal releases require Developer ID signing and Apple notarization, but are not
+distributed through or endorsed by the Mac App Store.

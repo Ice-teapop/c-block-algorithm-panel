@@ -1,10 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "io.han.c-block-algorithm-panel",
-  "productName": "C 积木算法面板",
+  "productName": "AlgoLatch",
   "asar": true,
   "directories": {
-    "output": "release"
+    "output": "release-beta"
   },
   "files": [
     "dist/**/*",
@@ -30,11 +30,11 @@
         "arch": ["universal"]
       }
     ],
-    "artifactName": "c-block-algorithm-panel-${version}-${arch}.${ext}"
+    "artifactName": "AlgoLatch-${version}-unsigned-${arch}.${ext}"
   },
   "dmg": {
     "sign": false,
-    "title": "C 积木算法面板 ${version}",
+    "title": "AlgoLatch ${version}",
     "backgroundColor": "#ffffff",
     "contents": [
       {

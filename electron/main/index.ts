@@ -23,6 +23,7 @@ import type {
 } from "../../src/shared/api.js";
 import {
   APP_INFO_IPC_CHANNEL,
+  APP_PRODUCT_NAME,
   APP_RELEASES_URL,
   APP_REPOSITORY_URL,
   type AppInfoSnapshot,
@@ -517,7 +518,7 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
     }
     const locale = args[0];
     interfaceLocales.set(senderWindow, locale);
-    senderWindow.setTitle(locale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板");
+    senderWindow.setTitle(APP_PRODUCT_NAME);
   });
 
   ipcMain.handle(
@@ -797,7 +798,7 @@ function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: true,
     backgroundColor: "#ffffff",
-    title: initialLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板",
+    title: APP_PRODUCT_NAME,
     webPreferences,
   }) as PanelBrowserWindow;
   mainWindows.add(mainWindow);

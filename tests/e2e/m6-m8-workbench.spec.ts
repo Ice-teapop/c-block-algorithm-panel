@@ -126,7 +126,7 @@ test("uses a reduced Dock, opens Library directly and exposes local interface pr
         BrowserWindow.getAllWindows()[0]?.getTitle(),
       ),
     )
-    .toBe("C Block Algorithm Panel");
+    .toBe("AlgoLatch");
   await expect(page.locator("[data-menu-root-trigger]")).toHaveText([
     "Settings",
     "Blocks",
@@ -140,7 +140,7 @@ test("uses a reduced Dock, opens Library directly and exposes local interface pr
         BrowserWindow.getAllWindows()[0]?.getTitle(),
       ),
     )
-    .toBe("C 积木算法面板");
+    .toBe("AlgoLatch");
   await page.locator("#interface-background").selectOption("white");
   await page.getByRole("button", { name: "切换为深色主题" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

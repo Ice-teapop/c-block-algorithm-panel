@@ -5,8 +5,10 @@
 Only the latest GitHub Release receives security fixes. `v0.0.1` is the first
 public release in the reset version line.
 
-The `v0.0.1` Universal DMG is unsigned and unnotarized. Public availability is
-not an Apple security review, signing claim, or notarization claim.
+The historical `v0.0.1` Universal DMG is unsigned and unnotarized. Public
+availability is not an Apple security review, signing claim, or notarization
+claim. Future AlgoLatch releases are published only after the signed and
+notarized distribution gate passes.
 
 ## Reporting a vulnerability
 
@@ -111,7 +113,7 @@ execution requires native confirmation for the exact request. The authorization
 is single-use and binds the displayed request summary. Renderer code cannot
 grant, broaden, or reuse it.
 
-## Unsigned distribution boundary
+## Distribution trust boundary
 
 Download the `v0.0.1` DMG and `SHA256SUMS.txt` from the same GitHub Release,
 then run:
@@ -124,7 +126,12 @@ Do not open the DMG if verification fails. Gatekeeper may require Control-click
 → Open or explicit approval in **System Settings → Privacy & Security**. Do not
 disable Gatekeeper globally.
 
-A later signed distribution requires a Developer ID, Hardened Runtime, minimal
-entitlements, notarization, stapling, and installed-application regression.
-The unsigned builder explicitly disables those controls and must not be
-described as signed or notarized.
+The formal AlgoLatch builder requires a Developer ID Application identity,
+Hardened Runtime, a fixed minimal entitlement set, Apple notarization, stapling,
+quarantine-aware Gatekeeper assessment, Universal binary verification, and an
+installed-application regression. Missing credentials or any failed check stops
+the release before upload.
+
+The separate Beta builder explicitly disables signing and notarization, writes
+to `release-beta/`, and includes `unsigned` in the filename. It is for local
+development only and must never be described or published as Apple-verified.

@@ -5,8 +5,13 @@ import {
   requireMacPlatform,
   selectSingleArtifact,
   validateAsarEntries,
+  validateBundleMetadata,
   validateBundleExecutableName,
+  validateDeveloperIdSignatureDetails,
+  validateGatekeeperAssessment,
   validateInstalledWorkbenchSnapshot,
+  validateProductBundleName,
+  validateReleaseEntitlements,
   validateUniversalArchitectures,
 } from "../../scripts/lib/installed-dmg-gate.mjs";
 
@@ -41,10 +46,62 @@ describe("installed DMG release gate", () => {
     ]);
   });
 
+  it("requires the renamed product bundle and a notarized Developer ID assessment", () => {
+    expect(() => validateProductBundleName("AlgoLatch.app")).not.toThrow();
+    expect(() => validateProductBundleName("C 积木算法面板.app")).toThrow(/AlgoLatch\.app/u);
+    expect(() =>
+      validateDeveloperIdSignatureDetails(
+        "Authority=Developer ID Application: HAN Chen (TEAMID1234)\nTeamIdentifier=TEAMID1234\nCodeDirectory v=20500 size=123 flags=0x10000(runtime) hashes=3+7 location=embedded",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateDeveloperIdSignatureDetails("Signature=adhoc\nTeamIdentifier=not set"),
+    ).toThrow(/Developer ID Application/u);
+    expect(() => validateGatekeeperAssessment("source=Notarized Developer ID")).not.toThrow();
+    expect(() => validateGatekeeperAssessment("source=Unnotarized Developer ID")).toThrow(
+      /Notarized Developer ID/u,
+    );
+    const minimalEntitlements = `<?xml version="1.0"?><plist><dict>
+      <key>com.apple.security.cs.allow-jit</key><true/>
+    </dict></plist>`;
+    expect(() => validateReleaseEntitlements(minimalEntitlements, "主应用")).not.toThrow();
+    expect(() =>
+      validateReleaseEntitlements(
+        `${minimalEntitlements}<key>com.apple.security.get-task-allow</key><true/>`,
+        "主应用",
+      ),
+    ).toThrow(/最小集合/u);
+  });
+
   it("rejects unsafe bundle executable names", () => {
-    expect(validateBundleExecutableName("C 积木算法面板")).toBe("C 积木算法面板");
+    expect(validateBundleExecutableName("算法工作台")).toBe("算法工作台");
     expect(() => validateBundleExecutableName("../escape")).toThrow(/安全/u);
     expect(() => validateBundleExecutableName("part/name")).toThrow(/安全/u);
+  });
+
+  it("locks the renamed bundle metadata while preserving the existing app identity", () => {
+    expect(() =>
+      validateBundleMetadata(
+        {
+          identifier: "io.han.c-block-algorithm-panel",
+          name: "AlgoLatch",
+          executable: "AlgoLatch",
+          version: "0.0.2",
+        },
+        "0.0.2",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateBundleMetadata(
+        {
+          identifier: "io.han.algolatch",
+          name: "AlgoLatch",
+          executable: "AlgoLatch",
+          version: "0.0.2",
+        },
+        "0.0.2",
+      ),
+    ).toThrow(/CFBundleIdentifier/u);
   });
 
   it("accepts only the installed workbench contract", () => {

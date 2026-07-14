@@ -1,20 +1,22 @@
-# C 积木算法面板
+# AlgoLatch
 
-**C Block Algorithm Panel** 是一个面向本科 C、数据结构与算法学习的本地
-macOS 工作台。它把真实 `main.c` 投影为可拖动、可连线的流程画布，同时保留
-源码编辑、真实运行、Trace、性能证据、静态分析和课程指导。
+**AlgoLatch** 是一个面向本科 C、数据结构与算法学习的本地 macOS 工作台。
+它把真实 `main.c` 投影为可拖动、可连线的流程画布，同时保留源码编辑、真实
+运行、Trace、性能证据、静态分析和课程指导。
 
 它不是 Scratch 的 C 语言复刻，也不会维护一份与源码竞争的隐藏图模型。
 `main.c` 始终是唯一可执行事实源；画布只负责让程序结构更容易看见、组装和
 验证。
 
-[下载 v0.0.1](https://github.com/Ice-teapop/c-block-algorithm-panel/releases/tag/v0.0.1)
-· [发布说明](./docs/releases/v0.0.1.md) ·
+[查看 Releases](https://github.com/Ice-teapop/c-block-algorithm-panel/releases)
+· [v0.0.2 说明](./docs/releases/v0.0.2.md) ·
+[历史 v0.0.1](./docs/releases/v0.0.1.md) ·
 [当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
 [安全](./SECURITY.md)
 
-> 当前公开 Universal DMG 未签名、未公证。安装前请从同一个 Release 下载
-> `SHA256SUMS.txt` 并完成校验。公开发布不等于 Apple 已验证该应用。
+> 已发布的 `v0.0.1` 是改名前的历史未签名包。当前源码版本为 `0.0.2`，正式
+> 发布链已强制 Developer ID 签名、公证、staple 和 Gatekeeper 安装态验证；
+> 在 Apple 凭据接入并通过门禁前不会发布或冒充“下载即开”的 AlgoLatch DMG。
 
 ## 为什么做这个工具
 
@@ -107,7 +109,25 @@ AI 后发送到所选厂商的官方白名单主机。
 `ai-project.json` 只保存辅助状态。损坏、过期或未知版本的辅助文件可以被
 忽略或重置，但不能据此改写源码。
 
-## 安装 v0.0.1
+## 安装
+
+### AlgoLatch v0.0.2 及后续签名版本
+
+签名版本发布后，安装只保留 macOS 的标准动作：
+
+1. 从 [Releases](https://github.com/Ice-teapop/c-block-algorithm-panel/releases)
+   下载 `AlgoLatch-<version>-universal.dmg`。
+2. 打开 DMG，把 **AlgoLatch** 拖入 **Applications**。
+3. 从 Applications 直接打开。无需终端命令、Control-click 或关闭 Gatekeeper。
+
+发布流水线只有在 Developer ID、Hardened Runtime、固定最小 entitlements、
+Apple 公证票据、staple、quarantine 后 Gatekeeper 检查和安装态回归全部通过时
+才会上传该 DMG。
+
+如果 Applications 中仍有改名前的 `C 积木算法面板.app`，确认 AlgoLatch 能
+正常打开并看到原项目后，可手动删除旧 app；项目和设置不会由安装器擅自删除。
+
+### 历史 v0.0.1
 
 1. 从 [v0.0.1 Release](https://github.com/Ice-teapop/c-block-algorithm-panel/releases/tag/v0.0.1)
    下载 DMG 和 `SHA256SUMS.txt`。
@@ -160,16 +180,18 @@ npm test
 npm run build
 ```
 
-完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。当前未签名 DMG 的
-本地构建脚本仍名为 `npm run dist:mac:beta`；该名称是历史遗留，不代表
-`v0.0.1` 是 prerelease，也不会执行签名、公证或上传。
+完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。正式构建使用
+`npm run dist:mac`，缺少 Developer ID 或 Apple 公证凭据会直接失败；本地开发
+只能显式使用 `npm run dist:mac:beta` 生成带清晰边界的未签名测试包。
 
 ## 版本与边界
 
-`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
+当前源码目标为 `v0.0.2`；只有签名与安装态门禁全部通过后才会创建对应
+Release。`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 `v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
-变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md) 与
-[v0.0.1 发布说明](./docs/releases/v0.0.1.md)。
+变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md)、
+[v0.0.2 说明](./docs/releases/v0.0.2.md) 与
+[历史 v0.0.1 发布说明](./docs/releases/v0.0.1.md)。
 
 当前限制包括：
 

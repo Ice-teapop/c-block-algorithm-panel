@@ -1,6 +1,6 @@
 # 当前架构
 
-本文描述 `v0.0.1` 的实际系统结构。它是可更新的架构总览，不替代
+本文描述当前 `main`（目标 `v0.0.2`）的实际系统结构。它是可更新的架构总览，不替代
 [ADR](./decisions/README.md)；已经 Accepted 的决策只能由新的 ADR 修订。
 
 ## 核心不变量
@@ -241,7 +241,9 @@ npm run build
 - Trace 提供执行行与分支路径，不采集任意变量值。
 - 静态分析是保守事实和提示，不是完整形式化证明。
 - AI 是可选外部服务；回答和提案不能替代编译、测试或源码门禁。
-- `v0.0.1` 的公开 Universal DMG 未签名、未公证。
+- `v0.0.1` 是改名前的历史未签名包。`v0.0.2` 正式通道强制 Developer ID、
+  Hardened Runtime、固定最小 entitlements、公证、staple、quarantine 后
+  Gatekeeper 检查和安装态回归；凭据或任一门禁缺失时不产出正式 DMG。
 
 ## 决策记录
 

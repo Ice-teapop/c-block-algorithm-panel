@@ -91,8 +91,9 @@ npm run accept:m9
 ```
 
 `accept:m9` validates release metadata, tag/version rules, workflow structure,
-and the unsigned-distribution boundary without uploading artifacts. It does not
-replace unit, architecture, Electron, or installed-DMG regression.
+the signed formal channel, and the explicitly unsigned Beta boundary without
+uploading artifacts. It does not replace unit, architecture, Electron, or
+installed-DMG regression.
 
 ## Pull requests
 
@@ -112,7 +113,7 @@ replace unit, architecture, Electron, or installed-DMG regression.
 `v0.1.0-beta.1–12` tags remain available as development snapshots, but they are
 not upgrade predecessors. Future public releases continue from `v0.0.1`.
 
-Prepare an unsigned public release from a reviewed Node 24 checkout:
+Prepare a formal release from a reviewed Node 24 checkout:
 
 ```sh
 npm ci
@@ -122,12 +123,24 @@ npm test
 npm run accept:m0-m5-regression
 npm run accept:m6-m8
 npm run test:e2e
-npm run dist:mac:beta
+npm run dist:mac
 npm run verify:installed-dmg
 ```
 
-The `dist:mac:beta` name is retained for the existing unsigned builder. It must
-produce exactly one Universal DMG. Before tagging:
+`dist:mac` fails before packaging unless it can find both a Developer ID
+Application signing identity and exactly one supported Apple notarization
+credential group. Store credentials locally or in GitHub secrets; never paste
+certificates, passwords, or API keys into issues, commits, logs, or chat.
+
+The protected GitHub environment `macos-release` requires these secrets:
+
+- `MACOS_CERTIFICATE_P12_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `APPLE_API_KEY_P8_BASE64`
+- `APPLE_API_KEY_ID`
+- `APPLE_API_ISSUER`
+
+Before tagging:
 
 1. Set `package.json`, the lockfile, the release gate, and release documents to
    the same version.
@@ -136,14 +149,20 @@ produce exactly one Universal DMG. Before tagging:
 3. Generate and verify `SHA256SUMS.txt` for the final DMG.
 4. Confirm the copied application starts after the DMG is unmounted.
 5. Create an exact `v<package.json version>` tag from the reviewed commit.
-6. Publish the tag as a normal GitHub Release, not a prerelease.
-7. Attach the verified Universal DMG and `SHA256SUMS.txt`.
+6. Confirm the exact release commit is reachable from `main`.
+7. Publish the tag as a new normal GitHub Release, not a prerelease.
+8. Never replace an existing tag, Release, DMG, or checksum file.
 
 The `v0.0.1` public DMG is unsigned and unnotarized. The release page and notes
 must state the Gatekeeper steps and must not imply Apple signing or
 notarization.
 
-A future signed distribution requires a separate reviewed configuration with a
-Developer ID, minimal entitlements, Hardened Runtime, notarization, stapling,
-and installed-application regression. Do not reuse the unsigned configuration
-while claiming those properties.
+For local packaging without credentials, use the explicit development channel:
+
+```sh
+npm run dist:mac:beta
+npm run verify:installed-dmg:beta
+```
+
+It writes `release-beta/AlgoLatch-<version>-unsigned-universal.dmg`, disables
+signing and notarization, and must never be attached to a public Release.

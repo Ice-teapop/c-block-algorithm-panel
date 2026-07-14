@@ -450,14 +450,14 @@ test("opens the local desktop shell with a narrow preload API", async () => {
   const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
   const appInfo = await page.evaluate(() => window.panelApi.getAppInfo());
   expect(appInfo).toMatchObject({
-    version: "0.0.1",
+    version: "0.0.2",
     license: "MIT",
     repositoryUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel",
     releasesUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel/releases",
     platform: "darwin",
     electronVersion: "43.0.0",
   });
-  const expectedTitle = systemLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
+  const expectedTitle = "AlgoLatch";
   await expect(page).toHaveTitle(expectedTitle);
   await expect(page.getByRole("heading", { name: expectedTitle })).toHaveCount(0);
   await expect(page.locator("#startup-loader")).toBeHidden();
@@ -528,7 +528,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
         BrowserWindow.getAllWindows()[0]?.getTitle(),
       ),
     )
-    .toBe(alternateLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板");
+    .toBe("AlgoLatch");
   await page.evaluate((locale) => window.panelApi.setInterfaceLocale?.(locale), systemLocale);
 
   const capabilitySnapshot = await page.evaluate(async () => {

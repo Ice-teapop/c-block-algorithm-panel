@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "io.han.c-block-algorithm-panel",
-  "productName": "C 积木算法面板",
+  "productName": "AlgoLatch",
   "asar": true,
   "electronDownload": {
     "force": false,
@@ -28,20 +28,25 @@
   "mac": {
     "category": "public.app-category.education",
     "icon": "build/icon.icns",
-    "identity": null,
-    "hardenedRuntime": false,
-    "notarize": false,
+    "type": "distribution",
+    "forceCodeSigning": true,
+    "hardenedRuntime": true,
+    "strictVerify": true,
+    "preAutoEntitlements": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+    "notarize": true,
     "target": [
       {
         "target": "dmg",
         "arch": ["universal"]
       }
     ],
-    "artifactName": "c-block-algorithm-panel-${version}-${arch}.${ext}"
+    "artifactName": "AlgoLatch-${version}-${arch}.${ext}"
   },
   "dmg": {
     "sign": false,
-    "title": "C 积木算法面板 ${version}",
+    "title": "AlgoLatch ${version}",
     "backgroundColor": "#ffffff",
     "contents": [
       {

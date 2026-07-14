@@ -5,6 +5,7 @@ coverage/
 .dependency-cruiser-build/
 .agents/
 release/
+release-beta/
 playwright-report/
 test-results/
 /build/*
@@ -12,6 +13,8 @@ test-results/
 !/build/icon.icns
 !/build/electron-builder.beta.json
 !/build/electron-builder.release.json
+!/build/entitlements.mac.plist
+!/build/entitlements.mac.inherit.plist
 .DS_Store
 *.log
 .env

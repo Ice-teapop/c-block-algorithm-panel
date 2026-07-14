@@ -1,4 +1,5 @@
 import { isInterfaceLocale, type InterfaceLocale } from "../shared/interface-locale.js";
+import { APP_PRODUCT_NAME } from "../shared/app-info.js";
 
 export type { InterfaceLocale } from "../shared/interface-locale.js";
 export type InterfaceBackground = "white" | "paper" | "cool";
@@ -50,8 +51,7 @@ export function createInterfacePreferencesController(
     options.root.dataset.locale = locale;
     options.root.dataset.background = background;
     options.root.ownerDocument.documentElement.lang = locale;
-    options.root.ownerDocument.title =
-      locale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
+    options.root.ownerDocument.title = APP_PRODUCT_NAME;
     options.languageSelect.value = locale;
     options.backgroundSelect.value = background;
     options.onLocaleChange(locale);

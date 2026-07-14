@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, lstat, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,14 +11,18 @@ import {
   requireMacPlatform,
   selectSingleArtifact,
   validateAsarEntries,
+  validateBundleMetadata,
   validateBundleExecutableName,
+  validateDeveloperIdSignatureDetails,
+  validateGatekeeperAssessment,
   validateInstalledWorkbenchSnapshot,
+  validateProductBundleName,
+  validateReleaseEntitlements,
   validateUniversalArchitectures,
 } from "./lib/installed-dmg-gate.mjs";
 
 const runFile = promisify(execFile);
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const releaseDirectory = join(projectRoot, "release");
 const commandOptions = Object.freeze({
   encoding: "utf8",
   maxBuffer: 4 * 1024 * 1024,
@@ -26,6 +30,8 @@ const commandOptions = Object.freeze({
 });
 
 requireMacPlatform(process.platform);
+const requireAppleTrust = parseVerificationMode(process.argv.slice(2));
+const releaseDirectory = join(projectRoot, requireAppleTrust ? "release" : "release-beta");
 
 let application;
 let mountAttempted = false;
@@ -51,6 +57,7 @@ try {
 
   const mountedEntries = await describeDirectory(mountPoint);
   const appName = selectSingleArtifact(mountedEntries, ".app", "directory", "DMG 中的 .app");
+  validateProductBundleName(appName);
   const mountedApp = join(mountPoint, appName);
   const installedApp = join(installDirectory, appName);
   await runFile("/usr/bin/ditto", [mountedApp, installedApp], commandOptions);
@@ -59,16 +66,90 @@ try {
   detached = true;
 
   const plistPath = join(installedApp, "Contents", "Info.plist");
-  const { stdout: executableOutput } = await runFile(
-    "/usr/bin/plutil",
-    ["-extract", "CFBundleExecutable", "raw", "-o", "-", plistPath],
-    commandOptions,
+  const executableName = validateBundleExecutableName(
+    await readPlistValue(plistPath, "CFBundleExecutable"),
   );
-  const executableName = validateBundleExecutableName(executableOutput.trim());
+  const manifest = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8"));
+  validateBundleMetadata(
+    {
+      identifier: await readPlistValue(plistPath, "CFBundleIdentifier"),
+      name: await readPlistValue(plistPath, "CFBundleName"),
+      executable: executableName,
+      version: await readPlistValue(plistPath, "CFBundleShortVersionString"),
+    },
+    manifest.version,
+  );
   const executablePath = join(installedApp, "Contents", "MacOS", executableName);
   const executableStat = await lstat(executablePath);
   if (!executableStat.isFile()) throw new Error("复制后的 Contents/MacOS 可执行文件无效");
   await access(executablePath, constants.X_OK);
+  if (requireAppleTrust) {
+    await runFile(
+      "/usr/bin/codesign",
+      ["--verify", "--deep", "--strict", "--verbose=2", installedApp],
+      commandOptions,
+    );
+    const signature = await runFile(
+      "/usr/bin/codesign",
+      ["--display", "--verbose=4", installedApp],
+      commandOptions,
+    );
+    const applicationTeam = validateDeveloperIdSignatureDetails(
+      `${signature.stdout}\n${signature.stderr}`,
+    );
+    const appEntitlements = await runFile(
+      "/usr/bin/codesign",
+      ["--display", "--entitlements", ":-", installedApp],
+      commandOptions,
+    );
+    validateReleaseEntitlements(`${appEntitlements.stdout}\n${appEntitlements.stderr}`, "主应用");
+    const frameworksDirectory = join(installedApp, "Contents", "Frameworks");
+    const frameworkEntries = await describeDirectory(frameworksDirectory);
+    const rendererHelperName = selectSingleArtifact(
+      frameworkEntries,
+      " Helper (Renderer).app",
+      "directory",
+      "Renderer Helper",
+    );
+    const rendererHelper = join(frameworksDirectory, rendererHelperName);
+    const rendererSignature = await runFile(
+      "/usr/bin/codesign",
+      ["--display", "--verbose=4", rendererHelper],
+      commandOptions,
+    );
+    const rendererTeam = validateDeveloperIdSignatureDetails(
+      `${rendererSignature.stdout}\n${rendererSignature.stderr}`,
+    );
+    if (rendererTeam !== applicationTeam) {
+      throw new Error("主应用与 Renderer Helper 的 Developer ID 团队不一致");
+    }
+    const rendererEntitlements = await runFile(
+      "/usr/bin/codesign",
+      ["--display", "--entitlements", ":-", rendererHelper],
+      commandOptions,
+    );
+    validateReleaseEntitlements(
+      `${rendererEntitlements.stdout}\n${rendererEntitlements.stderr}`,
+      "Renderer Helper",
+    );
+    await runFile(
+      "/usr/bin/xattr",
+      [
+        "-w",
+        "com.apple.quarantine",
+        "0081;00000000;AlgoLatch;00000000-0000-0000-0000-000000000000",
+        installedApp,
+      ],
+      commandOptions,
+    );
+    const assessment = await runFile(
+      "/usr/sbin/spctl",
+      ["--assess", "--type", "execute", "--verbose=4", installedApp],
+      commandOptions,
+    );
+    validateGatekeeperAssessment(`${assessment.stdout}\n${assessment.stderr}`);
+    await runFile("/usr/bin/xcrun", ["stapler", "validate", installedApp], commandOptions);
+  }
   const { stdout: architectures } = await runFile(
     "/usr/bin/lipo",
     ["-archs", executablePath],
@@ -185,7 +266,12 @@ try {
 
   await application.close();
   application = undefined;
-  console.log(`✓ 已安装 DMG 门禁通过：${dmgName}（复制、卸载后启动、Dashboard/Dock/parser）`);
+  const trustLabel = requireAppleTrust
+    ? "Developer ID、公证票据、Gatekeeper、"
+    : "显式未签名 Beta、";
+  console.log(
+    `✓ 已安装 DMG 门禁通过：${dmgName}（${trustLabel}复制、卸载后启动、Dashboard/Dock/parser）`,
+  );
 } catch (error) {
   console.error(`✗ 已安装 DMG 门禁失败：${formatError(error)}`);
   process.exitCode = 1;
@@ -224,10 +310,25 @@ async function describeDirectory(path) {
   }));
 }
 
+async function readPlistValue(plistPath, key) {
+  const { stdout } = await runFile(
+    "/usr/bin/plutil",
+    ["-extract", key, "raw", "-o", "-", plistPath],
+    commandOptions,
+  );
+  return stdout.trim();
+}
+
 async function detachMountedDmg(path) {
   await runFile("/usr/bin/hdiutil", ["detach", path], commandOptions);
 }
 
 function formatError(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parseVerificationMode(args) {
+  if (args.length === 0) return true;
+  if (args.length === 1 && args[0] === "--allow-unsigned") return false;
+  throw new Error(`未知 DMG 验证参数：${args.join(" ")}`);
 }
