@@ -50,6 +50,7 @@ import type {
   RenameAiConversationRequest,
   SetAiConversationArchivedRequest,
 } from "./ai-project.js";
+import type { AppInfoSnapshot } from "./app-info.js";
 import type { AiWindowHostApi } from "./ai-window.js";
 
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
@@ -259,6 +260,8 @@ export type SourceImportResult =
   | { readonly status: "failed"; readonly error: SourceImportError };
 
 export interface PanelApi extends AiWindowHostApi {
+  /** Returns bounded public build metadata; no filesystem path or credential is included. */
+  getAppInfo(): Promise<AppInfoSnapshot>;
   /** Returns the app-level system locale only; no other OS locale data crosses this boundary. */
   getSystemLocale(): Promise<import("./interface-locale.js").InterfaceLocale>;
   /** Applies the renderer's explicit UI locale to native window chrome and dialogs. */

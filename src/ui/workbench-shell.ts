@@ -3,6 +3,7 @@ import type {
   RegisteredWorkbenchPage,
   WorkbenchRegistrySnapshot,
 } from "../workbench/contracts.js";
+import type { AppInfoSnapshot } from "../shared/app-info.js";
 import type { InterfaceLocale } from "./interface-preferences.js";
 import {
   createWorkbenchMenu,
@@ -64,6 +65,7 @@ export interface WorkbenchElements {
   readonly setPanelVisibility: (value: Readonly<Record<string, boolean>>) => void;
   readonly applyLayoutPreset: (layoutId: string, options?: ApplyLayoutPresetOptions) => void;
   readonly executeMenuAction: (rootId: string, branchId: string) => void;
+  readonly setAppInfo: (info: AppInfoSnapshot) => void;
   readonly setLocale: (locale: InterfaceLocale) => void;
   readonly destroy: () => void;
 }
@@ -245,6 +247,7 @@ export function mountWorkbench(
 
   let currentPageId = "dashboard";
   let currentLocale: InterfaceLocale = "zh-CN";
+  let appInfo: AppInfoSnapshot | null = null;
   let destroyed = false;
 
   const setLocale = (locale: InterfaceLocale): void => {
@@ -401,7 +404,7 @@ export function mountWorkbench(
             ? "Settings"
             : "设置"
           : `${english ? "Settings" : "设置"} / ${branchLabel}`;
-      drawerCopy.textContent = SETTINGS_COPY[currentLocale][branchId] ?? "";
+      drawerCopy.textContent = settingsCopy(currentLocale, branchId, appInfo);
     }
     const EventConstructor = shell.ownerDocument.defaultView?.CustomEvent;
     if (EventConstructor !== undefined) {
@@ -615,11 +618,7 @@ export function mountWorkbench(
           ? "Settings"
           : "设置"
         : `${english ? "Settings" : "设置"} / ${branchLabel}`;
-    drawerCopy.textContent =
-      SETTINGS_COPY[currentLocale][branchId] ??
-      (english
-        ? "This setting is contributed by the workbench and stored locally."
-        : "此设置由工作台扩展贡献，并保存在本机。");
+    drawerCopy.textContent = settingsCopy(currentLocale, branchId, appInfo);
     drawer.dataset.menuRoot = "settings";
     drawer.dataset.menuBranch = branchId;
     drawer.hidden = false;
@@ -781,6 +780,13 @@ export function mountWorkbench(
         throw new RangeError(`未知工作台菜单操作：${rootId}/${branchId}`);
       }
       handleMenuSelection(Object.freeze({ rootId: definition.id, branchId: branch.id }));
+    },
+    setAppInfo(info: AppInfoSnapshot): void {
+      assertActive(destroyed);
+      appInfo = Object.freeze({ ...info });
+      if (drawer.dataset.menuRoot === "settings" && drawer.dataset.menuBranch === "about-logs") {
+        drawerCopy.textContent = settingsCopy(currentLocale, "about-logs", appInfo);
+      }
     },
     setLocale,
     destroy(): void {
@@ -989,6 +995,61 @@ function validateNavigation(snapshot: WorkbenchRegistrySnapshot): NavigationMode
     pages: Object.freeze(pages),
     inspectorViews: Object.freeze(inspectorViews),
   });
+}
+
+function settingsCopy(
+  locale: InterfaceLocale,
+  branchId: string,
+  appInfo: AppInfoSnapshot | null,
+): string {
+  if (branchId === "about-logs") return aboutCopy(locale, appInfo);
+  return (
+    SETTINGS_COPY[locale][branchId] ??
+    (locale === "en"
+      ? "This setting is contributed by the workbench and stored locally."
+      : "此设置由工作台扩展贡献，并保存在本机。")
+  );
+}
+
+function aboutCopy(locale: InterfaceLocale, info: AppInfoSnapshot | null): string {
+  if (info === null) {
+    return locale === "en"
+      ? "C Block Algorithm Panel\n\nLocal, source-authoritative C algorithm learning and design workbench.\n\nVersion information is unavailable."
+      : "C 积木算法面板\n\n本地、源码权威的 C 算法学习与设计工作台。\n\n版本信息暂不可用。";
+  }
+  const platform = info.platform === "darwin" ? "macOS" : info.platform;
+  const build =
+    locale === "en"
+      ? info.packaged
+        ? "Installed build"
+        : "Development build"
+      : info.packaged
+        ? "安装版本"
+        : "开发版本";
+  if (locale === "en") {
+    return [
+      `C Block Algorithm Panel v${info.version}`,
+      "",
+      "A local, source-authoritative workbench for learning, visualizing, running, and analyzing C algorithms.",
+      "",
+      "main.c is the only executable source of truth. Canvas layout, analysis, lessons, run history, and AI conversations remain recoverable supporting data.",
+      "",
+      `${build} · ${platform} ${info.architecture} · Electron ${info.electronVersion} · ${info.license}`,
+      `Source: ${info.repositoryUrl}`,
+      `Releases: ${info.releasesUrl}`,
+    ].join("\n");
+  }
+  return [
+    `C 积木算法面板 v${info.version}`,
+    "",
+    "用于学习、可视化、运行和分析 C 算法的本地源码权威工作台。",
+    "",
+    "main.c 是唯一可执行事实源；画布布局、分析、课程、运行历史和 AI 对话均为可恢复的辅助数据。",
+    "",
+    `${build} · ${platform} ${info.architecture} · Electron ${info.electronVersion} · ${info.license}`,
+    `源码：${info.repositoryUrl}`,
+    `版本与下载：${info.releasesUrl}`,
+  ].join("\n");
 }
 
 function assertActive(destroyed: boolean): void {

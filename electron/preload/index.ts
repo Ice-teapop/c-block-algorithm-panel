@@ -10,6 +10,11 @@ import type {
   RunResult,
   SourceImportResult,
 } from "../../src/shared/api.js";
+import {
+  APP_INFO_IPC_CHANNEL,
+  parseAppInfoSnapshot,
+  type AppInfoSnapshot,
+} from "../../src/shared/app-info.js";
 import { isInterfaceLocale, type InterfaceLocale } from "../../src/shared/interface-locale.js";
 import type {
   TraceBatch,
@@ -80,6 +85,7 @@ import {
 } from "../../src/shared/ai-window.js";
 
 const IPC_CHANNELS = Object.freeze({
+  appInfo: APP_INFO_IPC_CHANNEL,
   getSystemLocale: "panel:system-locale",
   setInterfaceLocale: "panel:set-interface-locale",
   openSource: "panel:open-source",
@@ -131,6 +137,11 @@ function copyCapabilitiesSnapshot(value: Capabilities): Capabilities {
 }
 
 const panelApi: PanelApi = Object.freeze({
+  getAppInfo: async (): Promise<AppInfoSnapshot> => {
+    const parsed = parseAppInfoSnapshot(await ipcRenderer.invoke(IPC_CHANNELS.appInfo));
+    if (parsed === null) throw new TypeError("应用信息响应无效");
+    return parsed;
+  },
   openAiWindow: async (): Promise<AiWindowCommandResult> =>
     (await ipcRenderer.invoke(AI_WINDOW_IPC_CHANNELS.open)) as AiWindowCommandResult,
   toggleAiWindow: async (): Promise<AiWindowCommandResult> =>

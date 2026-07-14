@@ -1,150 +1,116 @@
 # C 积木算法面板
 
-面向本科 C、数据结构与算法课程的本地 Electron 工作台。应用始终把
-`main.c` 作为唯一事实源，同时将源码投影为可自由摆放的节点、经过验证的
-控制连线、可随时查看的代码，以及真实运行和分析证据。
+**C Block Algorithm Panel** 是一个面向本科 C、数据结构与算法学习的本地
+macOS 工作台。它把真实 `main.c` 投影为可拖动、可连线的流程画布，同时保留
+源码编辑、真实运行、Trace、性能证据、静态分析和课程指导。
 
-`v0.0.1` 是项目版本线重置后的首个公开版本。GitHub 将它作为普通 Release
-发布，而不是 prerelease。此前的 `v0.1.0-beta.1` 至
-`v0.1.0-beta.12` 是开发阶段快照，不代表从更高版本向 `v0.0.1` 降级。
+它不是 Scratch 的 C 语言复刻，也不会维护一份与源码竞争的隐藏图模型。
+`main.c` 始终是唯一可执行事实源；画布只负责让程序结构更容易看见、组装和
+验证。
 
-> `v0.0.1` 的 Universal DMG 仍然未签名、未公证。公开发布不代表 Apple
-> 已验证该应用。安装前必须核对 `SHA256SUMS.txt`，首次打开时可能需要在
-> Gatekeeper 中显式批准。
+[下载 v0.0.1](https://github.com/Ice-teapop/c-block-algorithm-panel/releases/tag/v0.0.1)
+· [发布说明](./docs/releases/v0.0.1.md) ·
+[当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
+[安全](./SECURITY.md)
 
-## 主要能力
+> 当前公开 Universal DMG 未签名、未公证。安装前请从同一个 Release 下载
+> `SHA256SUMS.txt` 并完成校验。公开发布不等于 Apple 已验证该应用。
 
-### 源码权威的积木工作台
+## 为什么做这个工具
 
-- 保真导入任意单文件 C17 源码。CRLF、BOM、注释和无法结构化的原始文本
-  不会被静默丢失。
-- 代码与积木双向定位。节点可以自由拖动，画布支持平移、缩放、框选、
-  对齐、复制、删除和撤销。
-- 控制线可以从兼容端口的任一端发起，再统一规范化为
-  `output → input`。连线只有在候选 C 可生成、完整重解析且 CFG 后置条件
-  成立后才会写入 `main.c`。
-- `raw`、宏边界和 partial CFG 节点仍可查看、编译和运行，但危险拓扑操作
-  会被拒绝。
-- 节点单击只选择，双击或按 Enter 打开画布内详情。详情窗、运行区和主要
-  面板可以移动或调整尺寸。
+初学算法时，最难的通常不是记住一段代码，而是同时理解四件事：数据如何
+变化、控制流为什么走这条路径、代码修改是否改变语义，以及所谓“更快”有
+什么证据。
 
-### 真实运行、Trace 和分析
+本项目把这四件事放进同一个工作流：
 
-- 使用本机 Apple clang 编译和运行 C 程序，并提供编译诊断、
-  ASan/UBSan 和独立 `leaks` 检查。
-- 受限 Trace 使用临时影子源码插桩，不修改项目源码。实际 stdin、参数和
-  fixture 决定真实路径，节点会随事件高亮。
-- Trace 绑定源码指纹和单次运行授权；取消、源码变化、10,000 条事件或
-  8 MiB 上限都会使旧证据失效。
-- 分开展示编译耗时、墙钟时间、峰值 RSS、峰值进程数、输出字节、执行
-  节点、操作计数和终止原因。
-- Benchmark 使用多个输入规模和重复运行的中位数。图表区分实测时间、
-  操作次数和参考增长，不生成虚假的综合效率分数，也不把曲线当作 Big-O
-  证明。
-- 教学模拟与真实执行严格隔离。模拟结果不会进入真实性能历史，也不能
-  支持真实输出结论。
+1. 新建项目，或导入一个 UTF-8 单文件 C 程序。
+2. 从预设拖入积木，或直接编辑 C 源码。
+3. 在自由画布中查看结构、移动节点并连接兼容端口。
+4. 只有候选源码能够完整重解析并满足 CFG 后置条件，语义连线才会写回
+   `main.c`。
+5. 使用真实输入运行、Trace、诊断和 Benchmark，再根据可追溯证据改进算法。
 
-### 学习与算法设计
+## 核心能力
 
-- 内置 80 个版本化预设：75 个源码积木和 5 个 Start、End、Pause、
-  Checkpoint、Merge 虚拟流程节点。
-- Library 包含 114 个实质词条，覆盖 C 语法、标准库、数据结构、常见
-  算法、复杂度、案例、故障恢复和工作台使用方法。
-- 第一课“扫描求最大值”使用独立教学沙箱和真实任务证据，依次训练运行、
-  Trace、补全、图表阅读、调试和迁移为最小值算法。
-- 保守静态分析提供函数级 CFG、def-use、到达定义、循环和数组事实，以及
-  直接唯一堆句柄 typestate。结果明确区分 `certain`、`likely` 和 `hint`。
-- 本地证据提示无需 API，根据静态诊断、Trace 路径和运行历史给出可定位
-  建议。
+### 源码权威的自由画布
 
-### 项目、界面和快捷操作
+- 在 512 KiB、UTF-8 和本地文件安全边界内导入单文件 C 源码；保留 BOM、
+  CRLF、注释和无法可靠结构化的原始文本。
+- 节点支持自由定位、平移、缩放、框选、对齐、复制、删除和撤销。
+- 单击选择节点，双击或按 Enter 打开详情；代码与画布可以双向定位。
+- 连线可以从兼容端口的任一端开始，最终规范化为 `output → input`。
+- `raw`、宏边界和 partial CFG 仍可查看、编译和运行，但危险拓扑编辑会
+  fail closed。
 
-- Dashboard 管理 Projects、Sandboxes 和 Tests。整行单击或按 Enter
-  直接打开条目。
-- 顶部使用纯文字 Dock；工作区、Library、分析和设置保持独立界面，主要
-  区域独立滚动并可调整尺寸。
-- 默认使用纯白背景和黑色文字，也可切换背景和深色主题。
-- 首次启动根据 macOS 首选语言选择中文或英文；之后可在设置中切换。
-- Quick Open、统一主运行入口、可视化运行路径和可折叠高级诊断减少重复
-  按钮与界面跳转。
+### 真实运行与证据
 
-### 可选的联网 AI 助手
+- 使用本机 Apple clang 编译和运行 C 程序，显示编译诊断、stdout、stderr、
+  退出原因、耗时、峰值 RSS、输出字节和进程数等数据。
+- Trace 通过临时影子源码插桩，不修改项目源码；事件绑定源码指纹、当前窗口
+  和单次运行授权。
+- ASan/UBSan 与独立 `leaks` 检查用于发现部分内存问题。
+- Benchmark 使用多个输入规模和重复样本的中位数；实测时间、操作次数和
+  Big-O 结论保持分离。
+- 教学模拟不会写入真实运行历史，也不能冒充真实输出或性能结论。
 
-应用支持用户自备密钥连接以下官方服务：
+### 学习、设计与分析
 
-- OpenAI
-- Anthropic
-- Gemini
-- OpenRouter
-- DeepSeek
-- 智谱 GLM
-- Kimi 中国区和 Kimi 国际区
+- 80 个版本化预设，其中包括 75 个源码积木和 5 个虚拟流程节点。
+- 114 个 Library 词条，覆盖 C 语法、标准库、数据结构、算法、复杂度、案例
+  和工作台操作。
+- 第一课“扫描求最大值”使用独立沙箱和真实任务证据，训练运行、Trace、
+  补全、图表阅读、调试和迁移。
+- 保守静态分析提供函数级 CFG、def-use、到达定义、循环、数组和直接唯一
+  堆句柄 typestate 事实。
+- 本地证据提示不需要联网，并明确区分确定事实、可能问题和启发式建议。
 
-联网 AI 默认不启用。用户必须在设置中输入自己的 API 密钥并主动发起
-请求。密钥由 Electron `safeStorage` 使用操作系统能力加密保存；renderer
-只能看到厂商、模型和是否已配置凭据，不能读取明文或密文。
+### 可选的 AI 助手
 
-默认上下文只包含当前函数、诊断摘要、控制流摘要、运行证据和有限的当前
-对话历史。文件路径、stdin 和程序参数不会发送。只读模式不发送完整源码；
-用户显式切换到“建议修改”或“代理”后，该模式下的请求会包含完整 `main.c`，
-弹窗会持续显示这一外发提示。请求只会发送给用户选定厂商的
-官方白名单主机，不会轮询其他厂商试钥。
+用户可自备 API 密钥连接 OpenAI、Anthropic、Gemini、OpenRouter、DeepSeek、
+智谱 GLM、Kimi 中国区或 Kimi 国际区。
 
-每个托管工作区对应一个本地 AI Project，可保存多批对话。AI 修改源码的
-权限默认关闭。开启“修改前复核”或受控执行后，模型仍只能返回候选替换；
-应用会绑定工作区 revision 和源码指纹，生成精确 diff，建立检查点，并经过
-重解析、无损往返和 CFG 门禁。失败或过期提案不会写入 `main.c`。
+- AI 默认关闭；应用不会自动选择厂商、试钥或切换模型。
+- 密钥由 Electron `safeStorage` 使用操作系统能力加密。renderer 只能知道
+  厂商、模型和是否存在凭据。
+- 默认上下文只包含当前函数和有限的诊断、控制流、运行及对话证据；不发送
+  文件路径、stdin 或程序参数。
+- AI 修改源码的权限默认关闭。开启后，模型只能提交候选替换；应用仍会检查
+  revision、源码指纹、精确 diff、重解析、无损往返和 CFG 后置条件。
+- 每个托管工作区对应一个本地 AI Project，可保存多批对话；删除对话数据
+  不会影响 `main.c`。
 
-## 版本历程
+应用不包含遥测、广告、账户或云同步。联网请求只会在用户配置并主动调用
+AI 后发送到所选厂商的官方白名单主机。
 
-- **M0**：安全 Electron 骨架、具名 IPC、本机编译运行器和资源边界。
-- **M1**：任意 C 的无损投影、注释归属、金样本和变异 fuzz。
-- **M2**：积木/代码双向高亮、变量定位、运行面板和确定性解释。
-- **M3**：受控源码编辑、结构 diff、撤销/重做和受限拖拽闭环。
-- **M4**：Documents 托管 Dashboard、工业组装画布、自定义积木生命周期。
-- **M5**：CFG、def-use、循环、数组和内存诊断，并保留历史回归门禁。
-- **`v0.1.0-beta.1`**：自由画布、可验证改线、Trace、运行历史、预设、
-  Library 和 Universal DMG 发布基础。
-- **`v0.1.0-beta.2–12`**：集中修复 Apple clang 兼容、`leaks` 监督、
-  CRLF 撤销、进程回收、Electron E2E 和托管发布门禁。
-- **`v0.0.1`**：重置公开版本线，加入 v6 教程、分析图、多厂商 AI、项目级
-  对话、显式授权改码、双语界面和整体交互重构。
+## 快速开始
 
-完整发布说明见
-[v0.0.1 release notes](./docs/releases/v0.0.1.md)。
+1. 打开应用，在 Dashboard 选择“开始第一课”或新建 Project、Sandbox、Test。
+2. 进入工作区后，从左侧预设区拖入积木，或在右侧直接编辑 C 代码。
+3. 在画布中拖动节点。端口发亮时松开以提交候选连线。
+4. 在画布顶部选择输入并点击“运行”。首次执行原生代码时阅读并确认信任
+   提示。
+5. 使用底部的运行、指标和本地检查；需要完整比较时进入顶部“分析”界面。
+6. 双击节点查看通俗解释、端口、诊断和运行证据。
 
-## 本地工作区与迁移
-
-应用启动后进入 Dashboard。托管条目位于：
+托管项目自动保存在：
 
 ```text
 ~/Documents/C Algorithm Workbench/
 ├── Projects/<project-id>/
-│   ├── entry.json
-│   ├── main.c
-│   ├── flow-view.json
-│   ├── scenarios.json
-│   ├── run-history.json
-│   ├── tutorial-progress.json
-│   └── ai-project.json
 ├── Sandboxes/<sandbox-id>/
 └── Tests/<test-id>/
 ```
 
-- `main.c` 始终是程序事实源，并由主进程原子保存。
-- sidecar 只保存视图、案例、运行摘要、课程进度和 AI 对话。损坏、未知版本
-  或指纹过期只会使相应辅助数据被忽略或重置，不会改写源码。
-- `flow-view.json` v1 会按需迁移为结构和文本锚点 v2。锚点不唯一时只丢弃
-  对应节点的位置、选择或详情状态。
-- 旧 AI Provider 配置升级为 v2 后会要求重新连接。旧密文没有绑定厂商，
-  因此应用不会猜测其归属或向多个服务发送密钥。
-- `ai-project.json` 是新增的项目级对话文件。旧版本会忽略它；删除或损坏
-  它不会影响 `main.c`。
-- 卸载应用不会自动删除 Documents 中的项目。
+每个条目包含 `entry.json` 和 `main.c`。按需创建的 `flow-view.json`、
+`scenarios.json`、`run-history.json`、`tutorial-progress.json` 和
+`ai-project.json` 只保存辅助状态。损坏、过期或未知版本的辅助文件可以被
+忽略或重置，但不能据此改写源码。
 
-## 安装未签名 Universal DMG
+## 安装 v0.0.1
 
-1. 从同一个 GitHub Release 下载 DMG 和 `SHA256SUMS.txt`。
+1. 从 [v0.0.1 Release](https://github.com/Ice-teapop/c-block-algorithm-panel/releases/tag/v0.0.1)
+   下载 DMG 和 `SHA256SUMS.txt`。
 2. 在下载目录运行：
 
    ```sh
@@ -152,14 +118,30 @@
    ```
 
 3. 只有校验成功后才挂载 DMG，并把应用拖入 **Applications**。
-4. 如果 Gatekeeper 阻止首次启动，在 Finder 中按住 Control 单击应用，
-   选择 **打开**，然后再次确认。
-5. 如果仍被阻止，打开 **系统设置 → 隐私与安全性**，确认应用来源后选择
+4. 如果 Gatekeeper 阻止首次启动，在 Finder 中按住 Control 单击应用，选择
+   **打开**并再次确认。
+5. 如果仍被阻止，在 **系统设置 → 隐私与安全性** 中确认来源后选择
    **仍要打开**。
 
 不要全局关闭 Gatekeeper，也不要在校验失败时继续安装。
 
-## 开发
+## 架构原则
+
+项目是一个本地模块化 Electron 单体：
+
+- `src/core/` 负责 C 解析、无损投影和受控文本补丁。
+- `src/analysis/` 只读消费程序事实并生成保守分析。
+- `src/flow/` 只描述流程投影、视图状态和连接意图。
+- `src/app/` 协调源码、画布、分析、课程和运行证据。
+- `electron/preload/` 暴露窄、具名且经过验证的 IPC。
+- `electron/main/` 独占文件系统、原生进程、Trace、AI 网络和凭据能力。
+
+依赖图禁止 renderer 导入 Electron、主进程导入 renderer、flow 导入写路径，
+并拒绝循环依赖。完整进程边界、数据所有权、写入路径和扩展点见
+[当前架构](./docs/architecture/README.md)；已接受的决策见
+[ADR 索引](./docs/architecture/decisions/README.md)。
+
+## 本地开发
 
 要求 macOS、Node 24 LTS、npm 11.11.0 和 Apple clang 17.x–21.x。
 
@@ -167,53 +149,36 @@
 npm ci
 npm run verify:toolchain
 npm run dev
+```
+
+提交前至少运行与改动相关的检查：
+
+```sh
 npm run typecheck
 npm run format:check
 npm test
 npm run build
-npm run test:e2e
-npm run accept:m0-m5-regression
-npm run accept:m6-m8
-npm run accept:m9
 ```
 
-本地生成当前未签名 Universal DMG：
+完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。当前未签名 DMG 的
+本地构建脚本仍名为 `npm run dist:mac:beta`；该名称是历史遗留，不代表
+`v0.0.1` 是 prerelease，也不会执行签名、公证或上传。
 
-```sh
-npm run accept:m9
-npm run format:check
-npm test
-npm run accept:m0-m5-regression
-npm run accept:m6-m8
-npm run test:e2e
-npm run dist:mac:beta
-```
+## 版本与边界
 
-`dist:mac:beta` 是现有未签名构建脚本的历史名称。它不会签名、公证或上传
-产物。
+`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
+`v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
+变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md) 与
+[v0.0.1 发布说明](./docs/releases/v0.0.1.md)。
 
-## 安全与隐私
+当前限制包括：
 
-应用会在本机编译并运行用户选择的 C 程序。未知 C 文件应按可执行代码
-对待；资源限制和 macOS Seatbelt 最佳努力隔离不能把任意原生代码变成
-安全文档。关键隔离能力不可用时，runner 会 fail closed。
+- 仅支持 macOS 和单个 `main.c`；多文件工程尚未进入事实源模型。
+- Trace 证明执行行与分支路径，不采集任意运行时变量值。
+- 宏、`goto`、解析恢复和 partial CFG 可能降低结构化编辑能力。
+- Seatbelt 是最佳努力隔离；关键隔离能力不可用时，运行器会拒绝执行或要求
+  用户针对该次可信请求明确授权。
+- 当前公开 DMG 未签名、未公证。
 
-应用不包含遥测、广告、账户或云同步。联网 AI 只在用户配置并主动调用后
-向选定厂商发送明确上下文。详细边界见 [Privacy](./PRIVACY.md) 和
-[Security Policy](./SECURITY.md)。
-
-## 架构决策
-
-- [ADR-0001：版本化工作台模块](./docs/architecture/decisions/0001-versioned-workbench-modules.md)
-- [ADR-0002：Documents 托管工作区](./docs/architecture/decisions/0002-managed-documents-workspace.md)
-- [ADR-0003：源码权威的自由流程投影](./docs/architecture/decisions/0003-source-authoritative-flow-projection.md)
-- [ADR-0004：有界影子源码 Trace](./docs/architecture/decisions/0004-bounded-shadow-trace.md)
-- [ADR-0005：性能证据与复杂度结论分离](./docs/architecture/decisions/0005-evidence-separated-efficiency.md)
-- [ADR-0006：项目级 AI 对话与显式授权写入](./docs/architecture/decisions/0006-project-scoped-ai-conversations-and-gated-writes.md)
-
-## 不可协商原则
-
-> 宁可显示“无法确定，保留原始 C”，也不丢字符、不静默改语义、不把模拟
-> 当实测、不把提示当证明。
-
-完整工程契约、历史里程碑和验收条件见 [CLAUDE.md](./CLAUDE.md)。
+本项目采用 [MIT License](./LICENSE)。报告漏洞请遵循
+[Security Policy](./SECURITY.md)，不要在公开 Issue 中披露可利用细节。

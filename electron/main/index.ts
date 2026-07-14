@@ -22,6 +22,12 @@ import type {
   SourceImportResult,
 } from "../../src/shared/api.js";
 import {
+  APP_INFO_IPC_CHANNEL,
+  APP_RELEASES_URL,
+  APP_REPOSITORY_URL,
+  type AppInfoSnapshot,
+} from "../../src/shared/app-info.js";
+import {
   isInterfaceLocale,
   resolveSystemInterfaceLocale,
   type InterfaceLocale,
@@ -78,6 +84,7 @@ import { registerNativeAiWindow } from "./ai-window-native.js";
 import type { AiWindowManager } from "./ai-window-manager.js";
 
 const IPC_CHANNELS = Object.freeze({
+  appInfo: APP_INFO_IPC_CHANNEL,
   getSystemLocale: "panel:system-locale",
   setInterfaceLocale: "panel:set-interface-locale",
   openSource: "panel:open-source",
@@ -482,6 +489,21 @@ async function authorizeTrustedFallback(
 }
 
 function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): void {
+  ipcMain.handle(IPC_CHANNELS.appInfo, (event, ...args): AppInfoSnapshot => {
+    requireTrustedSenderWindow(event);
+    if (args.length !== 0) throw new TypeError("应用信息请求不接受参数");
+    return Object.freeze({
+      version: app.getVersion(),
+      license: "MIT",
+      repositoryUrl: APP_REPOSITORY_URL,
+      releasesUrl: APP_RELEASES_URL,
+      platform: process.platform,
+      architecture: process.arch,
+      electronVersion: process.versions.electron,
+      packaged: app.isPackaged,
+    });
+  });
+
   ipcMain.handle(IPC_CHANNELS.getSystemLocale, (event, ...args) => {
     requireTrustedSenderWindow(event);
     if (args.length !== 0) throw new TypeError("系统语言请求不接受参数");

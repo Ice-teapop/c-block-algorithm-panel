@@ -98,6 +98,33 @@ describe("M6 workbench shell behavior", () => {
     expect(() => shell.executeMenuAction("settings", "missing")).toThrow(/未知工作台菜单/u);
   });
 
+  it("shows live version and public project metadata in the localized About view", () => {
+    const shell = mount();
+    shell.setAppInfo({
+      version: "0.0.1",
+      license: "MIT",
+      repositoryUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel",
+      releasesUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel/releases",
+      platform: "darwin",
+      architecture: "arm64",
+      electronVersion: "43.0.0",
+      packaged: true,
+    });
+
+    shell.executeMenuAction("settings", "about-logs");
+    expect(app.require("workbench-drawer-copy").textContent).toContain("C 积木算法面板 v0.0.1");
+    expect(app.require("workbench-drawer-copy").textContent).toContain("macOS arm64");
+    expect(app.require("workbench-drawer-copy").textContent).toContain(
+      "github.com/Ice-teapop/c-block-algorithm-panel",
+    );
+
+    shell.setLocale("en");
+    expect(app.require("workbench-drawer-copy").textContent).toContain(
+      "C Block Algorithm Panel v0.0.1",
+    );
+    expect(app.require("workbench-drawer-copy").textContent).not.toMatch(/[\p{Script=Han}]/u);
+  });
+
   it("does not let a delayed background layout restore close the active Library page", () => {
     const shell = mount();
 
@@ -282,6 +309,16 @@ class FakeElement {
     return this.find(predicate) ?? null;
   }
 
+  querySelectorAll(selector: string): readonly FakeElement[] {
+    if (selector === "[data-menu-root-trigger]") {
+      return this.findAll((element) => element.dataset.menuRootTrigger !== undefined);
+    }
+    if (selector === "[data-menu-branch]") {
+      return this.findAll((element) => element.dataset.menuBranch !== undefined);
+    }
+    return [];
+  }
+
   findAllByClass(className: string): readonly FakeElement[] {
     return this.findAll((element) => element.hasClass(className));
   }
@@ -433,6 +470,15 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const generalSettings = element(document, "section", "general-settings");
   const language = identified(document.createElement("select"), "interface-language");
   const background = identified(document.createElement("select"), "interface-background");
+  (language as FakeSelect).options.push(
+    document.createElement("option"),
+    document.createElement("option"),
+  );
+  (background as FakeSelect).options.push(
+    document.createElement("option"),
+    document.createElement("option"),
+    document.createElement("option"),
+  );
   const aiSettings = element(document, "div", "ai-provider-settings-host");
   generalSettings.append(
     language,

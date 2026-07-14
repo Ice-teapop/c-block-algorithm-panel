@@ -448,6 +448,15 @@ test("grants exactly one compile and one run after separate native confirmations
 
 test("opens the local desktop shell with a narrow preload API", async () => {
   const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
+  const appInfo = await page.evaluate(() => window.panelApi.getAppInfo());
+  expect(appInfo).toMatchObject({
+    version: "0.0.1",
+    license: "MIT",
+    repositoryUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel",
+    releasesUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel/releases",
+    platform: "darwin",
+    electronVersion: "43.0.0",
+  });
   const expectedTitle = systemLocale === "en" ? "C Block Algorithm Panel" : "C 积木算法面板";
   await expect(page).toHaveTitle(expectedTitle);
   await expect(page.getByRole("heading", { name: expectedTitle })).toHaveCount(0);
@@ -476,14 +485,19 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "diagnose",
       "disconnectAiProvider",
       "getAiProviderConfig",
+      "getAppInfo",
       "getSystemLocale",
       "listAiProviderModels",
       "listWorkspaceDocuments",
+      "onAiWindowClosed",
+      "onAiWindowIntent",
       "onWorkspaceCloseRequested",
       "openAiProject",
+      "openAiWindow",
       "openDroppedSource",
       "openSource",
       "openWorkspaceDocument",
+      "publishAiWindowState",
       "readAiConversation",
       "readAiMentor",
       "readLearningCatalog",
@@ -499,6 +513,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "setInterfaceLocale",
       "startAiMentor",
       "startTrace",
+      "toggleAiWindow",
     ],
     forbiddenApiKeys: [],
     hasNodeProcess: false,

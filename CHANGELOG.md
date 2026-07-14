@@ -7,6 +7,22 @@ based on Keep a Changelog, and versions follow Semantic Versioning.
 `0.1.0-beta.1` through `0.1.0-beta.12` tags are development snapshots, not
 upgrade predecessors. Future public releases continue from `0.0.1`.
 
+## [Unreleased]
+
+### Added
+
+- A current-system architecture overview covering process boundaries, module
+  ownership, persistence, semantic write paths, extension contracts, and
+  executable architecture gates.
+- A validated public app-information IPC response so Settings → About shows the
+  running application version, platform slice, Electron version, license, and
+  canonical project links without exposing paths or credentials.
+
+### Changed
+
+- Rewrote the README around the user workflow, evidence model, safety boundary,
+  installation path, and current constraints instead of milestone history.
+
 ## [0.0.1] - 2026-07-14
 
 ### Added

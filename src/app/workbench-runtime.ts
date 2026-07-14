@@ -80,6 +80,12 @@ export function createWorkbenchRuntime(
     localeHost: elements.shell,
   });
   const aiProviderSettings = createAiProviderSettings(elements.aiProviderSettingsHost, panelApi);
+  void panelApi
+    .getAppInfo()
+    .then((info) => elements.setAppInfo(info))
+    .catch(() => {
+      // An older preload during hot reload leaves the explicit unavailable state in About.
+    });
   const commandSurface = createWorkbenchCommandSurface({ elements, registrySnapshot });
   let destroyed = false;
 
