@@ -934,6 +934,10 @@ function createTestRunner(options: RunnerOptions) {
   const root = mkdtempSync(join(tmpdir(), "c-block-runner-tests-"));
   testRoots.push(root);
   return createRunner({
+    // Most fixtures assert macOS Seatbelt command construction. Keep them
+    // deterministic when this suite runs on a Windows CI host; the dedicated
+    // Windows fixture overrides this explicitly with platform: "win32".
+    platform: "darwin",
     idGenerator: () => ARTIFACT_ID,
     tempRoot: root,
     toolchainDetector: () => ({
