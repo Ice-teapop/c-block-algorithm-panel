@@ -96,6 +96,19 @@ conversation content that you are not authorized to disclose. Disconnecting a
 provider removes the local provider configuration; it cannot delete data that
 the provider may already have received.
 
+Review the selected provider's policy before sending source code or prompts:
+
+- [OpenAI privacy policy](https://openai.com/policies/row-privacy-policy/) and
+  [API services agreement](https://openai.com/policies/services-agreement/)
+- [Anthropic privacy policy](https://www.anthropic.com/legal/privacy)
+- [Google privacy policy](https://policies.google.com/privacy?hl=en-US) and
+  [Gemini API additional terms](https://ai.google.dev/gemini-api/terms)
+- [OpenRouter privacy policy](https://openrouter.ai/privacy/)
+- [DeepSeek privacy policy](https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html)
+- [Zhipu GLM privacy policy](https://docs.bigmodel.cn/cn/terms/privacy-policy)
+- [Kimi China OpenPlatform privacy policy](https://platform.kimi.com/docs/agreement/userprivacy)
+- [Kimi Global OpenPlatform privacy policy](https://platform.kimi.ai/docs/agreement/userprivacy)
+
 ## AI source changes
 
 AI source editing is disabled by default. In read-only mode, responses are

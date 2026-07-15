@@ -15,15 +15,21 @@
 | macOS · Apple Silicon / Intel | 历史 `v0.0.1`，旧名称，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/c-block-algorithm-panel-0.0.1-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/SHA256SUMS.txt) |
 | Windows 10/11 · x64           | 尚未公开发布                  | 暂无安装包                                                                                                                                                                                                                 |
 
+[下载与安装包状态](./DOWNLOADS.md) ·
 [查看所有版本](https://github.com/Ice-teapop/algolatch/releases) ·
 [v0.0.2 说明](./docs/releases/v0.0.2.md) ·
 [当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
-[安全](./SECURITY.md)
+[安全](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
 
 > GitHub 自动显示的 **Source code** 压缩包不是安装器。当前公开的 macOS
 > `v0.0.1` 构建早于 AlgoLatch 改名，因此 DMG 文件和安装后的应用仍使用旧
 > 名称。Windows 目前没有可公开下载的 EXE；这里不会放置不存在或过期的
 > Actions 临时链接。当前源码版本为 `0.0.2`，但尚未发布。
+
+Windows 正式版本计划使用 SignPath Foundation 完成来源可验证的代码签名：
+**Free code signing provided by SignPath.io, certificate by SignPath
+Foundation.** 申请目前仍在审核准备阶段；现有下载不宣称具有该签名。完整
+边界见 [Code signing policy](./CODE_SIGNING_POLICY.md)。
 
 ## 为什么做这个工具
 
