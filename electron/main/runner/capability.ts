@@ -780,7 +780,7 @@ function isWindowsRuntimeManifestPath(path: string): boolean {
   return (
     WINDOWS_REQUIRED_RUNTIME_HASH_PATHS.includes(
       path as (typeof WINDOWS_REQUIRED_RUNTIME_HASH_PATHS)[number],
-    ) || /^toolchain\/bin\/[A-Za-z0-9._-]+\.dll$/iu.test(path)
+    ) || /^toolchain\/bin\/[A-Za-z0-9._+-]+\.dll$/iu.test(path)
   );
 }
 

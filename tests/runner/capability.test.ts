@@ -145,7 +145,7 @@ describe("bundled Windows toolchain capability", () => {
     const linker = join(root, "toolchain", "bin", "ld.lld.exe");
     const commonConfig = join(root, "toolchain", "bin", "mingw32-common.cfg");
     const targetConfig = join(root, "toolchain", "bin", "x86_64-w64-windows-gnu.cfg");
-    const runtimeDll = join(root, "toolchain", "bin", "libwinpthread-1.dll");
+    const runtimeDll = join(root, "toolchain", "bin", "libc++.dll");
     const jobHost = join(root, "runtime", "algolatch-job-host.exe");
     try {
       mkdirSync(join(root, "toolchain", "bin"), { recursive: true });
@@ -177,7 +177,7 @@ describe("bundled Windows toolchain capability", () => {
             "toolchain/bin/clang-22.exe": sha256(clangBinary),
             "toolchain/bin/clang.exe": sha256(clang),
             "toolchain/bin/ld.lld.exe": sha256(linker),
-            "toolchain/bin/libwinpthread-1.dll": sha256(runtimeDll),
+            "toolchain/bin/libc++.dll": sha256(runtimeDll),
             "toolchain/bin/mingw32-common.cfg": sha256(commonConfig),
             "toolchain/bin/x86_64-w64-windows-gnu.cfg": sha256(targetConfig),
           },
