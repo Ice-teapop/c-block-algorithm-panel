@@ -259,7 +259,7 @@ async function assertRunnerReady(
     mode: "seatbelt-best-effort",
     runnerEnabled: true,
     requiresNativeTrustConfirmation: false,
-    seatbeltProbe: { status: "probe-succeeded" },
+    isolationProbe: { kind: "macos-seatbelt", status: "probe-succeeded" },
   });
 }
 

@@ -298,7 +298,7 @@ const assertBackendReady = async (backend) => {
   if (
     capabilities.mode !== "seatbelt-best-effort" ||
     capabilities.runnerEnabled !== true ||
-    capabilities.seatbeltProbe?.status !== "probe-succeeded" ||
+    capabilities.isolationProbe?.status !== "probe-succeeded" ||
     capabilities.requiresNativeTrustConfirmation !== false
   ) {
     fail(

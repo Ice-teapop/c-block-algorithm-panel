@@ -22,6 +22,15 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - A validated public app-information IPC response so Settings → About shows the
   running application version, platform slice, Electron version, license, and
   canonical project links without exposing paths or credentials.
+- Windows 10/11 x64 runtime support with a locked, bundled llvm-mingw toolchain,
+  an x64 Job Object broker, and runtime manifest validation. Installed users do
+  not need Visual Studio, LLVM, administrator rights, or a compiler in `PATH`.
+- Separate formal and unsigned-Beta Windows NSIS configurations, a multi-size
+  Windows icon, fail-closed `WIN_CSC_LINK` credential validation, and an
+  install/launch/run/uninstall gate.
+- Windows `windows-2025` CI and a dual-platform release pipeline that requires
+  both macOS and Windows verification before creating one immutable Release
+  containing DMG, EXE, and `SHA256SUMS.txt`.
 
 ### Changed
 
@@ -32,6 +41,9 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
   tag, old product name, and unsigned artifacts remain immutable.
 - Rewrote the README around the user workflow, evidence model, safety boundary,
   installation path, and current constraints instead of milestone history.
+- Extended local execution and distribution architecture from macOS-only to
+  macOS Universal plus Windows 10/11 x64 while retaining the single `main.c`
+  source-authority model.
 
 ### Security
 
@@ -41,6 +53,12 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - The installed-DMG gate rejects ad-hoc signatures, missing Hardened Runtime,
   unexpected entitlements, absent notarization tickets, failed Gatekeeper
   assessment, non-Universal binaries, or a bundle not named `AlgoLatch.app`.
+- Windows native runs are bounded by a Job Object for process count, aggregate
+  memory, CPU time, and process-tree cleanup. The UI and documentation state
+  explicitly that this does not provide filesystem or network isolation.
+- Formal Windows artifacts require Authenticode and installed-state checks.
+  Unsigned Beta output remains isolated and cannot satisfy the release job;
+  Authenticode is not presented as guaranteed SmartScreen reputation.
 
 ## [0.0.1] - 2026-07-14
 

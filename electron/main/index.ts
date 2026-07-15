@@ -22,6 +22,7 @@ import type {
   SourceImportResult,
 } from "../../src/shared/api.js";
 import {
+  APP_APPLICATION_ID,
   APP_INFO_IPC_CHANNEL,
   APP_PRODUCT_NAME,
   APP_RELEASES_URL,
@@ -117,6 +118,10 @@ let runnerRequestInFlight = false;
 let sourceImportInFlight = false;
 const traceSessionOwners = new Map<string, BrowserWindow>();
 const activeTraceSessions = new Set<string>();
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_APPLICATION_ID);
+}
 
 interface WorkspaceCloseState {
   phase: "open" | "requested" | "ready";
@@ -437,23 +442,23 @@ async function authorizeTrustedFallback(
       message:
         operation === "compile"
           ? english
-            ? "The nested sandbox is unavailable. Compile this trusted code?"
-            : "嵌套沙箱不可用。是否编译这份可信代码？"
+            ? "File and network isolation is unavailable. Compile this trusted code?"
+            : "文件与网络隔离不可用。是否编译这份可信代码？"
           : operation === "run"
             ? english
-              ? "The nested sandbox is unavailable. Run this trusted program?"
-              : "嵌套沙箱不可用。是否运行这个可信程序？"
+              ? "File and network isolation is unavailable. Run this trusted program?"
+              : "文件与网络隔离不可用。是否运行这个可信程序？"
             : operation === "diagnose"
               ? english
-                ? "The nested sandbox is unavailable. Run this full trusted diagnostic once?"
-                : "嵌套沙箱不可用。是否执行这一次完整可信诊断？"
+                ? "File and network isolation is unavailable. Run this trusted diagnostic once?"
+                : "文件与网络隔离不可用。是否执行这一次可信诊断？"
               : english
-                ? "The nested sandbox is unavailable. Run this temporary shadow Trace once?"
-                : "嵌套沙箱不可用。是否执行这一次临时影子 Trace？",
+                ? "File and network isolation is unavailable. Run this temporary shadow Trace once?"
+                : "文件与网络隔离不可用。是否执行这一次临时影子 Trace？",
       detail: [
         english
-          ? "trusted-only has no Seatbelt file or network isolation. Use it only for code you trust."
-          : "trusted-only 没有 Seatbelt 文件与网络隔离，只能用于你确认可信的代码。",
+          ? "Trusted execution has no file or network isolation. Resource and process-tree limits do not make untrusted code safe."
+          : "可信执行没有文件与网络隔离；资源和进程树限制不能让不可信代码变得安全。",
         "",
         ...summary.detailLines,
         "",
@@ -840,7 +845,7 @@ void app.whenReady().then(() => {
     isPackaged: app.isPackaged,
     defaultRoot: join(app.getPath("documents"), WORKSPACE_ROOT_NAME),
     requestedRoot: process.env.PANEL_WORKSPACE_ROOT,
-    installedGate: process.env.PANEL_INSTALLED_DMG_GATE,
+    installedGate: process.env.PANEL_INSTALLED_PACKAGE_GATE ?? process.env.PANEL_INSTALLED_DMG_GATE,
     temporaryDirectory: tmpdir(),
   });
   registerIpcHandlers(createLearningCatalogFileStore(workspaceRoot));

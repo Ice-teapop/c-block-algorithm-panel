@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: July 14, 2026
+Last updated: July 15, 2026
 
 AlgoLatch is local-first software. It does not include telemetry,
 behavioral analytics, advertising, user accounts, or cloud synchronization.
@@ -10,7 +10,9 @@ AI provider.
 
 ## Data stored locally
 
-Managed projects are stored under `~/Documents/C Algorithm Workbench/`.
+Managed projects are stored in the current user's Documents directory: normally
+`~/Documents/C Algorithm Workbench/` on macOS and
+`%USERPROFILE%\Documents\C Algorithm Workbench\` on Windows.
 
 - `main.c` is the authoritative program source.
 - `entry.json` stores workspace metadata.
@@ -112,11 +114,17 @@ truth.
 
 ## Local execution
 
-The application invokes local system tools such as Apple clang and executes C
-programs selected by you. Those processes can access data according to the
-effective macOS permissions and the isolation mode shown by the app. Runtime
-stdin, arguments, fixtures, stdout, stderr, resource measurements, and Trace
-events remain on the device unless you copy them into an AI prompt yourself.
+The application invokes Apple clang on macOS or the bundled, locked llvm-mingw
+toolchain on Windows and executes C programs selected by you. The Windows
+installer already contains its compiler; the installed application does not
+download a compiler on first run.
+
+Those native processes can access data according to the current operating-system
+account and the isolation mode shown by the app. macOS Seatbelt provides the
+documented best-effort profile. Windows Job Object limits the process tree,
+memory and CPU but does not isolate files or network access. Runtime stdin,
+arguments, fixtures, stdout, stderr, resource measurements, and Trace events
+remain on the device unless you copy them into an AI prompt yourself.
 
 ## Deletion and retention
 
@@ -126,8 +134,8 @@ events remain on the device unless you copy them into an AI prompt yourself.
   encrypted credential.
 - Delete a managed project through the application or Finder to remove its
   source and sidecars, subject to normal filesystem recovery behavior.
-- Uninstalling the application does not automatically delete projects stored
-  in Documents.
+- Uninstalling the macOS application or Windows per-user installation does not
+  automatically delete projects stored in Documents.
 - Retiring a custom preset does not delete C already generated into a project.
 
 Back up `main.c` and any project data you want to keep before deleting files.

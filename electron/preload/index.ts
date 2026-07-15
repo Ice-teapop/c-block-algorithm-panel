@@ -131,7 +131,8 @@ function copyCapabilitiesSnapshot(value: Capabilities): Capabilities {
     mode: value.mode,
     runnerEnabled: value.runnerEnabled,
     toolchainId: value.toolchainId,
-    seatbeltProbe: { ...value.seatbeltProbe },
+    isolationProbe: { ...value.isolationProbe },
+    memoryDiagnostics: { ...value.memoryDiagnostics },
     requiresNativeTrustConfirmation: value.requiresNativeTrustConfirmation,
   };
 }

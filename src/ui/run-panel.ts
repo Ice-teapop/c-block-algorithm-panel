@@ -182,7 +182,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const safetyNotice = createElement(
     "p",
     "run-panel__safety-notice",
-    "仅运行你编写或逐行审阅过的代码。可信模式没有 Seatbelt 文件或网络隔离。",
+    "仅运行你编写或逐行审阅过的代码。可信执行没有文件或网络隔离。",
   );
   safetyNotice.hidden = true;
   const runButton = createElement("button", "run-panel__run-button", "直接执行当前代码");
@@ -212,13 +212,20 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const capabilitySummary = createElement("summary", "run-panel__capability-summary", "运行环境");
   const capabilityList = createElement("dl", "run-panel__capabilities");
   const modeRow = appendDescriptionRow(capabilityList, "安全模式", "mode");
-  const seatbeltRow = appendDescriptionRow(capabilityList, "Seatbelt", "seatbelt");
+  const isolationRow = appendDescriptionRow(capabilityList, "执行隔离", "isolation");
+  const memoryCapabilityRow = appendDescriptionRow(
+    capabilityList,
+    "完整内存诊断",
+    "memory-diagnostics",
+  );
   const trustRow = appendDescriptionRow(capabilityList, "可信确认", "trust-confirmation");
   const modeValue = modeRow.value;
-  const seatbeltValue = seatbeltRow.value;
+  const isolationValue = isolationRow.value;
+  const memoryCapabilityValue = memoryCapabilityRow.value;
   const trustValue = trustRow.value;
   modeValue.textContent = "正在检查";
-  seatbeltValue.textContent = "正在检查";
+  isolationValue.textContent = "正在检查";
+  memoryCapabilityValue.textContent = "正在检查";
   trustValue.textContent = "正在检查";
   capabilityDetails.append(capabilitySummary, capabilityList);
 
@@ -327,7 +334,8 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     const disabled = destroyed || busy || capabilities?.runnerEnabled !== true;
     runButton.disabled = disabled;
     diagnoseButton.disabled = disabled;
-    memoryButton.disabled = disabled;
+    memoryButton.disabled = disabled || capabilities?.memoryDiagnostics.available !== true;
+    memoryButton.title = capabilities?.memoryDiagnostics.detail ?? "";
   }
 
   function renderAvailability(): void {
@@ -350,7 +358,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   function renderCapabilities(snapshot: Capabilities): void {
     safetyNotice.hidden = !snapshot.requiresNativeTrustConfirmation;
     modeValue.textContent = runnerModeLabel(snapshot, locale);
-    seatbeltValue.textContent = seatbeltStatusLabel(snapshot, locale);
+    isolationValue.textContent = isolationStatusLabel(snapshot, locale);
+    memoryCapabilityValue.textContent = `${localized(
+      locale,
+      snapshot.memoryDiagnostics.available ? "可用" : "不可用",
+      snapshot.memoryDiagnostics.available ? "Available" : "Unavailable",
+    )}${snapshot.memoryDiagnostics.detail.trim().length > 0 ? `: ${snapshot.memoryDiagnostics.detail}` : ""}`;
     trustValue.textContent = snapshot.requiresNativeTrustConfirmation
       ? localized(
           locale,
@@ -570,6 +583,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
 
   async function diagnoseSource(includeMemory: boolean): Promise<void> {
     if (destroyed || busy || capabilities?.runnerEnabled !== true) return;
+    if (includeMemory && capabilities.memoryDiagnostics.available !== true) return;
     if (advancedDisclosure !== null) advancedDisclosure.open = true;
     busy = true;
     const requestId = runRequestId + 1;
@@ -784,21 +798,23 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   function renderCapabilityPlaceholders(): void {
     if (capabilityFailed) {
       modeValue.textContent = localized(locale, "无法获取", "Unavailable");
-      seatbeltValue.textContent = localized(locale, "无法确认", "Unknown");
+      isolationValue.textContent = localized(locale, "无法确认", "Unknown");
+      memoryCapabilityValue.textContent = localized(locale, "无法确认", "Unknown");
       trustValue.textContent = localized(locale, "无法确认", "Unknown");
       return;
     }
     const checking = localized(locale, "正在检查", "Checking");
     modeValue.textContent = checking;
-    seatbeltValue.textContent = checking;
+    isolationValue.textContent = checking;
+    memoryCapabilityValue.textContent = checking;
     trustValue.textContent = checking;
   }
 
   function renderLocale(): void {
     safetyNotice.textContent = localized(
       locale,
-      "仅运行你编写或逐行审阅过的代码。可信模式没有 Seatbelt 文件或网络隔离。",
-      "Run only code you wrote or reviewed line by line. Trusted mode has no Seatbelt file or network isolation.",
+      "仅运行你编写或逐行审阅过的代码。可信执行没有文件或网络隔离。",
+      "Run only code you wrote or reviewed line by line. Trusted execution has no file or network isolation.",
     );
     runButton.textContent = localized(locale, "直接执行当前代码", "Run current code");
     runButton.setAttribute("aria-label", runButton.textContent);
@@ -809,7 +825,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     toolSummary.textContent = localized(locale, "手动运行与诊断", "Manual run and diagnostics");
     capabilitySummary.textContent = localized(locale, "运行环境", "Run environment");
     modeRow.label.textContent = localized(locale, "安全模式", "Safety mode");
-    seatbeltRow.label.textContent = "Seatbelt";
+    isolationRow.label.textContent = localized(locale, "执行隔离", "Execution isolation");
+    memoryCapabilityRow.label.textContent = localized(
+      locale,
+      "完整内存诊断",
+      "Full memory diagnostics",
+    );
     trustRow.label.textContent = localized(locale, "可信确认", "Trust confirmation");
     resultHeading.textContent = localized(locale, "结果", "Result");
     diagnosticsHeading.textContent = localized(locale, "编译诊断", "Compiler diagnostics");
@@ -963,24 +984,31 @@ function runnerModeLabel(capabilities: Capabilities, locale: InterfaceLocale): s
     case "trusted-only":
       return localized(
         locale,
-        "可信代码模式（无 Seatbelt 文件与网络隔离）",
-        "Trusted-code mode (no Seatbelt file or network isolation)",
+        "可信代码模式（无文件与网络隔离）",
+        "Trusted-code mode (no file or network isolation)",
       );
     case "disabled":
       return localized(locale, "运行器已禁用", "Runner disabled");
   }
 }
 
-function seatbeltStatusLabel(capabilities: Capabilities, locale: InterfaceLocale): string {
-  const detail = capabilities.seatbeltProbe.detail.trim();
+function isolationStatusLabel(capabilities: Capabilities, locale: InterfaceLocale): string {
+  const probe = capabilities.isolationProbe;
+  const kind =
+    probe.kind === "macos-seatbelt"
+      ? "macOS Seatbelt"
+      : probe.kind === "windows-job-object"
+        ? "Windows Job Object"
+        : localized(locale, "无", "None");
+  const detail = probe.detail.trim();
   const suffix = detail.length > 0 ? localized(locale, `：${detail}`, `: ${detail}`) : "";
-  switch (capabilities.seatbeltProbe.status) {
+  switch (probe.status) {
     case "probe-succeeded":
-      return `${localized(locale, "可用", "Available")}${suffix}`;
+      return `${kind} · ${localized(locale, "可用", "Available")}${suffix}`;
     case "unavailable":
-      return `${localized(locale, "不可用", "Unavailable")}${suffix}`;
+      return `${kind} · ${localized(locale, "不可用", "Unavailable")}${suffix}`;
     case "not-checked":
-      return `${localized(locale, "尚未检查", "Not checked")}${suffix}`;
+      return `${kind} · ${localized(locale, "尚未检查", "Not checked")}${suffix}`;
   }
 }
 
@@ -1070,10 +1098,12 @@ function snapshotCapabilities(value: Capabilities): Capabilities {
     mode: value.mode,
     runnerEnabled: value.runnerEnabled,
     toolchainId: value.toolchainId,
-    seatbeltProbe: Object.freeze({
-      status: value.seatbeltProbe.status,
-      detail: value.seatbeltProbe.detail,
+    isolationProbe: Object.freeze({
+      kind: value.isolationProbe.kind,
+      status: value.isolationProbe.status,
+      detail: value.isolationProbe.detail,
     }),
+    memoryDiagnostics: Object.freeze({ ...value.memoryDiagnostics }),
     requiresNativeTrustConfirmation: value.requiresNativeTrustConfirmation,
   });
 }

@@ -1,6 +1,6 @@
 # AlgoLatch
 
-**AlgoLatch** 是一个面向本科 C、数据结构与算法学习的本地 macOS 工作台。
+**AlgoLatch** 是一个面向本科 C、数据结构与算法学习的本地桌面工作台。
 它把真实 `main.c` 投影为可拖动、可连线的流程画布，同时保留源码编辑、真实
 运行、Trace、性能证据、静态分析和课程指导。
 
@@ -15,8 +15,8 @@
 [安全](./SECURITY.md)
 
 > 已发布的 `v0.0.1` 是改名前的历史未签名包。当前源码版本为 `0.0.2`，正式
-> 发布链已强制 Developer ID 签名、公证、staple 和 Gatekeeper 安装态验证；
-> 在 Apple 凭据接入并通过门禁前不会发布或冒充“下载即开”的 AlgoLatch DMG。
+> 发布链已准备 macOS Developer ID/公证门禁与 Windows Authenticode/安装态
+> 门禁；在对应凭据和全部平台门禁通过前，不会把候选包描述为已发布稳定版。
 
 ## 为什么做这个工具
 
@@ -47,8 +47,9 @@
 
 ### 真实运行与证据
 
-- 使用本机 Apple clang 编译和运行 C 程序，显示编译诊断、stdout、stderr、
-  退出原因、耗时、峰值 RSS、输出字节和进程数等数据。
+- macOS 使用受验证的 Apple clang；Windows 10/11 x64 使用随安装包提供、
+  摘要锁定的 llvm-mingw。两端都显示编译诊断、stdout、stderr、退出原因、
+  耗时、峰值 RSS、输出字节和进程数等数据。
 - Trace 通过临时影子源码插桩，不修改项目源码；事件绑定源码指纹、当前窗口
   和单次运行授权。
 - ASan/UBSan 与独立 `leaks` 检查用于发现部分内存问题。
@@ -95,7 +96,7 @@ AI 后发送到所选厂商的官方白名单主机。
 5. 使用底部的运行、指标和本地检查；需要完整比较时进入顶部“分析”界面。
 6. 双击节点查看通俗解释、端口、诊断和运行证据。
 
-托管项目自动保存在：
+托管项目自动保存在用户 Documents：
 
 ```text
 ~/Documents/C Algorithm Workbench/
@@ -104,6 +105,9 @@ AI 后发送到所选厂商的官方白名单主机。
 └── Tests/<test-id>/
 ```
 
+Windows 通常对应
+`%USERPROFILE%\Documents\C Algorithm Workbench\`，内部目录结构相同。
+
 每个条目包含 `entry.json` 和 `main.c`。按需创建的 `flow-view.json`、
 `scenarios.json`、`run-history.json`、`tutorial-progress.json` 和
 `ai-project.json` 只保存辅助状态。损坏、过期或未知版本的辅助文件可以被
@@ -111,7 +115,7 @@ AI 后发送到所选厂商的官方白名单主机。
 
 ## 安装
 
-### AlgoLatch v0.0.2 及后续签名版本
+### macOS 签名版本
 
 签名版本发布后，安装只保留 macOS 的标准动作：
 
@@ -126,6 +130,25 @@ Apple 公证票据、staple、quarantine 后 Gatekeeper 检查和安装态回归
 
 如果 Applications 中仍有改名前的 `C 积木算法面板.app`，确认 AlgoLatch 能
 正常打开并看到原项目后，可手动删除旧 app；项目和设置不会由安装器擅自删除。
+
+### Windows 签名版本
+
+Windows 稳定包发布后，支持 Windows 10/11 x64：
+
+1. 从同一个 GitHub Release 下载
+   `AlgoLatch-Setup-<version>-x64.exe` 和 `SHA256SUMS.txt`。
+2. 校验 SHA-256 后双击安装器。NSIS 使用 one-click per-user 安装和
+   `asInvoker`，不要求管理员权限。
+3. 安装完成后直接打开 AlgoLatch。C 编译器已经包含在安装包中，不需要另装
+   Visual Studio、LLVM 或修改 `PATH`。
+
+卸载 AlgoLatch 不会删除 Documents 中的项目。即使安装器与应用具有有效
+Authenticode，新签名证书或较少下载量仍可能触发 Microsoft SmartScreen 的
+信誉提示；签名证明发布者和文件完整性，不等同于已经积累 SmartScreen 信誉。
+
+当前仓库已经准备 Windows 构建和验证链，但本段不表示 Windows 稳定包已经
+发布。只有正式 Authenticode、安装/运行/卸载回归和联合发布门禁全部通过后，
+Release 才会同时包含 Windows EXE。
 
 ### 历史 v0.0.1
 
@@ -154,7 +177,9 @@ Apple 公证票据、staple、quarantine 后 Gatekeeper 检查和安装态回归
 - `src/flow/` 只描述流程投影、视图状态和连接意图。
 - `src/app/` 协调源码、画布、分析、课程和运行证据。
 - `electron/preload/` 暴露窄、具名且经过验证的 IPC。
-- `electron/main/` 独占文件系统、原生进程、Trace、AI 网络和凭据能力。
+- `electron/main/` 独占文件系统、平台工具链、原生进程、Trace、AI 网络和
+  凭据能力。Windows 原生程序运行在受资源约束的 Job Object 中，但该机制不
+  提供文件系统或网络隔离。
 
 依赖图禁止 renderer 导入 Electron、主进程导入 renderer、flow 导入写路径，
 并拒绝循环依赖。完整进程边界、数据所有权、写入路径和扩展点见
@@ -163,7 +188,9 @@ Apple 公证票据、staple、quarantine 后 Gatekeeper 检查和安装态回归
 
 ## 本地开发
 
-要求 macOS、Node 24 LTS、npm 11.11.0 和 Apple clang 17.x–21.x。
+要求 Node 24 LTS 与 npm 11.11.0。macOS 开发使用 Apple clang 17.x–21.x；
+Windows 发布构建在 Windows x64 上下载并校验锁定的 llvm-mingw，无需依赖
+开发机 `PATH` 中的编译器。
 
 ```sh
 npm ci
@@ -180,9 +207,10 @@ npm test
 npm run build
 ```
 
-完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。正式构建使用
-`npm run dist:mac`，缺少 Developer ID 或 Apple 公证凭据会直接失败；本地开发
-只能显式使用 `npm run dist:mac:beta` 生成带清晰边界的未签名测试包。
+完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。macOS 正式构建使用
+`npm run dist:mac`；Windows 正式构建使用 `npm run dist:win`。缺少对应签名或
+公证凭据会直接失败。开发测试必须显式选择 `npm run dist:mac:beta` 或
+`npm run dist:win:beta`，未签名包使用独立输出目录和文件名。
 
 ## 版本与边界
 
@@ -195,12 +223,15 @@ Release。`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 
 当前限制包括：
 
-- 仅支持 macOS 和单个 `main.c`；多文件工程尚未进入事实源模型。
+- 支持 macOS Universal 与 Windows 10/11 x64，但仍只支持单个 `main.c`；
+  多文件工程尚未进入事实源模型。
 - Trace 证明执行行与分支路径，不采集任意运行时变量值。
 - 宏、`goto`、解析恢复和 partial CFG 可能降低结构化编辑能力。
 - Seatbelt 是最佳努力隔离；关键隔离能力不可用时，运行器会拒绝执行或要求
   用户针对该次可信请求明确授权。
-- 当前公开 DMG 未签名、未公证。
+- Windows Job Object 只限制进程树、内存和 CPU，不提供文件或网络隔离。
+- 当前公开 `v0.0.1` 只有未签名、未公证的历史 macOS DMG；Windows 稳定包
+  尚未发布。
 
 本项目采用 [MIT License](./LICENSE)。报告漏洞请遵循
 [Security Policy](./SECURITY.md)，不要在公开 Issue 中披露可利用细节。

@@ -13,7 +13,7 @@ import type {
   TraceRequest,
   TraceStartResult,
 } from "../../../src/shared/trace.js";
-import { parseRunnerMode } from "./capability.js";
+import { detectSupportedHostToolchain, parseRunnerMode } from "./capability.js";
 import {
   Runner,
   type RunnerOptions,
@@ -25,9 +25,14 @@ import {
 let defaultRunner: Runner | undefined;
 
 function getDefaultRunner(): Runner {
-  defaultRunner ??= new Runner({
-    mode: parseRunnerMode(process.env.PANEL_RUNNER_MODE),
-  });
+  if (defaultRunner === undefined) {
+    const toolchain = detectSupportedHostToolchain();
+    defaultRunner = new Runner({
+      platform: process.platform,
+      mode: parseRunnerMode(process.env.PANEL_RUNNER_MODE, () => toolchain, process.platform),
+      toolchainDetector: () => toolchain,
+    });
+  }
   return defaultRunner;
 }
 

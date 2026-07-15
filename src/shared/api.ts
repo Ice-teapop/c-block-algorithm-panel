@@ -55,7 +55,9 @@ import type { AiWindowHostApi } from "./ai-window.js";
 
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
 
-export type SeatbeltProbeStatus = "not-checked" | "probe-succeeded" | "unavailable";
+export type IsolationProbeStatus = "not-checked" | "probe-succeeded" | "unavailable";
+
+export type IsolationKind = "macos-seatbelt" | "windows-job-object" | "none";
 
 export interface FixtureInput {
   readonly path: string;
@@ -221,8 +223,13 @@ export interface Capabilities {
   readonly runnerEnabled: boolean;
   /** Stable comparison key derived from verified toolchain metadata, never a local path. */
   readonly toolchainId: string;
-  readonly seatbeltProbe: {
-    readonly status: SeatbeltProbeStatus;
+  readonly isolationProbe: {
+    readonly kind: IsolationKind;
+    readonly status: IsolationProbeStatus;
+    readonly detail: string;
+  };
+  readonly memoryDiagnostics: {
+    readonly available: boolean;
     readonly detail: string;
   };
   readonly requiresNativeTrustConfirmation: boolean;

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "io.han.c-block-algorithm-panel",
+  "productName": "AlgoLatch",
+  "asar": true,
+  "electronDownload": {
+    "force": false,
+    "checksums": {
+      "electron-v43.0.0-win32-x64.zip": "a195f798837e4c5719b462d3210c47619f6fc44ce032d06dbdcfbc88327b26e0"
+    }
+  },
+  "directories": {
+    "output": "release-windows-beta"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json",
+    "package-lock.json",
+    "LICENSE",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "PRIVACY.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "docs/licenses/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "build/windows/x64",
+      "to": "windows-runtime",
+      "filter": ["toolchain/**/*", "runtime/**/*", "toolchain-manifest.json"]
+    }
+  ],
+  "win": {
+    "icon": "build/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "requestedExecutionLevel": "asInvoker",
+    "forceCodeSigning": false,
+    "signExecutable": false,
+    "artifactName": "AlgoLatch-Setup-${version}-unsigned-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "allowElevation": false,
+    "packElevateHelper": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "AlgoLatch",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false
+  }
+}

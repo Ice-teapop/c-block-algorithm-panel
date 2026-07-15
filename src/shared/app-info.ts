@@ -1,4 +1,5 @@
 export const APP_INFO_IPC_CHANNEL = "panel:app-info" as const;
+export const APP_APPLICATION_ID = "io.han.c-block-algorithm-panel" as const;
 export const APP_PRODUCT_NAME = "AlgoLatch" as const;
 export const APP_REPOSITORY_URL = "https://github.com/Ice-teapop/c-block-algorithm-panel" as const;
 export const APP_RELEASES_URL = `${APP_REPOSITORY_URL}/releases` as const;

@@ -59,7 +59,7 @@ describe("Runner capability gate", () => {
       mode: "seatbelt-best-effort",
       runnerEnabled: true,
       requiresNativeTrustConfirmation: true,
-      seatbeltProbe: { status: "unavailable" },
+      isolationProbe: { kind: "macos-seatbelt", status: "unavailable" },
     });
     expect(result).toMatchObject({
       ok: false,
@@ -163,8 +163,8 @@ describe("Runner capability gate", () => {
     const capabilities = await runner.getCapabilities();
     const result = await runner.compile({ source: "int main(void){return 0;}" });
 
-    expect(capabilities.seatbeltProbe.status).toBe("probe-succeeded");
-    expect(capabilities.seatbeltProbe.detail).toContain("不是完整隔离验证");
+    expect(capabilities.isolationProbe.status).toBe("probe-succeeded");
+    expect(capabilities.isolationProbe.detail).toContain("不是完整隔离验证");
     expect(host.specifications[0]?.command).toBe("/usr/bin/sandbox-exec");
     expect(host.specifications[0]?.args).toContain(COMPILE_EXECUTION_PROFILE);
     expect(result.ok).toBe(true);
@@ -192,6 +192,77 @@ describe("Runner capability gate", () => {
 });
 
 describe("Runner compile and run", () => {
+  it("uses the bundled Windows compiler through the Job Object host", async () => {
+    const jobHostPath = "C:\\AlgoLatch\\algolatch-job-host.exe";
+    const host = new FakeProcessHost([
+      (specification, child) => {
+        const executablePath = join(specification.cwd, "program.exe");
+        writeFileSync(executablePath, "fake executable", { mode: 0o700 });
+        queueMicrotask(() => child.complete(0));
+      },
+      (_specification, child) =>
+        queueMicrotask(() => {
+          child.emitStdout("windows-ok\r\n");
+          child.complete(0);
+        }),
+    ]);
+    const runner = createTestRunner({
+      platform: "win32",
+      mode: "seatbelt-best-effort",
+      processHost: host,
+      toolchainDetector: () => ({
+        available: true,
+        platform: "win32",
+        detail: "llvm-mingw 20260616；clang version 22.1.8；Target: x86_64-w64-windows-gnu",
+        executablePath: "C:\\AlgoLatch\\toolchain\\bin\\clang.exe",
+        jobHostPath,
+        targetTriple: "x86_64-w64-windows-gnu",
+        toolchainRootPath: "C:\\AlgoLatch\\toolchain",
+      }),
+    });
+    const capabilities = await runner.getCapabilities();
+    expect(capabilities).toMatchObject({
+      mode: "trusted-only",
+      runnerEnabled: true,
+      isolationProbe: { kind: "windows-job-object", status: "probe-succeeded" },
+      memoryDiagnostics: { available: false },
+      requiresNativeTrustConfirmation: true,
+    });
+
+    const compileRequest = { source: "int main(void){return 0;}" };
+    const compiled = await runner.compile(
+      compileRequest,
+      runner.createTrustedExecutionGrant("compile", compileRequest),
+    );
+    expect(compiled.ok).toBe(true);
+    expect(host.specifications[0]).toMatchObject({
+      command: jobHostPath,
+      detached: true,
+      shell: false,
+      resourceMetricsPath: expect.stringContaining("algolatch-job-metrics.json"),
+    });
+    expect(host.specifications[0]?.args).toEqual(
+      expect.arrayContaining([
+        "--memory-bytes",
+        "--process-limit",
+        "--cpu-ms",
+        "--",
+        "--target=x86_64-w64-windows-gnu",
+        "program.exe",
+      ]),
+    );
+    expect(host.specifications[0]?.args).not.toContain("/bin/bash");
+    if (!compiled.ok) throw new Error("Windows compile fixture failed");
+
+    const runRequest = { artifactId: compiled.artifactId };
+    const ran = await runner.run(runRequest, runner.createTrustedExecutionGrant("run", runRequest));
+    expect(ran).toMatchObject({ ok: true, exitCode: 0 });
+    expect(new TextDecoder().decode(ran.stdout)).toBe("windows-ok\r\n");
+    expect(host.specifications[1]?.command).toBe(jobHostPath);
+    expect(host.specifications[1]?.args.some((value) => value.endsWith("program.exe"))).toBe(true);
+    await runner.dispose();
+  });
+
   it("uses private directories, a minimal environment, safe argv, and fixtures", async () => {
     const hostileArgument = "$(touch should-not-exist); --still-one-argument";
     const host = new FakeProcessHost([
@@ -786,6 +857,11 @@ describe("Runner input validation", () => {
     "/tmp/secret.txt",
     "data\\secret.txt",
     "program",
+    "program.exe",
+    "algolatch-job-metrics.json",
+    "CON.txt",
+    "data/com1.bin",
+    "data/trailing.",
     "data/../../secret.txt",
   ])("rejects unsafe fixture path %s before process creation", async (fixturePath) => {
     const host = new FakeProcessHost();
@@ -803,6 +879,19 @@ describe("Runner input validation", () => {
     expect(host.specifications).toEqual([]);
     await runner.dispose();
   });
+
+  it.each(["CON.c", "prn.c", "LPT9.c"])(
+    "rejects Windows reserved source name %s before process creation",
+    async (sourceName) => {
+      const host = new FakeProcessHost();
+      const runner = createTestRunner({ mode: "trusted-only", processHost: host });
+      await expect(
+        runner.compile({ source: "int main(void){return 0;}", sourceName }),
+      ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+      expect(host.specifications).toEqual([]);
+      await runner.dispose();
+    },
+  );
 
   it("rejects file-directory fixture collisions", async () => {
     const host = new FakeProcessHost();

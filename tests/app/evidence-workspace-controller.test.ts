@@ -206,6 +206,17 @@ describe("toolchain evidence parsing", () => {
       target: "unknown",
       runnerVersion: "unknown",
     });
+    expect(
+      parseRunToolchainIdentity({
+        toolchainId:
+          "verified:llvm-mingw 20260616；clang version 22.1.8；Target: x86_64-w64-windows-gnu",
+      }),
+    ).toEqual({
+      compiler: "llvm-mingw clang",
+      compilerVersion: "22.1.8",
+      target: "x86_64-w64-windows-gnu",
+      runnerVersion: "unknown",
+    });
   });
 });
 
@@ -311,7 +322,12 @@ function capabilities(): Capabilities {
     mode: "trusted-only",
     runnerEnabled: true,
     toolchainId: "verified:Apple clang version 21.0.0；工具链 [verified-path]",
-    seatbeltProbe: Object.freeze({ status: "unavailable", detail: "trusted" }),
+    isolationProbe: Object.freeze({
+      kind: "macos-seatbelt",
+      status: "unavailable",
+      detail: "trusted",
+    }),
+    memoryDiagnostics: Object.freeze({ available: true, detail: "test" }),
     requiresNativeTrustConfirmation: false,
   });
 }

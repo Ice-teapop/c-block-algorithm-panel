@@ -5,7 +5,13 @@ import { RunnerFailure } from "./errors.js";
 const SOURCE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.c$/;
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const FIXTURE_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const RESERVED_FIXTURE_PATHS = new Set(["program", "runner-limits.sh"]);
+const RESERVED_FIXTURE_PATHS = new Set([
+  "program",
+  "program.exe",
+  "runner-limits.sh",
+  "algolatch-job-metrics.json",
+]);
+const WINDOWS_RESERVED_BASENAMES = /^(?:CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])$/iu;
 
 export interface ValidatedCompileRequest {
   readonly source: string;
@@ -71,6 +77,9 @@ export function validateCompileRequest(
   assertByteLimit(sourceName, limits.maxSourceNameBytes, "源码文件名超过大小限制。");
   if (!SOURCE_NAME_PATTERN.test(sourceName)) {
     throw invalid("sourceName 只能是安全的单个 .c 文件名。");
+  }
+  if (isWindowsReservedSegment(sourceName)) {
+    throw invalid("sourceName 不能使用 Windows 保留设备名。");
   }
 
   return Object.freeze({
@@ -223,7 +232,12 @@ function validateFixturePath(value: unknown, limits: RunnerLimits): string {
   const segments = candidate.split("/");
   if (
     segments.some(
-      (segment) => segment === "." || segment === ".." || !FIXTURE_SEGMENT_PATTERN.test(segment),
+      (segment) =>
+        segment === "." ||
+        segment === ".." ||
+        segment.endsWith(".") ||
+        !FIXTURE_SEGMENT_PATTERN.test(segment) ||
+        isWindowsReservedSegment(segment),
     )
   ) {
     throw invalid("fixture path 包含不安全的路径段。");
@@ -234,6 +248,11 @@ function validateFixturePath(value: unknown, limits: RunnerLimits): string {
     throw invalid("fixture path 与运行器保留文件冲突。");
   }
   return safePath;
+}
+
+function isWindowsReservedSegment(segment: string): boolean {
+  const basename = segment.split(".", 1)[0] ?? segment;
+  return WINDOWS_RESERVED_BASENAMES.test(basename);
 }
 
 function copyFixtureContents(value: unknown): Uint8Array {

@@ -1,4 +1,4 @@
-name: Release signed and notarized macOS build
+name: Release signed macOS and Windows builds
 
 on:
   push:
@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify and publish Universal DMG
+  verify_macos:
+    name: Verify signed and notarized Universal DMG
     runs-on: macos-15
     environment: macos-release
     timeout-minutes: 90
@@ -109,7 +109,7 @@ jobs:
       - name: Verify Developer ID, notarization and installed application
         run: npm run verify:installed-dmg
 
-      - name: Create SHA-256 manifest
+      - name: Create macOS SHA-256 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -119,8 +119,8 @@ jobs:
             echo "Expected exactly one DMG in release/." >&2
             exit 1
           fi
-          shasum -a 256 "${dmg_files[@]}" > SHA256SUMS.txt
-          shasum -a 256 --check SHA256SUMS.txt
+          shasum -a 256 "${dmg_files[@]}" > SHA256SUMS-macos.txt
+          shasum -a 256 --check SHA256SUMS-macos.txt
 
       - name: Upload verified build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -128,12 +128,103 @@ jobs:
           name: algolatch-${{ github.ref_name }}-macos-universal
           path: |
             release/*.dmg
-            release/SHA256SUMS.txt
+            release/SHA256SUMS-macos.txt
+          if-no-files-found: error
+
+  verify_windows:
+    name: Verify signed Windows x64 installer
+    runs-on: windows-2025
+    environment: windows-release
+    timeout-minutes: 120
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Require the tagged commit on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin npm
+        run: npm install --global npm@11.11.0
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate tag and release boundary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run accept:m9
+
+      - name: Verify third-party notices
+        run: npm run notices:check
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Type-check Windows code paths
+        run: npm run typecheck
+
+      - name: Test Windows toolchain, packaging, runner and install contracts
+        run: >-
+          npx vitest run
+          tests/scripts/windows-toolchain.test.mjs
+          tests/scripts/windows-release-credentials.test.mjs
+          tests/scripts/installed-windows-gate.test.mjs
+          tests/config/app-icon.test.ts
+          tests/config/windows-packaging.test.ts
+          tests/runner/process-host.test.ts
+          tests/runner/runner.test.ts
+          tests/runner/trace-session.test.ts
+          tests/app/runtime-workspace-controller.test.ts
+
+      - name: Build Authenticode-signed Windows x64 installer
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npm run dist:win
+
+      - name: Verify Authenticode and installed application
+        run: npm run verify:installed-win
+
+      - name: Create Windows SHA-256 manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-ChildItem -LiteralPath 'release-windows' -Filter '*.exe' -File)
+          if ($files.Count -ne 1) {
+            throw "Expected exactly one EXE in release-windows/."
+          }
+          $hash = (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = Join-Path $files[0].DirectoryName 'SHA256SUMS-windows.txt'
+          [System.IO.File]::WriteAllText($manifest, "$hash  $($files[0].Name)`n", [System.Text.Encoding]::ASCII)
+          $recorded = (Get-Content -LiteralPath $manifest -Raw).Trim().Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)[0]
+          if ($recorded -ne $hash) {
+            throw 'Windows SHA-256 manifest verification failed.'
+          }
+
+      - name: Upload verified Windows artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: algolatch-${{ github.ref_name }}-windows-x64
+          path: |
+            release-windows/*.exe
+            release-windows/SHA256SUMS-windows.txt
           if-no-files-found: error
 
   publish:
     name: Publish verified GitHub Release
-    needs: verify
+    needs: [verify_macos, verify_windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -147,7 +238,26 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: algolatch-${{ github.ref_name }}-macos-universal
-          path: release
+          path: release-assets/macos
+
+      - name: Download verified Windows artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: algolatch-${{ github.ref_name }}-windows-x64
+          path: release-assets/windows
+
+      - name: Verify both artifacts and create one SHA-256 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd release-assets/macos && sha256sum --check SHA256SUMS-macos.txt)
+          (cd release-assets/windows && sha256sum --check SHA256SUMS-windows.txt)
+          mkdir -p release-assets/publish
+          cp release-assets/macos/*.dmg release-assets/publish/
+          cp release-assets/windows/*.exe release-assets/publish/
+          cd release-assets/publish
+          sha256sum ./*.dmg ./*.exe > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
 
       - name: Create GitHub Release
         env:
@@ -164,8 +274,9 @@ jobs:
             exit 1
           fi
           gh release create "${GITHUB_REF_NAME}" \
-            release/*.dmg \
-            release/SHA256SUMS.txt \
+            release-assets/publish/*.dmg \
+            release-assets/publish/*.exe \
+            release-assets/publish/SHA256SUMS.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --latest \

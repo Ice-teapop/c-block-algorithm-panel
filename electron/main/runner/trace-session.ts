@@ -256,7 +256,11 @@ export class TraceProtocolParser {
         if (this.#pending.byteLength > 256) this.#protocolError("Trace 协议记录超过长度上限。");
         return;
       }
-      const payload = this.#pending.subarray(this.#prefix.byteLength, lineEnd).toString("ascii");
+      const payloadEnd =
+        lineEnd > this.#prefix.byteLength && this.#pending[lineEnd - 1] === 0x0d
+          ? lineEnd - 1
+          : lineEnd;
+      const payload = this.#pending.subarray(this.#prefix.byteLength, payloadEnd).toString("ascii");
       this.#protocolBytes += lineEnd + 1;
       this.#pending = this.#pending.subarray(lineEnd + 1);
       const match = /^(\d+):(L|B):(\d+)(?::([01]))?$/u.exec(payload);

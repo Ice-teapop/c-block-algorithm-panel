@@ -448,16 +448,25 @@ export function parseRunToolchainIdentity(
   capabilities: Pick<Capabilities, "toolchainId">,
 ): RunToolchainIdentity {
   const value = typeof capabilities.toolchainId === "string" ? capabilities.toolchainId : "";
-  const compilerMatch =
+  const appleCompilerMatch =
     /\bApple clang version ([0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?)/u.exec(value);
+  const genericCompilerMatch =
+    /\bclang version ([0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?)/u.exec(value);
   const targetMatch = /\bTarget:\s*([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(value);
   const runnerMatch =
     /\brunner(?:\s+version)?\s*(?:=|:)\s*v?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)/iu.exec(
       value,
     );
   return Object.freeze({
-    compiler: compilerMatch === null ? "unknown" : "Apple clang",
-    compilerVersion: compilerMatch?.[1] ?? "unknown",
+    compiler:
+      appleCompilerMatch !== null
+        ? "Apple clang"
+        : genericCompilerMatch !== null && /\bllvm-mingw\b/iu.test(value)
+          ? "llvm-mingw clang"
+          : genericCompilerMatch !== null
+            ? "clang"
+            : "unknown",
+    compilerVersion: appleCompilerMatch?.[1] ?? genericCompilerMatch?.[1] ?? "unknown",
     target: targetMatch?.[1] ?? "unknown",
     runnerVersion: runnerMatch?.[1] ?? "unknown",
   });

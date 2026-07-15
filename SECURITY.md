@@ -7,8 +7,9 @@ public release in the reset version line.
 
 The historical `v0.0.1` Universal DMG is unsigned and unnotarized. Public
 availability is not an Apple security review, signing claim, or notarization
-claim. Future AlgoLatch releases are published only after the signed and
-notarized distribution gate passes.
+claim. Future AlgoLatch releases are published only after the applicable
+macOS and Windows signing and installed-application gates pass. Windows support
+in the source tree does not mean a Windows stable installer has been released.
 
 ## Reporting a vulnerability
 
@@ -16,7 +17,7 @@ Do not disclose a suspected vulnerability in a public issue. Use
 [GitHub private vulnerability reporting](https://github.com/Ice-teapop/c-block-algorithm-panel/security/advisories/new)
 and include:
 
-- the affected application and macOS versions;
+- the affected application and macOS or Windows versions;
 - a minimal reproduction without private source code or API keys;
 - the expected and observed security boundary;
 - whether the issue involves untrusted C, filesystem access, IPC, Trace,
@@ -113,6 +114,18 @@ execution requires native confirmation for the exact request. The authorization
 is single-use and binds the displayed request summary. Renderer code cannot
 grant, broaden, or reuse it.
 
+On Windows 10/11 x64, AlgoLatch uses a locked, bundled llvm-mingw toolchain and
+launches compiled programs through `algolatch-job-host.exe`. The broker creates
+a Windows Job Object before resuming the program, bounds process count,
+aggregate memory and CPU time, and terminates the process tree when the job
+closes. The application verifies the locked toolchain and broker digests before
+use and fails closed if they are absent or changed.
+
+Windows Job Object limits are not a filesystem or network sandbox. A C program
+can access files and network resources available to the current Windows user.
+Do not run unknown C on a device or account containing data you are unwilling
+to expose.
+
 ## Distribution trust boundary
 
 Download the `v0.0.1` DMG and `SHA256SUMS.txt` from the same GitHub Release,
@@ -132,6 +145,24 @@ quarantine-aware Gatekeeper assessment, Universal binary verification, and an
 installed-application regression. Missing credentials or any failed check stops
 the release before upload.
 
+The formal Windows builder requires a complete `WIN_CSC_LINK` and
+`WIN_CSC_KEY_PASSWORD`, Authenticode-signs the NSIS installer, application and
+uninstaller, and verifies their signer plus an install/launch/run/uninstall
+regression on Windows x64. The embedded compiler and Job Object broker retain
+their staging bytes so the runtime manifest remains valid; they are protected
+in transit by the signed installer and checked against fixed hashes before use.
+
+An Authenticode-valid download can still show Microsoft SmartScreen reputation
+warnings when its certificate or download history has not accumulated enough
+reputation. The project does not describe Authenticode as a guarantee that
+SmartScreen will suppress every prompt.
+
 The separate Beta builder explicitly disables signing and notarization, writes
 to `release-beta/`, and includes `unsigned` in the filename. It is for local
 development only and must never be described or published as Apple-verified.
+The Windows Beta follows the same separation under `release-windows-beta/` and
+must never be described as Authenticode-verified.
+
+A stable GitHub Release is created only after both platform jobs succeed. The
+publish job downloads the already-verified DMG and EXE, produces one
+`SHA256SUMS.txt`, rejects an existing Release, and never overwrites assets.

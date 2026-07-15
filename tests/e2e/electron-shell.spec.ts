@@ -535,7 +535,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     const first = await window.panelApi.capabilities();
     try {
       (first as { mode: string }).mode = "disabled";
-      (first.seatbeltProbe as { detail: string }).detail = "renderer-tampered";
+      (first.isolationProbe as { detail: string }).detail = "renderer-tampered";
     } catch {
       // A future Electron bridge may preserve freezing; isolation is still required.
     }
@@ -543,7 +543,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     return {
       distinctSnapshots: first !== second,
       secondMode: second.mode,
-      secondDetail: second.seatbeltProbe.detail,
+      secondDetail: second.isolationProbe.detail,
     };
   });
   expect(capabilitySnapshot.distinctSnapshots).toBe(true);

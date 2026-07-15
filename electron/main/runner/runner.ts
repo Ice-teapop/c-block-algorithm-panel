@@ -45,7 +45,7 @@ import {
   COMPILE_EXECUTION_PROFILE,
   DEFAULT_DEVELOPER_ROOT,
   DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME,
-  detectSupportedAppleClang,
+  detectSupportedHostToolchain,
   LEAKS_EXECUTION_PROFILE,
   RUN_EXECUTION_PROFILE,
   SANITIZER_RUN_PROFILE,
@@ -92,8 +92,10 @@ import {
 
 const CLANG_PATH = "/usr/bin/clang";
 const BASH_PATH = "/bin/bash";
-const EXECUTABLE_NAME = "program";
+const POSIX_EXECUTABLE_NAME = "program";
+const WINDOWS_EXECUTABLE_NAME = "program.exe";
 const LIMITS_SCRIPT_NAME = "runner-limits.sh";
+const WINDOWS_JOB_METRICS_NAME = "algolatch-job-metrics.json";
 const TEMP_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_EXECUTABLE_MODE = 0o700;
@@ -164,6 +166,7 @@ interface TrustedGrantRecord {
 }
 
 export interface RunnerOptions {
+  readonly platform?: NodeJS.Platform;
   readonly mode?: RunnerMode;
   readonly limits?: Partial<RunnerLimits>;
   readonly clock?: RunnerClock;
@@ -176,6 +179,7 @@ export interface RunnerOptions {
 }
 
 export class Runner {
+  readonly #platform: NodeJS.Platform;
   readonly #mode: RunnerMode;
   readonly #limits: RunnerLimits;
   readonly #clock: RunnerClock;
@@ -184,6 +188,10 @@ export class Runner {
   readonly #artifactRegistry: ArtifactRegistry;
   readonly #tempRoot: string;
   readonly #clangPath: string;
+  readonly #jobHostPath: string | undefined;
+  readonly #targetTriple: string | undefined;
+  readonly #toolchainRootPath: string | undefined;
+  readonly #executableName: string;
   readonly #sdkPath: string | undefined;
   readonly #developerRootPath: string;
   readonly #sanitizerRuntimePath: string;
@@ -202,18 +210,29 @@ export class Runner {
   #disposePromise: Promise<void> | undefined;
 
   constructor(options: RunnerOptions = {}) {
-    const requestedMode = options.mode ?? "seatbelt-best-effort";
-    const toolchain = (options.toolchainDetector ?? detectSupportedAppleClang)();
-    this.#mode = toolchain.available ? requestedMode : "disabled";
+    this.#platform = options.platform ?? process.platform;
+    const requestedMode =
+      options.mode ?? (this.#platform === "win32" ? "trusted-only" : "seatbelt-best-effort");
+    const toolchain = options.toolchainDetector?.() ?? detectSupportedHostToolchain(this.#platform);
+    this.#mode = toolchain.available
+      ? this.#platform === "win32" && requestedMode !== "disabled"
+        ? "trusted-only"
+        : requestedMode
+      : "disabled";
     this.#toolchainId = toolchainIdentifier(toolchain, this.#mode);
     this.#clangPath = toolchain.executablePath ?? CLANG_PATH;
+    this.#jobHostPath = toolchain.jobHostPath;
+    this.#targetTriple = toolchain.targetTriple;
+    this.#toolchainRootPath = toolchain.toolchainRootPath;
+    this.#executableName =
+      this.#platform === "win32" ? WINDOWS_EXECUTABLE_NAME : POSIX_EXECUTABLE_NAME;
     this.#sdkPath = toolchain.sdkPath;
     this.#developerRootPath = toolchain.developerRootPath ?? DEFAULT_DEVELOPER_ROOT;
     this.#sanitizerRuntimePath =
       toolchain.sanitizerRuntimePath ?? DEFAULT_SUPPORTED_APPLE_CLANG_SANITIZER_RUNTIME;
     this.#limits = Object.freeze({ ...RUNNER_LIMITS, ...options.limits });
     this.#clock = options.clock ?? SYSTEM_CLOCK;
-    this.#processHost = options.processHost ?? new SystemProcessHost();
+    this.#processHost = options.processHost ?? new SystemProcessHost(this.#platform);
     this.#capabilityProbe =
       options.capabilityProbe ?? new SystemCapabilityProbe({ detectToolchain: () => toolchain });
     this.#tempRoot = realpathSync(options.tempRoot ?? tmpdir());
@@ -231,16 +250,25 @@ export class Runner {
   async getCapabilities(): Promise<Capabilities> {
     await this.#staleCleanupPromise;
     if (this.#mode !== "seatbelt-best-effort") {
-      return capabilitiesWithoutProbe(this.#mode, this.#toolchainId);
+      return capabilitiesWithoutProbe(
+        this.#mode,
+        this.#toolchainId,
+        this.#platform === "win32" ? "windows-job-object" : "macos-seatbelt",
+      );
     }
     const probe = await this.#getSeatbeltProbe();
     return Object.freeze({
       mode: this.#mode,
       runnerEnabled: true,
       toolchainId: this.#toolchainId,
-      seatbeltProbe: Object.freeze({
+      isolationProbe: Object.freeze({
+        kind: "macos-seatbelt",
         status: probe.status,
         detail: probe.detail,
+      }),
+      memoryDiagnostics: Object.freeze({
+        available: true,
+        detail: "Apple clang sanitizer 与 leaks 双门诊断可用。",
       }),
       requiresNativeTrustConfirmation: probe.status === "unavailable",
     });
@@ -421,6 +449,12 @@ export class Runner {
     let rawDiagnostics = "";
     try {
       const validated = validateDiagnoseRequest(request, this.#limits);
+      if (this.#platform === "win32" && validated.runtime !== null) {
+        throw new RunnerFailure(
+          "INVALID_REQUEST",
+          "Windows 首发仅提供 clang 静态诊断；完整内存诊断尚未开放。",
+        );
+      }
       const trustedAuthorized = this.#consumeTrustedGrant(
         "diagnose",
         fingerprintDiagnoseRequest(validated),
@@ -630,6 +664,12 @@ export class Runner {
     strategy: ExecutionStrategy,
     preset: "normal" | VerificationCompilePreset,
   ): Promise<CompileResult> {
+    if (this.#platform === "win32" && preset === "asan-ubsan") {
+      return compileFailure(
+        new RunnerFailure("INVALID_REQUEST", "Windows 首发不支持 ASan/UBSan 验证预设。"),
+        "",
+      );
+    }
     const workDirectory = await this.#createPrivateTempDirectory("compile-");
     let registryOwnsDirectory = false;
     let diagnostics = "";
@@ -637,20 +677,27 @@ export class Runner {
 
     try {
       const sourcePath = join(workDirectory, sourceName);
-      const executablePath = join(workDirectory, EXECUTABLE_NAME);
+      const executablePath = join(workDirectory, this.#executableName);
       const limitsScriptPath = join(workDirectory, LIMITS_SCRIPT_NAME);
       await writeFile(sourcePath, source, {
         encoding: "utf8",
         flag: "wx",
         mode: PRIVATE_FILE_MODE,
       });
-      await this.#writeLimitsScript(limitsScriptPath);
+      if (this.#platform !== "win32") await this.#writeLimitsScript(limitsScriptPath);
 
       const specification = this.#buildSpawnSpecification(
         workDirectory,
         limitsScriptPath,
         this.#clangPath,
-        compilerArguments(sourceName, preset, this.#sdkPath),
+        compilerArguments(
+          sourceName,
+          preset,
+          this.#sdkPath,
+          this.#executableName,
+          this.#platform,
+          this.#targetTriple,
+        ),
         strategy,
         COMPILE_EXECUTION_PROFILE,
         Object.freeze({
@@ -678,7 +725,7 @@ export class Runner {
       await access(executablePath, constants.X_OK);
       await chmod(executablePath, PRIVATE_EXECUTABLE_MODE);
       await unlink(sourcePath);
-      await unlink(limitsScriptPath);
+      if (this.#platform !== "win32") await unlink(limitsScriptPath);
 
       const artifact = await this.#artifactRegistry.register(
         workDirectory,
@@ -721,7 +768,7 @@ export class Runner {
     try {
       const lease = await this.#artifactRegistry.acquire(artifactId);
       let artifactRuntimeProfile: ArtifactRuntimeProfile;
-      const executablePath = join(workDirectory, EXECUTABLE_NAME);
+      const executablePath = join(workDirectory, this.#executableName);
       const limitsScriptPath = join(workDirectory, LIMITS_SCRIPT_NAME);
       try {
         await copyFile(lease.executablePath, executablePath);
@@ -736,6 +783,9 @@ export class Runner {
           "leaks 必须使用独立 plain 构建，拒绝 sanitizer 制品。",
         );
       }
+      if (this.#platform === "win32" && mode === "leaks") {
+        throw new RunnerFailure("INVALID_REQUEST", "Windows 首发不支持 macOS leaks 内存诊断。");
+      }
       if (options.supervisionProfile === "leaks-positive-control" && mode !== "leaks") {
         throw new RunnerFailure(
           "INTERNAL_ERROR",
@@ -745,7 +795,7 @@ export class Runner {
 
       await this.#writeFixtures(workDirectory, fixtures);
       await this.#prepareWritableFiles(workDirectory, writableFiles);
-      await this.#writeLimitsScript(limitsScriptPath);
+      if (this.#platform !== "win32") await this.#writeLimitsScript(limitsScriptPath);
       const targetCommand = mode === "leaks" ? LEAKS_PATH : executablePath;
       const targetArguments =
         mode === "leaks" ? [...LEAKS_ARGUMENTS, executablePath, ...args] : args;
@@ -849,12 +899,17 @@ export class Runner {
         flag: "wx",
         mode: PRIVATE_FILE_MODE,
       });
-      await this.#writeLimitsScript(limitsScriptPath);
+      if (this.#platform !== "win32") await this.#writeLimitsScript(limitsScriptPath);
       const specification = this.#buildSpawnSpecification(
         workDirectory,
         limitsScriptPath,
         this.#clangPath,
-        syntaxCompilerArguments(request.sourceName, this.#sdkPath),
+        syntaxCompilerArguments(
+          request.sourceName,
+          this.#sdkPath,
+          this.#platform,
+          this.#targetTriple,
+        ),
         strategy,
         COMPILE_EXECUTION_PROFILE,
         Object.freeze({
@@ -1114,6 +1169,13 @@ export class Runner {
     observer?: ProcessObserver,
   ): Promise<ProcessOutcome> {
     this.#assertAcceptingRequests();
+    if (specification.resourceMetricsPath !== undefined) {
+      await writeFile(specification.resourceMetricsPath, '{"rssBytes":0,"processCount":0}', {
+        encoding: "utf8",
+        flag: "wx",
+        mode: PRIVATE_FILE_MODE,
+      });
+    }
     let processGroupId: number | undefined;
     const trackingHost: ProcessHost = {
       spawn: (spawnSpecification) => {
@@ -1172,6 +1234,36 @@ export class Runner {
     seatbeltProfile: string,
     seatbeltParameters: Readonly<Record<string, string>> = Object.freeze({}),
   ): SpawnSpecification {
+    if (this.#platform === "win32") {
+      if (strategy !== "trusted" || this.#jobHostPath === undefined) {
+        throw new RunnerFailure(
+          "PROCESS_CONTROL_FAILED",
+          "Windows Job Object 运行宿主不可用；默认拒绝执行。",
+        );
+      }
+      const resourceMetricsPath = join(workDirectory, WINDOWS_JOB_METRICS_NAME);
+      return Object.freeze({
+        command: this.#jobHostPath,
+        args: Object.freeze([
+          "--metrics",
+          resourceMetricsPath,
+          "--memory-bytes",
+          String(this.#limits.maxRssBytes),
+          "--process-limit",
+          String(this.#limits.maxProcessCount),
+          "--cpu-ms",
+          String(this.#limits.cpuTimeSeconds * 1_000),
+          "--",
+          targetCommand,
+          ...targetArguments,
+        ]),
+        cwd: workDirectory,
+        env: minimalEnvironment(workDirectory, this.#platform, this.#toolchainRootPath),
+        detached: true,
+        shell: false,
+        resourceMetricsPath,
+      });
+    }
     const limitedArguments = [
       limitsScriptPath,
       String(this.#limits.cpuTimeSeconds),
@@ -1201,7 +1293,7 @@ export class Runner {
       command,
       args: Object.freeze(args),
       cwd: workDirectory,
-      env: minimalEnvironment(workDirectory),
+      env: minimalEnvironment(workDirectory, this.#platform, this.#toolchainRootPath),
       detached: true,
       shell: false,
     });
@@ -1269,6 +1361,9 @@ function compilerArguments(
   sourceName: string,
   preset: "normal" | VerificationCompilePreset,
   sdkPath: string | undefined,
+  executableName: string,
+  platform: NodeJS.Platform,
+  targetTriple: string | undefined,
 ): readonly string[] {
   const sanitizerFlags =
     preset === "asan-ubsan" ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : [];
@@ -1281,10 +1376,12 @@ function compilerArguments(
     "-fno-color-diagnostics",
     "-O0",
     "-g0",
+    ...(platform === "win32" && targetTriple !== undefined ? [`--target=${targetTriple}`] : []),
+    ...(platform === "win32" ? ["-fuse-ld=lld"] : []),
     ...(sdkPath === undefined ? [] : ["-isysroot", sdkPath]),
     ...sanitizerFlags,
     "-o",
-    EXECUTABLE_NAME,
+    executableName,
     sourceName,
   ]);
 }
@@ -1292,6 +1389,8 @@ function compilerArguments(
 function syntaxCompilerArguments(
   sourceName: string,
   sdkPath: string | undefined,
+  platform: NodeJS.Platform,
+  targetTriple: string | undefined,
 ): readonly string[] {
   return Object.freeze([
     "-std=c17",
@@ -1302,6 +1401,7 @@ function syntaxCompilerArguments(
     "-fno-color-diagnostics",
     "-O0",
     "-g0",
+    ...(platform === "win32" && targetTriple !== undefined ? [`--target=${targetTriple}`] : []),
     ...(sdkPath === undefined ? [] : ["-isysroot", sdkPath]),
     "-fsyntax-only",
     sourceName,
@@ -1609,7 +1709,29 @@ function updateFingerprint(hash: ReturnType<typeof createHash>, value: string | 
   hash.update(bytes);
 }
 
-function minimalEnvironment(workDirectory: string): Readonly<Record<string, string>> {
+function minimalEnvironment(
+  workDirectory: string,
+  platform: NodeJS.Platform,
+  toolchainRootPath: string | undefined,
+): Readonly<Record<string, string>> {
+  if (platform === "win32") {
+    const windowsRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
+    const toolchainBin =
+      toolchainRootPath === undefined
+        ? join(workDirectory, "unavailable")
+        : join(toolchainRootPath, "bin");
+    return Object.freeze({
+      SystemRoot: windowsRoot,
+      WINDIR: windowsRoot,
+      HOME: workDirectory,
+      USERPROFILE: workDirectory,
+      LANG: "C",
+      LC_ALL: "C",
+      PATH: `${toolchainBin};${join(windowsRoot, "System32")}`,
+      TEMP: workDirectory,
+      TMP: workDirectory,
+    });
+  }
   return Object.freeze({
     HOME: workDirectory,
     LANG: "C",

@@ -1297,7 +1297,7 @@ function assertExpectedOutput(runCase: ScenarioRunCase, result: RunResult | null
 }
 
 function decodeRunStdout(result: RunResult): string {
-  return new TextDecoder("utf-8", { fatal: false }).decode(result.stdout);
+  return new TextDecoder("utf-8", { fatal: false }).decode(result.stdout).replaceAll("\r\n", "\n");
 }
 
 function observedBranchKinds(

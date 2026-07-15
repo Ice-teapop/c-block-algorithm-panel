@@ -32,6 +32,9 @@
     "pack": "npm run build && electron-builder --config build/electron-builder.beta.json --dir --publish never",
     "dist:mac": "npm run verify:mac-release-credentials && npm run build && electron-builder --config build/electron-builder.release.json --mac --publish never",
     "dist:mac:beta": "npm run build && electron-builder --config build/electron-builder.beta.json --mac --publish never",
+    "prepare:win-toolchain": "node scripts/prepare-windows-toolchain.mjs",
+    "dist:win": "npm run verify:win-release-credentials && npm run prepare:win-toolchain && npm run build && electron-builder --config build/electron-builder.windows.release.json --win nsis --x64 --publish never",
+    "dist:win:beta": "npm run prepare:win-toolchain && npm run build && electron-builder --config build/electron-builder.windows.beta.json --win nsis --x64 --publish never",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run deps:check",
     "test:unit": "vitest run",
@@ -52,8 +55,11 @@
     "test:e2e:m3a": "npm run build && playwright test tests/e2e/m3a-editing.spec.ts",
     "verify:toolchain": "node scripts/verify-toolchain.mjs",
     "verify:mac-release-credentials": "node scripts/verify-macos-release-credentials.mjs",
+    "verify:win-release-credentials": "node scripts/verify-windows-release-credentials.mjs",
     "verify:installed-dmg": "node scripts/verify-installed-dmg.mjs",
     "verify:installed-dmg:beta": "node scripts/verify-installed-dmg.mjs --allow-unsigned",
+    "verify:installed-win": "node scripts/verify-installed-windows.mjs",
+    "verify:installed-win:beta": "node scripts/verify-installed-windows.mjs --allow-unsigned",
     "verify:samples": "node scripts/verify-samples.mjs",
     "verify:wasm-assets": "node scripts/verify-wasm-assets.mjs",
     "verify:roundtrip": "node scripts/roundtrip.mjs",
@@ -110,6 +116,9 @@
     "extends": "file:build/electron-builder.release.json",
     "mac": {
       "icon": "build/icon.icns"
+    },
+    "win": {
+      "icon": "build/icon.ico"
     }
   }
 }

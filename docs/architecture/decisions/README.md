@@ -12,3 +12,4 @@
 | [0004](0004-bounded-shadow-trace.md)                             | 采用有界影子源码运行轨迹         | Accepted | 2026-07-12 |
 | [0005](0005-evidence-separated-efficiency.md)                    | 分离实测效率与复杂度结论         | Accepted | 2026-07-12 |
 | [0006](0006-project-scoped-ai-conversations-and-gated-writes.md) | 采用项目级 AI 对话与显式授权写入 | Accepted | 2026-07-14 |
+| [0007](0007-windows-runtime-and-installer.md)                    | 采用 Windows 内置运行时与安装包  | Accepted | 2026-07-15 |

@@ -1,10 +1,16 @@
 import { execFile, spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
-import { realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import type { Capabilities, RunnerMode, SeatbeltProbeStatus } from "../../../src/shared/api.js";
+import type {
+  Capabilities,
+  IsolationKind,
+  IsolationProbeStatus,
+  RunnerMode,
+} from "../../../src/shared/api.js";
 
 const SANDBOX_EXEC_PATH = "/usr/bin/sandbox-exec";
 const CLANG_PATH = "/usr/bin/clang";
@@ -28,6 +34,18 @@ const CANARY_FILE_MODE = 0o600;
 const CANARY_DIRECTORY_MODE = 0o700;
 const CANARY_SOURCE_NAME = "seatbelt-canary.c";
 const CANARY_EXECUTABLE_NAME = "seatbelt-canary";
+const WINDOWS_TOOLCHAIN_VERSION = "20260616";
+const WINDOWS_LLVM_VERSION = "22.1.8";
+const WINDOWS_TARGET_TRIPLE = "x86_64-w64-windows-gnu";
+const WINDOWS_TOOLCHAIN_SOURCE_SHA256 =
+  "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35";
+const WINDOWS_TOOLCHAIN_SOURCE_URL =
+  "https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-ucrt-x86_64.zip";
+const WINDOWS_REQUIRED_RUNTIME_HASH_PATHS = Object.freeze([
+  "runtime/algolatch-job-host.exe",
+  "toolchain/bin/clang.exe",
+  "toolchain/bin/ld.lld.exe",
+]);
 export const SEATBELT_CANARY_SENTINEL = "C_BLOCK_SEATBELT_CANARY_OK\n";
 
 /**
@@ -154,10 +172,14 @@ export const EXECUTION_PROFILE = COMPILE_EXECUTION_PROFILE;
 export interface ToolchainProbeResult {
   readonly available: boolean;
   readonly detail: string;
+  readonly platform?: "darwin" | "win32";
   readonly executablePath?: string;
   readonly sdkPath?: string;
   readonly developerRootPath?: string;
   readonly sanitizerRuntimePath?: string;
+  readonly jobHostPath?: string;
+  readonly targetTriple?: string;
+  readonly toolchainRootPath?: string;
 }
 
 export type ToolchainDetector = () => ToolchainProbeResult;
@@ -190,7 +212,7 @@ export type CanaryCommandExecutor = (
 ) => Promise<CanaryCommandResult>;
 
 export interface SeatbeltProbeResult {
-  readonly status: Extract<SeatbeltProbeStatus, "probe-succeeded" | "unavailable">;
+  readonly status: Extract<IsolationProbeStatus, "probe-succeeded" | "unavailable">;
   readonly detail: string;
 }
 
@@ -524,6 +546,7 @@ export function detectSupportedAppleClang(): ToolchainProbeResult {
 
     return Object.freeze({
       available: true,
+      platform: "darwin",
       detail: `${gate.detail}；工具链 ${executablePath}`,
       executablePath,
       sdkPath,
@@ -536,6 +559,265 @@ export function detectSupportedAppleClang(): ToolchainProbeResult {
       detail: `工具链不可用/未验证：${error instanceof Error ? error.message.trim() : "无法解析受信 clang/SDK 路径。"}`,
     });
   }
+}
+
+interface WindowsToolchainManifest {
+  readonly schemaVersion: 1;
+  readonly toolchainVersion: string;
+  readonly llvmVersion: string;
+  readonly architecture: "x64";
+  readonly target: string;
+  readonly sourceUrl: string;
+  readonly sourceSha256: string;
+  readonly files: Readonly<Record<string, string>>;
+}
+
+export function detectSupportedWindowsToolchain(
+  runtimeRootOverride?: string,
+  architecture: string = process.arch,
+): ToolchainProbeResult {
+  if (architecture !== "x64") {
+    return Object.freeze({
+      available: false,
+      platform: "win32",
+      detail: `Windows 工具链不可用：首发仅支持 x64，当前架构为 ${architecture}。`,
+    });
+  }
+  const runtimeRoot = runtimeRootOverride ?? resolveWindowsRuntimeRoot();
+  if (runtimeRoot === undefined) {
+    return Object.freeze({
+      available: false,
+      platform: "win32",
+      detail: "Windows 工具链不可用：未找到随应用安装的受信运行时。",
+    });
+  }
+
+  try {
+    const canonicalRoot = realpathSync(runtimeRoot);
+    if (!statSync(canonicalRoot).isDirectory()) throw new Error("运行时根目录不是目录。");
+    const manifestPath = canonicalWindowsRuntimeFile(canonicalRoot, "toolchain-manifest.json");
+    const manifest = parseWindowsToolchainManifest(readFileSync(manifestPath, "utf8"));
+    const runtimeFiles = enumerateWindowsRuntimeExecutionChain(canonicalRoot);
+    const manifestPaths = Object.keys(manifest.files).sort(compareCodePoints);
+    if (
+      runtimeFiles.map(([relativePath]) => relativePath).join("\n") !== manifestPaths.join("\n")
+    ) {
+      throw new Error("toolchain manifest 与安装的执行链文件不一致。");
+    }
+    for (const [relativePath, path] of runtimeFiles) {
+      verifyWindowsRuntimeHash(manifest, relativePath, path);
+    }
+    const clangPath = requireWindowsRuntimePath(runtimeFiles, "toolchain/bin/clang.exe");
+    const jobHostPath = requireWindowsRuntimePath(runtimeFiles, "runtime/algolatch-job-host.exe");
+
+    const result = spawnSync(clangPath, ["--version"], {
+      encoding: "utf8",
+      env: minimalWindowsProbeEnvironment(join(canonicalRoot, "toolchain", "bin")),
+      shell: false,
+      timeout: PROBE_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    if (result.error !== undefined || result.status !== 0) {
+      throw new Error("无法执行内置 clang.exe --version。");
+    }
+    if (
+      !new RegExp(`\\bclang version ${WINDOWS_LLVM_VERSION.replaceAll(".", "\\.")}\\b`, "u").test(
+        output,
+      )
+    ) {
+      throw new Error(`内置 clang 不是锁定的 LLVM ${WINDOWS_LLVM_VERSION}。`);
+    }
+    const target = /^Target:\s*([^\r\n]+)$/mu.exec(output)?.[1]?.trim();
+    if (target !== WINDOWS_TARGET_TRIPLE) {
+      throw new Error(`内置 clang target 无效：${target ?? "未报告"}。`);
+    }
+
+    return Object.freeze({
+      available: true,
+      platform: "win32",
+      detail: `llvm-mingw ${WINDOWS_TOOLCHAIN_VERSION}；clang version ${WINDOWS_LLVM_VERSION}；Target: ${target}`,
+      executablePath: clangPath,
+      jobHostPath,
+      targetTriple: target,
+      toolchainRootPath: join(canonicalRoot, "toolchain"),
+    });
+  } catch (error) {
+    return Object.freeze({
+      available: false,
+      platform: "win32",
+      detail: `Windows 工具链不可用/未验证：${error instanceof Error ? error.message : "运行时校验失败。"}`,
+    });
+  }
+}
+
+export function detectSupportedHostToolchain(
+  platform: NodeJS.Platform = process.platform,
+): ToolchainProbeResult {
+  if (platform === "darwin") return detectSupportedAppleClang();
+  if (platform === "win32") return detectSupportedWindowsToolchain();
+  return Object.freeze({
+    available: false,
+    detail: `当前平台 ${platform} 尚未提供受支持的 C 工具链。`,
+  });
+}
+
+function resolveWindowsRuntimeRoot(): string | undefined {
+  if (process.defaultApp === true) {
+    const developmentRoot = process.env.PANEL_WINDOWS_RUNTIME_ROOT;
+    return developmentRoot === undefined || developmentRoot.trim().length === 0
+      ? undefined
+      : developmentRoot;
+  }
+  return typeof process.resourcesPath === "string"
+    ? join(process.resourcesPath, "windows-runtime")
+    : undefined;
+}
+
+function parseWindowsToolchainManifest(contents: string): WindowsToolchainManifest {
+  let value: unknown;
+  try {
+    value = JSON.parse(contents) as unknown;
+  } catch {
+    throw new Error("toolchain manifest 不是有效 JSON。");
+  }
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 1 ||
+    value.toolchainVersion !== WINDOWS_TOOLCHAIN_VERSION ||
+    value.llvmVersion !== WINDOWS_LLVM_VERSION ||
+    value.architecture !== "x64" ||
+    value.target !== WINDOWS_TARGET_TRIPLE ||
+    value.sourceSha256 !== WINDOWS_TOOLCHAIN_SOURCE_SHA256 ||
+    value.sourceUrl !== WINDOWS_TOOLCHAIN_SOURCE_URL ||
+    !isRecord(value.files)
+  ) {
+    throw new Error("toolchain manifest 与锁定版本不匹配。");
+  }
+  const files: Record<string, string> = {};
+  for (const [path, hash] of Object.entries(value.files)) {
+    if (!isWindowsRuntimeManifestPath(path) || !/^[a-f0-9]{64}$/u.test(String(hash))) {
+      throw new Error("toolchain manifest 文件摘要无效。");
+    }
+    files[path] = String(hash);
+  }
+  for (const requiredPath of WINDOWS_REQUIRED_RUNTIME_HASH_PATHS) {
+    if (files[requiredPath] === undefined) {
+      throw new Error(`toolchain manifest 缺少 ${requiredPath} 摘要。`);
+    }
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    toolchainVersion: WINDOWS_TOOLCHAIN_VERSION,
+    llvmVersion: WINDOWS_LLVM_VERSION,
+    architecture: "x64",
+    target: WINDOWS_TARGET_TRIPLE,
+    sourceUrl: WINDOWS_TOOLCHAIN_SOURCE_URL,
+    sourceSha256: WINDOWS_TOOLCHAIN_SOURCE_SHA256,
+    files: Object.freeze(files),
+  });
+}
+
+function canonicalWindowsRuntimeFile(root: string, relativePath: string): string {
+  const unresolvedPath = join(root, ...relativePath.split("/"));
+  if (lstatSync(unresolvedPath).isSymbolicLink()) {
+    throw new Error(`${relativePath} 不能是符号链接。`);
+  }
+  const path = realpathSync(unresolvedPath);
+  const fromRoot = relative(root, path);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || !statSync(path).isFile()) {
+    throw new Error(`${relativePath} 不在受信运行时目录。`);
+  }
+  return path;
+}
+
+function enumerateWindowsRuntimeExecutionChain(
+  root: string,
+): ReadonlyArray<readonly [relativePath: string, path: string]> {
+  const entries: Array<readonly [string, string]> = [];
+  const binRoot = canonicalWindowsRuntimeDirectory(root, "toolchain/bin");
+  for (const entry of readdirSync(binRoot, { withFileTypes: true })) {
+    const relativePath = `toolchain/bin/${entry.name}`;
+    if (!entry.isFile() || entry.isSymbolicLink() || !isWindowsRuntimeManifestPath(relativePath)) {
+      throw new Error(`Windows 工具链 bin 包含未声明或非普通文件：${entry.name}。`);
+    }
+    entries.push([relativePath, canonicalWindowsRuntimeFile(root, relativePath)]);
+  }
+  const runtimeRoot = canonicalWindowsRuntimeDirectory(root, "runtime");
+  const runtimeEntries = readdirSync(runtimeRoot, { withFileTypes: true });
+  if (
+    runtimeEntries.length !== 1 ||
+    runtimeEntries[0]?.name !== "algolatch-job-host.exe" ||
+    !runtimeEntries[0].isFile() ||
+    runtimeEntries[0].isSymbolicLink()
+  ) {
+    throw new Error("Windows 运行时目录必须只包含普通 Job Object broker。");
+  }
+  entries.push([
+    "runtime/algolatch-job-host.exe",
+    canonicalWindowsRuntimeFile(root, "runtime/algolatch-job-host.exe"),
+  ]);
+  return Object.freeze(entries.sort(([left], [right]) => compareCodePoints(left, right)));
+}
+
+function canonicalWindowsRuntimeDirectory(root: string, relativePath: string): string {
+  const unresolvedPath = join(root, ...relativePath.split("/"));
+  if (lstatSync(unresolvedPath).isSymbolicLink()) {
+    throw new Error(`${relativePath} 不能是符号链接。`);
+  }
+  const path = realpathSync(unresolvedPath);
+  const fromRoot = relative(root, path);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || !statSync(path).isDirectory()) {
+    throw new Error(`${relativePath} 不在受信运行时目录。`);
+  }
+  return path;
+}
+
+function isWindowsRuntimeManifestPath(path: string): boolean {
+  return (
+    WINDOWS_REQUIRED_RUNTIME_HASH_PATHS.includes(
+      path as (typeof WINDOWS_REQUIRED_RUNTIME_HASH_PATHS)[number],
+    ) || /^toolchain\/bin\/[A-Za-z0-9._-]+\.dll$/iu.test(path)
+  );
+}
+
+function requireWindowsRuntimePath(
+  files: ReadonlyArray<readonly [relativePath: string, path: string]>,
+  relativePath: string,
+): string {
+  const path = files.find(([candidate]) => candidate === relativePath)?.[1];
+  if (path === undefined) throw new Error(`Windows 运行时缺少 ${relativePath}。`);
+  return path;
+}
+
+function compareCodePoints(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function verifyWindowsRuntimeHash(
+  manifest: WindowsToolchainManifest,
+  relativePath: string,
+  path: string,
+): void {
+  const expected = manifest.files[relativePath];
+  if (expected === undefined) throw new Error(`manifest 缺少 ${relativePath} 摘要。`);
+  const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
+  if (actual !== expected) throw new Error(`${relativePath} 摘要不匹配。`);
+}
+
+function minimalWindowsProbeEnvironment(toolchainBin: string): Readonly<Record<string, string>> {
+  const windowsRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
+  return Object.freeze({
+    SystemRoot: windowsRoot,
+    WINDIR: windowsRoot,
+    PATH: `${toolchainBin};${join(windowsRoot, "System32")}`,
+    LANG: "C",
+    LC_ALL: "C",
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function resolveTrustedXcrunPath(
@@ -602,7 +884,8 @@ export function resolveCanonicalDeveloperRoots(candidates: readonly string[]): r
 
 export function parseRunnerMode(
   value: string | undefined,
-  detectToolchain: ToolchainDetector = detectSupportedAppleClang,
+  detectToolchain: ToolchainDetector = () => detectSupportedHostToolchain(),
+  platform: NodeJS.Platform = process.platform,
 ): RunnerMode {
   if (value === "disabled") {
     return "disabled";
@@ -610,7 +893,9 @@ export function parseRunnerMode(
   if (value !== undefined && value !== "seatbelt-best-effort" && value !== "trusted-only") {
     return "disabled";
   }
-  return detectToolchain().available ? (value ?? "seatbelt-best-effort") : "disabled";
+  if (!detectToolchain().available) return "disabled";
+  if (platform === "win32") return "trusted-only";
+  return value ?? "seatbelt-best-effort";
 }
 
 export function toolchainIdentifier(toolchain: ToolchainProbeResult, mode: RunnerMode): string {
@@ -623,15 +908,24 @@ export function toolchainIdentifier(toolchain: ToolchainProbeResult, mode: Runne
   return `${mode === "disabled" ? "disabled" : toolchain.available ? "verified" : "unavailable"}:${detail}`;
 }
 
-export function capabilitiesWithoutProbe(mode: RunnerMode, toolchainId: string): Capabilities {
+export function capabilitiesWithoutProbe(
+  mode: RunnerMode,
+  toolchainId: string,
+  isolationKind: IsolationKind = "macos-seatbelt",
+): Capabilities {
   if (mode === "disabled") {
     return Object.freeze({
       mode,
       runnerEnabled: false,
       toolchainId,
-      seatbeltProbe: Object.freeze({
+      isolationProbe: Object.freeze({
+        kind: isolationKind,
         status: "not-checked",
         detail: "运行器已禁用，或本机工具链不可用/未验证。",
+      }),
+      memoryDiagnostics: Object.freeze({
+        available: false,
+        detail: "运行器已禁用，无法执行完整内存诊断。",
       }),
       requiresNativeTrustConfirmation: false,
     });
@@ -640,9 +934,20 @@ export function capabilitiesWithoutProbe(mode: RunnerMode, toolchainId: string):
     mode,
     runnerEnabled: true,
     toolchainId,
-    seatbeltProbe: Object.freeze({
-      status: "not-checked",
-      detail: "未请求 Seatbelt 探测；仅允许显式确认的可信代码。",
+    isolationProbe: Object.freeze({
+      kind: isolationKind,
+      status: isolationKind === "windows-job-object" ? "probe-succeeded" : "not-checked",
+      detail:
+        isolationKind === "windows-job-object"
+          ? "Windows Job Object 已限制进程树、内存与 CPU；不提供文件或网络隔离。"
+          : "未请求 Seatbelt 探测；仅允许显式确认的可信代码。",
+    }),
+    memoryDiagnostics: Object.freeze({
+      available: isolationKind === "macos-seatbelt",
+      detail:
+        isolationKind === "macos-seatbelt"
+          ? "Apple clang sanitizer 与 leaks 双门诊断可用。"
+          : "Windows 首发仅提供静态诊断；完整内存诊断尚未开放。",
     }),
     requiresNativeTrustConfirmation: true,
   });

@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
 
 export type TimerToken = ReturnType<typeof setTimeout> | number | object;
 
@@ -16,6 +17,8 @@ export interface SpawnSpecification {
   readonly env: Readonly<Record<string, string>>;
   readonly detached: true;
   readonly shell: false;
+  /** Windows Job Object host writes bounded aggregate metrics to this file. */
+  readonly resourceMetricsPath?: string;
 }
 
 export type RemoveListener = () => void;
@@ -51,6 +54,13 @@ export const SYSTEM_CLOCK: RunnerClock = Object.freeze({
 });
 
 export class SystemProcessHost implements ProcessHost {
+  readonly #platform: NodeJS.Platform;
+  readonly #resourceMetricsPaths = new Map<number, string>();
+
+  constructor(platform: NodeJS.Platform = process.platform) {
+    this.#platform = platform;
+  }
+
   spawn(specification: SpawnSpecification): ManagedChildProcess {
     const child = spawn(specification.command, [...specification.args], {
       cwd: specification.cwd,
@@ -65,6 +75,10 @@ export class SystemProcessHost implements ProcessHost {
     // can arrive after the supervisor's bounded reap wait has elapsed; without
     // this guard Node would treat it as an unhandled "error" event.
     child.stdin.on("error", () => undefined);
+    if (child.pid !== undefined && specification.resourceMetricsPath !== undefined) {
+      this.#resourceMetricsPaths.set(child.pid, specification.resourceMetricsPath);
+      child.once("close", () => this.#resourceMetricsPaths.delete(child.pid as number));
+    }
 
     return {
       pid: child.pid,
@@ -112,7 +126,7 @@ export class SystemProcessHost implements ProcessHost {
       throw new Error("Invalid process group id");
     }
     try {
-      process.kill(-processGroupId, signal);
+      process.kill(this.#platform === "win32" ? processGroupId : -processGroupId, signal);
     } catch (error) {
       if (!isNoSuchProcessError(error)) {
         throw error;
@@ -125,7 +139,7 @@ export class SystemProcessHost implements ProcessHost {
       throw new Error("Invalid process group id");
     }
     try {
-      process.kill(-processGroupId, 0);
+      process.kill(this.#platform === "win32" ? processGroupId : -processGroupId, 0);
       return true;
     } catch (error) {
       if (isNoSuchProcessError(error)) {
@@ -141,6 +155,12 @@ export class SystemProcessHost implements ProcessHost {
   async sampleProcessGroupResources(processGroupId: number): Promise<ProcessGroupResources> {
     if (!Number.isSafeInteger(processGroupId) || processGroupId <= 1) {
       throw new Error("Invalid process group id");
+    }
+
+    if (this.#platform === "win32") {
+      const metricsPath = this.#resourceMetricsPaths.get(processGroupId);
+      if (metricsPath === undefined) throw new Error("Windows Job Object metrics path is missing");
+      return readWindowsJobMetrics(metricsPath);
     }
 
     const stdout = await executePs();
@@ -163,6 +183,41 @@ export class SystemProcessHost implements ProcessHost {
       processCount,
     });
   }
+}
+
+async function readWindowsJobMetrics(path: string): Promise<ProcessGroupResources> {
+  const contents = await readFile(path, { encoding: "utf8" });
+  return parseWindowsJobMetrics(contents);
+}
+
+export function parseWindowsJobMetrics(contents: string): ProcessGroupResources {
+  let value: unknown;
+  try {
+    value = JSON.parse(contents) as unknown;
+  } catch {
+    throw new Error("Windows Job Object metrics are not valid JSON");
+  }
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "processCount,rssBytes"
+  ) {
+    throw new Error("Windows Job Object metrics have an invalid shape");
+  }
+  const metrics = value as Record<string, unknown>;
+  if (
+    !Number.isSafeInteger(metrics.rssBytes) ||
+    Number(metrics.rssBytes) < 0 ||
+    !Number.isSafeInteger(metrics.processCount) ||
+    Number(metrics.processCount) < 0
+  ) {
+    throw new Error("Windows Job Object metrics are out of range");
+  }
+  return Object.freeze({
+    rssBytes: Number(metrics.rssBytes),
+    processCount: Number(metrics.processCount),
+  });
 }
 
 function executePs(): Promise<string> {

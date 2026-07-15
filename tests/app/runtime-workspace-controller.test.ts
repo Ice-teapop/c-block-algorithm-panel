@@ -142,6 +142,26 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
+  it("normalizes Windows CRLF only for scenario-output comparison", async () => {
+    const harness = setup({ runStdout: "positive\r\n" });
+    await harness.controller.setWorkspaceEntry("project-a", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
+
+    const run = harness.controller.scenario.runReal();
+    await driveTrace(harness.scheduler);
+    await run;
+
+    expect(harness.learningObservations).toContainEqual(
+      expect.objectContaining({
+        type: "run-completed",
+        stdout: "positive\n",
+        expectedStdout: "positive\n",
+        expectedMatch: true,
+      }),
+    );
+    await harness.controller.destroy();
+  });
+
   it("reports a wrong real output as teaching evidence before rejecting history", async () => {
     const harness = setup({ runStdout: "wrong\n" });
     await harness.controller.setWorkspaceEntry("tutorial-a", FINGERPRINT);
@@ -789,7 +809,12 @@ function capabilities(): Capabilities {
     mode: "trusted-only",
     runnerEnabled: true,
     toolchainId: "verified:Apple clang version 21.0.0 Target: arm64-apple-macos",
-    seatbeltProbe: Object.freeze({ status: "unavailable", detail: "test" }),
+    isolationProbe: Object.freeze({
+      kind: "macos-seatbelt",
+      status: "unavailable",
+      detail: "test",
+    }),
+    memoryDiagnostics: Object.freeze({ available: true, detail: "test" }),
     requiresNativeTrustConfirmation: false,
   });
 }

@@ -38,7 +38,8 @@ flowchart TB
   end
 
   Documents[("~/Documents/C Algorithm Workbench")]
-  Toolchain["Apple clang and macOS process controls"]
+  Toolchain["Apple clang or bundled llvm-mingw"]
+  Isolation["macOS Seatbelt or Windows Job Object"]
   Providers["Selected official AI provider"]
 
   User --> Shell
@@ -52,6 +53,7 @@ flowchart TB
   Preload --> AI
   Workspace --> Documents
   Runner --> Toolchain
+  Runner --> Isolation
   AI --> Providers
 ```
 
@@ -96,8 +98,8 @@ Preload 不暴露通用 `send`、`on`、`readFile`、路径或解密接口。
 
 - `workspace-store.ts` 和 `workspace-sidecar-store.ts` 管理 Documents 中的
   原子文件写入、revision 冲突、大小限制和符号链接拒绝；
-- `runner/` 管理 clang 探测、编译制品、进程组、资源限制、Seatbelt 最佳
-  努力隔离、诊断和有界 Trace；
+- `runner/` 管理平台工具链探测、编译制品、进程树、资源限制、macOS
+  Seatbelt、Windows Job Object、诊断和有界 Trace；
 - `ai-provider-*` 固定官方主机、验证模型响应，并使用 `safeStorage` 保存密钥；
 - `ai-project-store.ts` 管理每个托管工作区的版本化多对话记录；
 - `ai-window-*` 管理单独的 AI BrowserWindow 和窗口所有权。
@@ -130,8 +132,12 @@ Preload 不暴露通用 `send`、`on`、`readFile`、路径或解密接口。
 
 ## 数据所有权
 
+托管根目录位于用户 Documents：macOS 通常为
+`~/Documents/C Algorithm Workbench/`，Windows 通常为
+`%USERPROFILE%\Documents\C Algorithm Workbench\`。其内部结构一致：
+
 ```text
-~/Documents/C Algorithm Workbench/<Kind>/<opaque-id>/
+<Documents>/C Algorithm Workbench/<Kind>/<opaque-id>/
 ├── entry.json
 ├── main.c
 ├── flow-view.json          optional
@@ -174,9 +180,16 @@ flowchart LR
 
 ### 运行与 Trace
 
-普通运行把当前 source snapshot 发送给主进程。主进程先检查工具链和隔离
-能力，再创建短期编译制品并在受限进程组中运行。关键隔离不可用时执行会
-fail closed，或要求用户对该请求进行一次性可信授权。
+普通运行把当前 source snapshot 发送给主进程。主进程先检查工具链和运行
+边界，再创建短期编译制品并在受限进程树中运行。macOS 使用已验证的 Apple
+clang 与 Seatbelt；Windows 10/11 x64 使用随包分发、摘要锁定的 llvm-mingw，
+并通过 `algolatch-job-host.exe` 把子进程放入 Windows Job Object。关键运行
+能力不可用时执行会 fail closed，或在受支持的 trusted-only 路径中要求用户
+对该次请求明确授权。
+
+Windows Job Object 限制进程数、聚合内存和 CPU 时间，并在宿主关闭时回收
+进程树，但不提供文件系统或网络隔离。它是资源与生命周期边界，不是任意
+原生代码沙箱。
 
 Trace 使用临时影子源码，不修改项目目录。session 绑定窗口、源码指纹、
 一次性授权和资源限制；renderer 通过序号批量拉取事件。达到 10,000 条事件、
@@ -230,12 +243,13 @@ npm run test:unit
 npm run build
 ```
 
-发布还需要 M0–M9 回归、Electron E2E 和安装态 DMG 验证。完整命令见
+发布还需要 M0–M9 回归、Electron E2E，以及 macOS DMG 与 Windows NSIS 的
+平台签名和安装态验证。完整命令见
 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ## 当前约束
 
-- 仅支持 macOS、Apple clang 和单个 `main.c`。
+- 支持 macOS Universal 与 Windows 10/11 x64；仍只支持单个 `main.c`。
 - 自由画布是 C 的投影，不是独立通用图语言。
 - 宏、`goto`、解析恢复和 partial CFG 会降低可安全编辑的范围。
 - Trace 提供执行行与分支路径，不采集任意变量值。
@@ -243,7 +257,9 @@ npm run build
 - AI 是可选外部服务；回答和提案不能替代编译、测试或源码门禁。
 - `v0.0.1` 是改名前的历史未签名包。`v0.0.2` 正式通道强制 Developer ID、
   Hardened Runtime、固定最小 entitlements、公证、staple、quarantine 后
-  Gatekeeper 检查和安装态回归；凭据或任一门禁缺失时不产出正式 DMG。
+  Gatekeeper 检查，以及 Windows Authenticode 和 NSIS 安装态回归；凭据或任一
+  平台门禁缺失时不创建联合 Release。Windows Job Object 不提供文件或网络
+  隔离。
 
 ## 决策记录
 
@@ -253,3 +269,4 @@ npm run build
 - [ADR-0004：有界影子源码 Trace](./decisions/0004-bounded-shadow-trace.md)
 - [ADR-0005：实测效率与复杂度结论分离](./decisions/0005-evidence-separated-efficiency.md)
 - [ADR-0006：项目级 AI 对话与显式授权写入](./decisions/0006-project-scoped-ai-conversations-and-gated-writes.md)
+- [ADR-0007：Windows 内置运行时与安装包边界](./decisions/0007-windows-runtime-and-installer.md)

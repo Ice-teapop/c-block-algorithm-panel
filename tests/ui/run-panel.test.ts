@@ -253,7 +253,8 @@ function capabilities(): Capabilities {
     mode: "trusted-only",
     runnerEnabled: true,
     toolchainId: "verified:Apple clang version 21.0.0",
-    seatbeltProbe: { status: "unavailable", detail: "trusted" },
+    isolationProbe: { kind: "macos-seatbelt", status: "unavailable", detail: "trusted" },
+    memoryDiagnostics: { available: true, detail: "test" },
     requiresNativeTrustConfirmation: false,
   };
 }

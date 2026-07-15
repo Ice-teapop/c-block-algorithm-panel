@@ -9,7 +9,7 @@ export interface WorkspaceRootOptions {
 }
 
 /**
- * Keeps production data in Documents while allowing the installed-DMG smoke
+ * Keeps production data in Documents while allowing an installed-package smoke
  * gate to use only its own two-level temporary workspace.
  */
 export function resolveWorkspaceRoot(options: WorkspaceRootOptions): string {
@@ -32,7 +32,8 @@ function isInstalledGateWorkspace(candidate: string, temporaryDirectory: string)
   const segments = relativePath.split(sep);
   return (
     segments.length === 2 &&
-    segments[0]?.startsWith("c-block-installed-dmg-") === true &&
+    (segments[0]?.startsWith("c-block-installed-dmg-") === true ||
+      segments[0]?.startsWith("algolatch-installed-windows-") === true) &&
     segments[1] === "workspace"
   );
 }

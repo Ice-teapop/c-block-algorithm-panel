@@ -54,6 +54,32 @@ describe("bounded Trace session storage and protocol", () => {
     });
   });
 
+  it("accepts fragmented Windows CRLF protocol records without counting CR as payload", () => {
+    const registry = new TraceSessionRegistry();
+    const session = registry.create(SESSION_ID, "fingerprint");
+    session.setRunning();
+    const parser = new TraceProtocolParser({
+      protocolNonce: NONCE,
+      startedAtMs: 0,
+      clock: new FakeClock(),
+      allowedLines: new Set([2]),
+      onEvent: (event) => session.append(event),
+      onProtocolError: (message) => session.fail({ code: "TRACE_PROTOCOL_ERROR", message }),
+    });
+
+    parser.push(Buffer.from(`\u001eCBT:${NONCE}:1:L:2\r`));
+    parser.push(Buffer.from("\n"));
+    parser.finish();
+
+    expect(session.read(0)).toMatchObject({
+      ok: true,
+      status: "running",
+      totalEventCount: 1,
+      events: [{ sequence: 1, kind: "line", line: 2 }],
+    });
+    expect(parser.protocolBytes).toBe(Buffer.byteLength(`\u001eCBT:${NONCE}:1:L:2\r\n`));
+  });
+
   it("truncates at the hard event boundary and fails malformed sequence closed", () => {
     const registry = new TraceSessionRegistry({ maxEvents: 2, maxBytes: 10_000 });
     const limited = registry.create(SESSION_ID, "fingerprint");

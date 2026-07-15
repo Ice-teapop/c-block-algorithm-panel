@@ -1,4 +1,14 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +22,7 @@ import {
   SystemCapabilityProbe,
   SystemSeatbeltCanary,
   classifyClangVersion,
+  detectSupportedWindowsToolchain,
   parseRunnerMode,
   resolveCanonicalDeveloperRoots,
   toolchainIdentifier,
@@ -69,6 +80,19 @@ describe("Apple clang capability", () => {
     expect(parseRunnerMode("trusted-only", available)).toBe("trusted-only");
   });
 
+  it("forces verified Windows execution into trusted-only mode", () => {
+    const available: ToolchainDetector = () => ({
+      available: true,
+      platform: "win32",
+      detail: "llvm-mingw 20260616",
+    });
+
+    expect(parseRunnerMode(undefined, available, "win32")).toBe("trusted-only");
+    expect(parseRunnerMode("seatbelt-best-effort", available, "win32")).toBe("trusted-only");
+    expect(parseRunnerMode("trusted-only", available, "win32")).toBe("trusted-only");
+    expect(parseRunnerMode("disabled", available, "win32")).toBe("disabled");
+  });
+
   it("publishes a stable toolchain key without leaking absolute paths", () => {
     const id = toolchainIdentifier(
       {
@@ -107,6 +131,60 @@ describe("Apple clang capability", () => {
       expect(resolveCanonicalDeveloperRoots([join(activeApp, "Contents", "Developer")])).toEqual([
         realpathSync(developerRoot),
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("bundled Windows toolchain capability", () => {
+  it("accepts only the locked manifest and rejects changed critical files", () => {
+    const root = mkdtempSync(join(tmpdir(), "algolatch-windows-runtime-"));
+    const clang = join(root, "toolchain", "bin", "clang.exe");
+    const linker = join(root, "toolchain", "bin", "ld.lld.exe");
+    const runtimeDll = join(root, "toolchain", "bin", "libwinpthread-1.dll");
+    const jobHost = join(root, "runtime", "algolatch-job-host.exe");
+    try {
+      mkdirSync(join(root, "toolchain", "bin"), { recursive: true });
+      mkdirSync(join(root, "runtime"), { recursive: true });
+      writeFileSync(
+        clang,
+        "#!/bin/sh\nprintf 'clang version 22.1.8\\nTarget: x86_64-w64-windows-gnu\\n'\n",
+      );
+      chmodSync(clang, 0o700);
+      writeFileSync(linker, "locked-linker");
+      writeFileSync(runtimeDll, "locked-runtime-dll");
+      writeFileSync(jobHost, "job-host-test-double");
+      writeFileSync(
+        join(root, "toolchain-manifest.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          toolchainVersion: "20260616",
+          llvmVersion: "22.1.8",
+          architecture: "x64",
+          target: "x86_64-w64-windows-gnu",
+          sourceUrl:
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-ucrt-x86_64.zip",
+          sourceSha256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35",
+          files: {
+            "runtime/algolatch-job-host.exe": sha256(jobHost),
+            "toolchain/bin/clang.exe": sha256(clang),
+            "toolchain/bin/ld.lld.exe": sha256(linker),
+            "toolchain/bin/libwinpthread-1.dll": sha256(runtimeDll),
+          },
+        }),
+      );
+
+      expect(detectSupportedWindowsToolchain(root, "x64")).toMatchObject({
+        available: true,
+        platform: "win32",
+        targetTriple: "x86_64-w64-windows-gnu",
+      });
+      writeFileSync(runtimeDll, "tampered");
+      expect(detectSupportedWindowsToolchain(root, "x64")).toMatchObject({
+        available: false,
+        detail: expect.stringContaining("摘要不匹配"),
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -293,6 +371,10 @@ describe("split execution profiles", () => {
     expect(RUN_EXECUTION_PROFILE).toContain('(deny file-map-executable (subpath "/usr/local"))');
   });
 });
+
+function sha256(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
 
 function commandResult(
   overrides: {
