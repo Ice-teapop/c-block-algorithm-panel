@@ -184,9 +184,13 @@ jobs:
           tests/config/app-icon.test.ts
           tests/config/windows-packaging.test.ts
           tests/runner/process-host.test.ts
-          tests/runner/runner.test.ts
           tests/runner/trace-session.test.ts
           tests/app/runtime-workspace-controller.test.ts
+
+      - name: Test the Windows Job Object runner contract
+        run: >-
+          npx vitest run tests/runner/runner.test.ts
+          -t "uses the bundled Windows compiler through the Job Object host"
 
       - name: Build Authenticode-signed Windows x64 installer
         env:
