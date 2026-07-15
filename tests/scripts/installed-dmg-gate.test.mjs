@@ -149,6 +149,20 @@ describe("installed DMG release gate", () => {
       ),
     ).not.toThrow();
     expect(() => validateAsarEntries("/dist/index.html\n")).toThrow(/缺少发布资源/u);
+    expect(() =>
+      validateAsarEntries(
+        [
+          "\\dist\\index.html",
+          "\\dist\\ai-window.html",
+          "\\dist\\assets\\tree-sitter-c-a.wasm",
+          "\\dist\\assets\\web-tree-sitter-b.wasm",
+          "\\dist\\assets\\program-analysis-worker-c.js",
+          "\\dist-electron\\preload\\index.cjs",
+          "\\dist-electron\\preload\\ai-window.cjs",
+          "\\dist-electron\\electron\\main\\index.js",
+        ].join("\r\n"),
+      ),
+    ).not.toThrow();
   });
 
   it("requires build, installed check, checksum and publication in that order", () => {

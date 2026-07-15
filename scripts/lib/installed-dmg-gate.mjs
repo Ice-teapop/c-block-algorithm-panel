@@ -153,7 +153,7 @@ export function validateUniversalArchitectures(output) {
 export function validateAsarEntries(output) {
   const entries = String(output)
     .split(/\r?\n/u)
-    .map((entry) => entry.trim())
+    .map((entry) => entry.trim().replaceAll("\\", "/"))
     .filter(Boolean);
   for (const requirement of [
     /\/dist\/index\.html$/u,
