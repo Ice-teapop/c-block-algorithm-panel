@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 const expected = Object.freeze({
@@ -27,6 +27,12 @@ function check(condition, message) {
 
 function includes(text, fragment, label) {
   check(text.includes(fragment), `${label} 缺少 ${fragment}`);
+}
+
+function findRelativeMarkdownLinks(text) {
+  return [...text.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/gu)]
+    .map((match) => match[1])
+    .filter((target) => !target.startsWith("#") && !/^[a-z][a-z\d+.-]*:/iu.test(target));
 }
 
 function assertOrderedWorkflowStages(workflow, stages, label) {
@@ -101,6 +107,12 @@ const legacyPersistenceSources = await Promise.all(
 );
 const workspaceStoreSource = await readText("electron/main/workspace-store.ts");
 const currentReleaseNotes = await readText(`docs/releases/v${expected.version}.md`);
+const releaseNotePaths = (await readdir(new URL("docs/releases/", root)))
+  .filter((path) => path.endsWith(".md"))
+  .sort();
+const releaseNotes = await Promise.all(
+  releaseNotePaths.map(async (path) => [path, await readText(`docs/releases/${path}`)]),
+);
 
 check(manifest.version === expected.version, `package version 必须为 ${expected.version}`);
 check(/^0\.\d+\.\d+$/u.test(manifest.version), "当前公开版本线只允许 0.x.y 初始版本");
@@ -118,6 +130,13 @@ check(
   !currentReleaseNotes.includes("Control-click bypass required"),
   "签名版说明不得要求绕过 Gatekeeper",
 );
+for (const [path, notes] of releaseNotes) {
+  const relativeLinks = findRelativeMarkdownLinks(notes);
+  check(
+    relativeLinks.length === 0,
+    `docs/releases/${path} 含有在 GitHub Release 页面失效的相对链接：${relativeLinks.join(", ")}`,
+  );
+}
 check(
   manifest.build?.extends === `file:${expected.builderConfig}`,
   "package.json 默认 build 必须继承 release 配置",

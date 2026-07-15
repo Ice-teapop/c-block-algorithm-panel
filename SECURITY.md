@@ -16,7 +16,8 @@ does not mean a Windows stable installer has been released.
 
 Do not disclose a suspected vulnerability in a public issue. Use
 [GitHub private vulnerability reporting](https://github.com/Ice-teapop/algolatch/security/advisories/new)
-and include:
+and include the following information. GitHub requires you to sign in before
+opening the private report form.
 
 - the affected application and macOS or Windows versions;
 - a minimal reproduction without private source code or API keys;
