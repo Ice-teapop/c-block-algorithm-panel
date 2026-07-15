@@ -146,9 +146,10 @@ Windows 稳定包发布后，支持 Windows 10/11 x64：
 Authenticode，新签名证书或较少下载量仍可能触发 Microsoft SmartScreen 的
 信誉提示；签名证明发布者和文件完整性，不等同于已经积累 SmartScreen 信誉。
 
-当前仓库已经准备 Windows 构建和验证链，但本段不表示 Windows 稳定包已经
-发布。只有正式 Authenticode、安装/运行/卸载回归和联合发布门禁全部通过后，
-Release 才会同时包含 Windows EXE。
+Windows x64 未签名 Preview 已在 GitHub Actions 中通过构建、安装、启动、
+创建项目、编译运行和卸载回归；它仍不是稳定发布资产。只有正式
+Authenticode 与 macOS/Windows 联合发布门禁全部通过后，Release 才会同时
+包含 Windows EXE。
 
 ### 历史 v0.0.1
 

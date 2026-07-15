@@ -44,6 +44,10 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - Extended local execution and distribution architecture from macOS-only to
   macOS Universal plus Windows 10/11 x64 while retaining the single `main.c`
   source-authority model.
+- Validated the unsigned Windows x64 Preview as an installed application:
+  install, launch, project creation, bundled-toolchain compile/run, uninstall,
+  and managed-project retention all passed in GitHub Actions. This does not
+  promote the Preview to a stable release asset.
 
 ### Security
 
