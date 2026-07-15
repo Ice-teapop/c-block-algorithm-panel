@@ -19,25 +19,38 @@ Follow the [README installation instructions](./README.md#安装) for the requir
 Gatekeeper confirmation. This historical DMG is not signed by SignPath or
 notarized by Apple.
 
+## Windows public preview
+
+The public Windows 10/11 x64 `v0.0.2-preview.1` build is an **unsigned
+prerelease** for early testing:
+
+- [Download the Windows EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.2-preview.1/AlgoLatch-Setup-0.0.2-unsigned-x64.exe)
+- [Download the SHA-256 checksum](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.2-preview.1/SHA256SUMS.txt)
+- [Read the preview release notes](https://github.com/Ice-teapop/algolatch/releases/tag/v0.0.2-preview.1)
+
+The preview passed automated installation, launch, project creation, native C
+compile/run, uninstallation and project-retention checks. It is not
+Authenticode-signed, so Windows may display an unknown-publisher or SmartScreen
+warning. Verify the checksum and install it only if you accept that boundary.
+
+The installer is one-click, per-user and does not require administrator access.
+It includes the Windows C toolchain. Uninstalling AlgoLatch does not remove
+projects stored under `%USERPROFILE%\Documents\C Algorithm Workbench\`.
+
 ## Windows signed release
 
-The Windows 10/11 x64 release is being prepared and is not public yet. This page
-will link the final installer and its checksum only after signing, signature
+The stable Windows release will be linked here only after signing, signature
 verification and installed-application regression all succeed.
 
 **Free code signing provided by SignPath.io, certificate by SignPath
-Foundation.** The application is currently pending; no existing Windows asset
-claims this signature. After acceptance, the signing process will follow the
+Foundation.** The application is currently pending; the public Preview does not
+claim this signature. After acceptance, the signing process will follow the
 project's [Code signing policy](./CODE_SIGNING_POLICY.md).
 
 When available, the official release will contain:
 
 - `AlgoLatch-Setup-<version>-x64.exe`; and
 - `SHA256SUMS.txt`.
-
-The installer is one-click, per-user and does not require administrator access.
-It includes the Windows C toolchain. Uninstalling AlgoLatch does not remove
-projects stored under `%USERPROFILE%\Documents\C Algorithm Workbench\`.
 
 ## Safety
 

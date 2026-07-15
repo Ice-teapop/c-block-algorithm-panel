@@ -10,10 +10,10 @@
 
 ## 下载
 
-| 平台                          | 当前状态                      | 下载                                                                                                                                                                                                                       |
-| ----------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS · Apple Silicon / Intel | 历史 `v0.0.1`，旧名称，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/c-block-algorithm-panel-0.0.1-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/SHA256SUMS.txt) |
-| Windows 10/11 · x64           | 尚未公开发布                  | 暂无安装包                                                                                                                                                                                                                 |
+| 平台                          | 当前状态                      | 下载                                                                                                                                                                                                                                 |
+| ----------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| macOS · Apple Silicon / Intel | 历史 `v0.0.1`，旧名称，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/c-block-algorithm-panel-0.0.1-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.1/SHA256SUMS.txt)           |
+| Windows 10/11 · x64           | `v0.0.2-preview.1`，未签名    | [下载 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.2-preview.1/AlgoLatch-Setup-0.0.2-unsigned-x64.exe) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.2-preview.1/SHA256SUMS.txt) |
 
 [下载与安装包状态](./DOWNLOADS.md) ·
 [查看所有版本](https://github.com/Ice-teapop/algolatch/releases) ·
@@ -23,8 +23,8 @@
 
 > GitHub 自动显示的 **Source code** 压缩包不是安装器。当前公开的 macOS
 > `v0.0.1` 构建早于 AlgoLatch 改名，因此 DMG 文件和安装后的应用仍使用旧
-> 名称。Windows 目前没有可公开下载的 EXE；这里不会放置不存在或过期的
-> Actions 临时链接。当前源码版本为 `0.0.2`，但尚未发布。
+> 名称。Windows `v0.0.2-preview.1` 是公开的未签名先行版，不是正式稳定版；
+> Windows 可能显示未知发布者或 SmartScreen 提示。
 
 Windows 正式版本计划使用 SignPath Foundation 完成来源可验证的代码签名：
 **Free code signing provided by SignPath.io, certificate by SignPath
@@ -151,24 +151,24 @@ Windows 正式包。
 这个历史安装包中的应用仍叫 `C 积木算法面板.app`。未来安装 AlgoLatch 新版
 后，确认新应用能看到原项目，再手动删除旧 app；安装器不会删除项目或设置。
 
-### Windows 签名版本
+### Windows 先行版与签名版本
 
-Windows 代码与安装回归已支持 Windows 10/11 x64，但目前尚未公开发布 EXE。
-正式包发布后：
+Windows 10/11 x64 先行版已经公开：
 
-1. 从同一个 GitHub Release 下载
-   `AlgoLatch-Setup-<version>-x64.exe` 和 `SHA256SUMS.txt`。
+1. 从顶部下载表下载
+   `AlgoLatch-Setup-0.0.2-unsigned-x64.exe` 和 `SHA256SUMS.txt`。
 2. 校验 SHA-256 后双击安装器。NSIS 使用 one-click per-user 安装和
    `asInvoker`，不要求管理员权限。
 3. 安装完成后直接打开 AlgoLatch。C 编译器已经包含在安装包中，不需要另装
    Visual Studio、LLVM 或修改 `PATH`。
 
-卸载 AlgoLatch 不会删除 Documents 中的项目。即使安装器与应用具有有效
-Authenticode，新签名证书或较少下载量仍可能触发 Microsoft SmartScreen 的
-信誉提示；签名证明发布者和文件完整性，不等同于已经积累 SmartScreen 信誉。
+这个 Preview 没有 Authenticode 签名，Windows 会显示未知发布者并可能触发
+SmartScreen；仅从本仓库 Release 下载并先核对 SHA-256。卸载 AlgoLatch 不会
+删除 Documents 中的项目。未来正式包即使具有有效 Authenticode，新签名证书
+或较少下载量仍可能暂时触发 SmartScreen 信誉提示。
 
-Windows x64 未签名 Preview 已在 GitHub Actions 中通过构建、安装、启动、
-创建项目、编译运行和卸载回归；它仍不是稳定发布资产。Windows 正式包可在
+Windows x64 Preview 已在 GitHub Actions 中通过构建、安装、启动、创建项目、
+编译运行和卸载回归。Windows 正式包可在
 Authenticode 签名、签名校验和 Windows 安装态门禁通过后独立发布，不等待
 Developer ID、Apple 公证或任何 macOS 发布任务。
 
@@ -219,8 +219,9 @@ npm run build
 
 ## 版本与边界
 
-当前源码目标为 `v0.0.2`，但尚未发布。每个平台只有在自己的签名与安装态
-门禁通过后才能成为正式资产；Windows 不因 macOS 缺少 Apple 凭据而等待。
+当前源码版本为 `0.0.2`，Windows 已发布未签名的 `v0.0.2-preview.1`；正式
+`v0.0.2` 尚未发布。每个平台只有在自己的签名与安装态门禁通过后才能成为
+正式资产；Windows 不因 macOS 缺少 Apple 凭据而等待。
 `v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 `v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
 变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md)、
@@ -236,8 +237,8 @@ npm run build
 - Seatbelt 是最佳努力隔离；关键隔离能力不可用时，运行器会拒绝执行或要求
   用户针对该次可信请求明确授权。
 - Windows Job Object 只限制进程树、内存和 CPU，不提供文件或网络隔离。
-- 当前公开 `v0.0.1` 只有未签名、未公证的历史 macOS DMG；Windows 稳定包
-  尚未发布。
+- 当前 macOS `v0.0.1` 和 Windows `v0.0.2-preview.1` 都未签名；Windows
+  稳定包尚未发布。
 
 本项目采用 [MIT License](./LICENSE)。报告漏洞请遵循
 [Security Policy](./SECURITY.md)，不要在公开 Issue 中披露可利用细节。

@@ -4,8 +4,9 @@ AlgoLatch is an MIT-licensed open-source project maintained in the public
 [Ice-teapop/algolatch](https://github.com/Ice-teapop/algolatch) repository.
 
 **Free code signing provided by SignPath.io, certificate by SignPath
-Foundation.** The SignPath Foundation application is currently pending. Until
-it is accepted and the signed release gate succeeds, no AlgoLatch download is
+Foundation.** The SignPath Foundation application is currently pending. The
+public Windows Preview is explicitly unsigned. Until the application is
+accepted and the signed release gate succeeds, no AlgoLatch download is
 described as SignPath-signed.
 
 ## What may be signed
