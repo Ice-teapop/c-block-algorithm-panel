@@ -34,9 +34,11 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ### Changed
 
-- Renamed the user-facing product to **AlgoLatch** while preserving the bundle
-  identifier, npm package name, repository path, local preference keys, managed
-  Documents workspace, and existing application data compatibility.
+- Renamed the user-facing product to **AlgoLatch** and moved the canonical
+  GitHub repository to `Ice-teapop/algolatch`. GitHub redirects the earlier
+  repository URL; the bundle identifier, npm package name, local preference
+  keys, managed Documents workspace, and existing application data remain
+  compatible.
 - Advanced the unreleased package version to `0.0.2`; the historical `v0.0.1`
   tag, old product name, and unsigned artifacts remain immutable.
 - Rewrote the README around the user workflow, evidence model, safety boundary,

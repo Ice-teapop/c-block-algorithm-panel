@@ -14,7 +14,7 @@ in the source tree does not mean a Windows stable installer has been released.
 ## Reporting a vulnerability
 
 Do not disclose a suspected vulnerability in a public issue. Use
-[GitHub private vulnerability reporting](https://github.com/Ice-teapop/c-block-algorithm-panel/security/advisories/new)
+[GitHub private vulnerability reporting](https://github.com/Ice-teapop/algolatch/security/advisories/new)
 and include:
 
 - the affected application and macOS or Windows versions;

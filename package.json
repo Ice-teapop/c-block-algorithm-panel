@@ -7,12 +7,12 @@
   "author": "HAN Chen",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ice-teapop/c-block-algorithm-panel.git"
+    "url": "https://github.com/Ice-teapop/algolatch.git"
   },
   "bugs": {
-    "url": "https://github.com/Ice-teapop/c-block-algorithm-panel/issues"
+    "url": "https://github.com/Ice-teapop/algolatch/issues"
   },
-  "homepage": "https://github.com/Ice-teapop/c-block-algorithm-panel#readme",
+  "homepage": "https://github.com/Ice-teapop/algolatch#readme",
   "type": "module",
   "main": "dist-electron/electron/main/index.js",
   "packageManager": "npm@11.11.0",

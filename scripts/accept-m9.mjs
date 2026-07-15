@@ -6,7 +6,7 @@ const expected = Object.freeze({
   version: "0.0.2",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
-  repository: "https://github.com/Ice-teapop/c-block-algorithm-panel.git",
+  repository: "https://github.com/Ice-teapop/algolatch.git",
   builderConfig: "build/electron-builder.release.json",
 });
 

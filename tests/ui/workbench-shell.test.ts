@@ -103,8 +103,8 @@ describe("M6 workbench shell behavior", () => {
     shell.setAppInfo({
       version: "0.0.1",
       license: "MIT",
-      repositoryUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel",
-      releasesUrl: "https://github.com/Ice-teapop/c-block-algorithm-panel/releases",
+      repositoryUrl: "https://github.com/Ice-teapop/algolatch",
+      releasesUrl: "https://github.com/Ice-teapop/algolatch/releases",
       platform: "darwin",
       architecture: "arm64",
       electronVersion: "43.0.0",
@@ -115,7 +115,7 @@ describe("M6 workbench shell behavior", () => {
     expect(app.require("workbench-drawer-copy").textContent).toContain("AlgoLatch v0.0.1");
     expect(app.require("workbench-drawer-copy").textContent).toContain("macOS arm64");
     expect(app.require("workbench-drawer-copy").textContent).toContain(
-      "github.com/Ice-teapop/c-block-algorithm-panel",
+      "github.com/Ice-teapop/algolatch",
     );
 
     shell.setLocale("en");
