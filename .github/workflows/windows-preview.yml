@@ -1,0 +1,127 @@
+name: Publish unsigned Windows preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preview-v0.0.2-preview.1
+  cancel-in-progress: false
+
+env:
+  PREVIEW_TAG: v0.0.2-preview.1
+
+jobs:
+  build_preview:
+    name: Build and verify unsigned Windows preview
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Check out main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Require main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/main" ]]
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin npm
+        run: npm install --global npm@11.11.0
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Check formatting and types
+        run: |
+          npm run format:check
+          npm run typecheck
+
+      - name: Test Windows packaging contracts
+        run: >-
+          npx vitest run
+          tests/scripts/windows-toolchain.test.mjs
+          tests/scripts/installed-windows-gate.test.mjs
+          tests/config/windows-packaging.test.ts
+          tests/runner/process-host.test.ts
+
+      - name: Build unsigned Windows x64 installer
+        run: npm run dist:win:beta
+
+      - name: Verify installed application
+        run: npm run verify:installed-win:beta
+
+      - name: Create SHA-256 manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-ChildItem -LiteralPath 'release-windows-beta' -Filter '*.exe' -File)
+          if ($files.Count -ne 1) {
+            throw "Expected exactly one EXE in release-windows-beta/."
+          }
+          $hash = (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = Join-Path $files[0].DirectoryName 'SHA256SUMS.txt'
+          [System.IO.File]::WriteAllText($manifest, "$hash  $($files[0].Name)`n", [System.Text.Encoding]::ASCII)
+
+      - name: Upload verified preview artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: algolatch-windows-preview
+          path: |
+            release-windows-beta/*.exe
+            release-windows-beta/SHA256SUMS.txt
+          if-no-files-found: error
+
+  publish_preview:
+    name: Publish Windows preview release
+    needs: [build_preview]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download verified preview artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: algolatch-windows-preview
+          path: release-assets
+
+      - name: Verify checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum --check SHA256SUMS.txt
+
+      - name: Publish immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${PREVIEW_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${PREVIEW_TAG} already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          gh release create "${PREVIEW_TAG}" \
+            release-assets/*.exe \
+            release-assets/SHA256SUMS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --title "AlgoLatch ${PREVIEW_TAG} for Windows (unsigned preview)" \
+            --notes-file "docs/releases/${PREVIEW_TAG}.md"
