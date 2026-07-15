@@ -97,9 +97,10 @@ npm run accept:m9
 ```
 
 `accept:m9` validates release metadata, tag/version rules, workflow structure,
-the signed formal channel, and the explicitly unsigned Beta boundary without
-uploading artifacts. It does not replace unit, architecture, Electron, or
-platform-specific installed-application regression.
+the active signed Windows channel, the dormant signed macOS configuration, and
+the explicitly unsigned Beta boundaries without uploading artifacts. It does
+not replace unit, architecture, Electron, or platform-specific
+installed-application regression.
 
 ## Pull requests
 
@@ -119,8 +120,8 @@ platform-specific installed-application regression.
 `v0.1.0-beta.1–12` tags remain available as development snapshots, but they are
 not upgrade predecessors. Future public releases continue from `v0.0.1`.
 
-Prepare a formal release from a reviewed Node 24 checkout on both supported
-platforms. Run the common verification set before packaging:
+Prepare a formal release from a reviewed Node 24 checkout. Run the common
+verification set before packaging:
 
 ```sh
 npm ci
@@ -130,13 +131,6 @@ npm test
 npm run accept:m0-m5-regression
 npm run accept:m6-m8
 npm run test:e2e
-```
-
-On macOS, build and verify the signed, notarized Universal package:
-
-```sh
-npm run dist:mac
-npm run verify:installed-dmg
 ```
 
 On Windows 10/11 x64, build and verify the Authenticode-signed installer:
@@ -151,12 +145,26 @@ The Windows installed-state command installs and uninstalls AlgoLatch. Run it
 only on an isolated test machine or CI worker. The gate verifies that managed
 projects in Documents survive uninstall.
 
+The active GitHub release workflow publishes only the verified Windows EXE and
+its checksum. It does not require Apple credentials, wait for a macOS job, or
+upload a macOS DMG.
+
+The signed macOS configuration remains available for a future version. After a
+Developer ID and notarization credentials are available, build and verify it
+on macOS with:
+
+```sh
+npm run dist:mac
+npm run verify:installed-dmg
+```
+
 `dist:mac` fails before packaging unless it can find both a Developer ID
 Application signing identity and exactly one supported Apple notarization
 credential group. Store credentials locally or in GitHub secrets; never paste
 certificates, passwords, or API keys into issues, commits, logs, or chat.
 
-The protected GitHub environment `macos-release` requires these secrets:
+When the signed macOS release path is enabled in a future version, its protected
+GitHub environment `macos-release` requires these secrets:
 
 - `MACOS_CERTIFICATE_P12_BASE64`
 - `MACOS_CERTIFICATE_PASSWORD`
@@ -169,9 +177,11 @@ The protected GitHub environment `windows-release` requires:
 - `WIN_CSC_LINK`
 - `WIN_CSC_KEY_PASSWORD`
 
-The release workflow does not publish one platform early. It waits for the
-signed macOS and Windows jobs, downloads only their verified artifacts, creates
-one combined `SHA256SUMS.txt`, and then creates one immutable Release.
+The current release workflow waits only for the signed Windows job, downloads
+only its verified EXE, creates the matching `SHA256SUMS.txt`, and then creates
+one immutable Windows Release. A future signed macOS version must pass its own
+Developer ID, notarization, Gatekeeper, and installed-DMG gates before its DMG
+can be published; it cannot weaken or substitute for the Windows checks.
 
 Before tagging:
 
@@ -179,9 +189,9 @@ Before tagging:
    the same version.
 2. Confirm that `CHANGELOG.md` and `docs/releases/<version>.md` describe the
    exact release commit.
-3. Generate and verify `SHA256SUMS.txt` for the final DMG and Windows EXE.
-4. Confirm the copied macOS application starts after the DMG is unmounted, and
-   that the installed Windows application compiles and runs a native C canary.
+3. Generate and verify `SHA256SUMS.txt` for the final Windows EXE.
+4. Confirm that the installed Windows application compiles and runs a native C
+   canary.
 5. Create an exact `v<package.json version>` tag from the reviewed commit.
 6. Confirm the exact release commit is reachable from `main`.
 7. Publish the tag as a new normal GitHub Release, not a prerelease.
@@ -191,7 +201,8 @@ The `v0.0.1` public DMG is unsigned and unnotarized. The release page and notes
 must state the Gatekeeper steps and must not imply Apple signing or
 notarization.
 
-For local packaging without credentials, use the explicit development channel:
+For local macOS testing without Apple credentials, use the explicit development
+channel:
 
 ```sh
 npm run dist:mac:beta
@@ -199,7 +210,9 @@ npm run verify:installed-dmg:beta
 ```
 
 It writes `release-beta/AlgoLatch-<version>-unsigned-universal.dmg`, disables
-signing and notarization, and must never be attached to a public Release.
+signing and notarization, and must never be attached to a stable public Release.
+Gatekeeper can require Control-click → Open or explicit approval in
+**System Settings → Privacy & Security**. Never disable Gatekeeper globally.
 
 On Windows x64, use:
 

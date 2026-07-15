@@ -36,9 +36,10 @@ the workbench's source-authoritative validation path when enabled.
 
 No Apple endorsement is implied by use of macOS, Apple clang, Gatekeeper,
 Developer ID, Hardened Runtime, or notarization terminology. The historical
-`v0.0.1` Universal DMG is intentionally unsigned and unnotarized. AlgoLatch
-formal releases require Developer ID signing and Apple notarization, but are not
-distributed through or endorsed by the Mac App Store.
+`v0.0.1` Universal DMG is intentionally unsigned and unnotarized. Formal macOS
+releases require Developer ID signing and Apple notarization, but are not
+distributed through or endorsed by the Mac App Store. These Apple requirements
+do not apply to or block a Windows release.
 
 No Microsoft endorsement is implied by use of Windows, Authenticode,
 SmartScreen, or NSIS terminology. Windows and Microsoft are trademarks of the

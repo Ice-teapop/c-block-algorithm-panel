@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { assertReleaseGateOrder } from "./lib/installed-dmg-gate.mjs";
 
 const expected = Object.freeze({
   version: "0.0.2",
@@ -8,6 +7,8 @@ const expected = Object.freeze({
   npm: "npm@11.11.0",
   repository: "https://github.com/Ice-teapop/algolatch.git",
   builderConfig: "build/electron-builder.release.json",
+  windowsBuilderConfig: "build/electron-builder.windows.release.json",
+  windowsBetaBuilderConfig: "build/electron-builder.windows.beta.json",
 });
 
 const root = new URL("../", import.meta.url);
@@ -28,17 +29,32 @@ function includes(text, fragment, label) {
   check(text.includes(fragment), `${label} 缺少 ${fragment}`);
 }
 
+function assertOrderedWorkflowStages(workflow, stages, label) {
+  let previousIndex = -1;
+  for (const stage of stages) {
+    const index = workflow.indexOf(stage.fragment);
+    if (index < 0) throw new Error(`${label} 缺少${stage.label}`);
+    if (index <= previousIndex) throw new Error(`${label} 的${stage.label}顺序不安全`);
+    previousIndex = index;
+  }
+}
+
 const [
   manifest,
   lockfile,
   builder,
   betaBuilder,
+  windowsBuilder,
+  windowsBetaBuilder,
   ci,
   release,
   toolchain,
   credentialGate,
+  windowsCredentialGate,
   installedDmgGate,
   installedDmgSupport,
+  installedWindowsGate,
+  installedWindowsSupport,
   entitlements,
   inheritedEntitlements,
   gitignore,
@@ -52,12 +68,17 @@ const [
   readJson("package-lock.json"),
   readJson(expected.builderConfig),
   readJson("build/electron-builder.beta.json"),
+  readJson(expected.windowsBuilderConfig),
+  readJson(expected.windowsBetaBuilderConfig),
   readText(".github/workflows/ci.yml"),
   readText(".github/workflows/release.yml"),
   readText("scripts/verify-toolchain.mjs"),
   readText("scripts/verify-macos-release-credentials.mjs"),
+  readText("scripts/verify-windows-release-credentials.mjs"),
   readText("scripts/verify-installed-dmg.mjs"),
   readText("scripts/lib/installed-dmg-gate.mjs"),
+  readText("scripts/verify-installed-windows.mjs"),
+  readText("scripts/lib/installed-windows-gate.mjs"),
   readText("build/entitlements.mac.plist"),
   readText("build/entitlements.mac.inherit.plist"),
   readText(".gitignore"),
@@ -92,7 +113,7 @@ check(nvmrc.trim() === "24.14.0", ".nvmrc 必须固定当前 Node 24 LTS");
 check(nodeVersion.trim() === "24.14.0", ".node-version 必须固定当前 Node 24 LTS");
 check(manifest.repository?.url === expected.repository, "GitHub repository 元数据不正确");
 includes(currentReleaseNotes, `# AlgoLatch v${expected.version}`, "current release notes");
-includes(currentReleaseNotes, "Developer ID", "current release notes");
+includes(currentReleaseNotes, "Authenticode", "current release notes");
 check(
   !currentReleaseNotes.includes("Control-click bypass required"),
   "签名版说明不得要求绕过 Gatekeeper",
@@ -122,6 +143,20 @@ check(
   "缺少 macOS 正式发布凭据门禁",
 );
 check(
+  manifest.scripts?.["verify:win-release-credentials"] ===
+    "node scripts/verify-windows-release-credentials.mjs",
+  "缺少 Windows 正式发布凭据门禁",
+);
+check(
+  manifest.scripts?.["verify:installed-win"] === "node scripts/verify-installed-windows.mjs",
+  "缺少 Windows 正式安装态门禁",
+);
+check(
+  manifest.scripts?.["verify:installed-win:beta"] ===
+    "node scripts/verify-installed-windows.mjs --allow-unsigned",
+  "缺少显式未签名 Windows Beta 安装态门禁",
+);
+check(
   manifest.scripts?.["accept:m0-m5-regression"] === "node scripts/accept-m0-m5-regression.mjs",
   "缺少 accept:m0-m5-regression",
 );
@@ -139,6 +174,16 @@ includes(
   "build/electron-builder.beta.json",
   "dist:mac:beta",
 );
+includes(manifest.scripts?.["dist:win"] ?? "", "verify:win-release-credentials", "dist:win");
+includes(manifest.scripts?.["dist:win"] ?? "", "prepare:win-toolchain", "dist:win");
+includes(manifest.scripts?.["dist:win"] ?? "", expected.windowsBuilderConfig, "dist:win");
+includes(manifest.scripts?.["dist:win"] ?? "", "--publish never", "dist:win");
+includes(
+  manifest.scripts?.["dist:win:beta"] ?? "",
+  expected.windowsBetaBuilderConfig,
+  "dist:win:beta",
+);
+includes(manifest.scripts?.["dist:win:beta"] ?? "", "--publish never", "dist:win:beta");
 
 const directPlatformPin = "@typescript/typescript-darwin-arm64";
 check(
@@ -219,6 +264,74 @@ check(
   betaBuilder.mac?.artifactName === "AlgoLatch-${version}-unsigned-${arch}.${ext}",
   "未签名 Beta 文件名必须显式包含 unsigned",
 );
+
+check(
+  windowsBuilder.appId === "io.han.c-block-algorithm-panel",
+  "Windows electron-builder appId 不正确",
+);
+check(windowsBuilder.productName === "AlgoLatch", "Windows 正式构建 productName 必须为 AlgoLatch");
+check(
+  windowsBuilder.directories?.output === "release-windows",
+  "Windows 正式构建必须使用独立输出目录",
+);
+for (const packagedDocument of [
+  "package-lock.json",
+  "LICENSE",
+  "NOTICE.md",
+  "THIRD_PARTY_NOTICES.md",
+  "PRIVACY.md",
+  "SECURITY.md",
+]) {
+  check(
+    windowsBuilder.files?.includes(packagedDocument),
+    `Windows 发布包未包含 ${packagedDocument}`,
+  );
+}
+check(
+  windowsBuilder.electronDownload?.checksums?.["electron-v43.0.0-win32-x64.zip"] ===
+    "a195f798837e4c5719b462d3210c47619f6fc44ce032d06dbdcfbc88327b26e0",
+  "Electron Windows x64 官方 SHA-256 必须固定",
+);
+check(windowsBuilder.win?.forceCodeSigning === true, "Windows 正式构建必须 fail-closed 强制签名");
+check(windowsBuilder.win?.signExecutable === true, "Windows 正式构建必须签名应用与安装器");
+check(
+  windowsBuilder.win?.signtoolOptions?.signingHashAlgorithms?.length === 1 &&
+    windowsBuilder.win.signtoolOptions.signingHashAlgorithms[0] === "sha256",
+  "Windows 正式构建必须只使用 SHA-256 Authenticode",
+);
+check(
+  windowsBuilder.win?.artifactName === "AlgoLatch-Setup-${version}-${arch}.${ext}",
+  "Windows 正式 installer 文件名不正确",
+);
+const windowsTargets = windowsBuilder.win?.target;
+check(
+  Array.isArray(windowsTargets) &&
+    windowsTargets.length === 1 &&
+    windowsTargets[0]?.target === "nsis" &&
+    Array.isArray(windowsTargets[0]?.arch) &&
+    windowsTargets[0].arch.length === 1 &&
+    windowsTargets[0].arch[0] === "x64",
+  "Windows 正式发布必须只构建 NSIS x64",
+);
+check(windowsBuilder.nsis?.oneClick === true, "Windows installer 必须保持一键安装");
+check(windowsBuilder.nsis?.perMachine === false, "Windows installer 必须保持当前用户安装");
+check(windowsBuilder.nsis?.allowElevation === false, "Windows installer 不得要求提权");
+check(windowsBuilder.nsis?.runAfterFinish === true, "Windows installer 安装后必须允许直接启动");
+check(windowsBuilder.nsis?.deleteAppDataOnUninstall === false, "Windows 卸载不得删除用户项目数据");
+check(windowsBetaBuilder.productName === "AlgoLatch", "Windows Beta productName 必须为 AlgoLatch");
+check(
+  windowsBetaBuilder.directories?.output === "release-windows-beta",
+  "未签名 Windows Beta 必须使用独立输出目录",
+);
+check(
+  windowsBetaBuilder.win?.forceCodeSigning === false &&
+    windowsBetaBuilder.win?.signExecutable === false,
+  "未签名 Windows Beta 必须显式禁用 Authenticode",
+);
+check(
+  windowsBetaBuilder.win?.artifactName === "AlgoLatch-Setup-${version}-unsigned-${arch}.${ext}",
+  "未签名 Windows Beta 文件名必须显式包含 unsigned",
+);
 for (const entitlement of [entitlements, inheritedEntitlements]) {
   includes(entitlement, "com.apple.security.cs.allow-jit", "macOS entitlements");
   check(
@@ -241,11 +354,20 @@ check(
 
 try {
   await validateConfiguration(builder, { isEnabled: false, add() {} });
-  check(true, "electron-builder schema");
+  check(true, "macOS electron-builder schema");
 } catch (error) {
   check(
     false,
-    `electron-builder schema 校验失败：${error instanceof Error ? error.message : String(error)}`,
+    `macOS electron-builder schema 校验失败：${error instanceof Error ? error.message : String(error)}`,
+  );
+}
+try {
+  await validateConfiguration(windowsBuilder, { isEnabled: false, add() {} });
+  check(true, "Windows electron-builder schema");
+} catch (error) {
+  check(
+    false,
+    `Windows electron-builder schema 校验失败：${error instanceof Error ? error.message : String(error)}`,
   );
 }
 
@@ -253,6 +375,17 @@ includes(toolchain, "const expectedNodeMajor = 24;", "verify-toolchain");
 check(!toolchain.includes('"v25.8.1"'), "verify-toolchain 仍锁定已迁出的 Node 25");
 includes(credentialGate, "assertMacReleaseCredentials", "macOS release credential gate");
 includes(credentialGate, "APPLE_API_KEY", "macOS release credential gate");
+includes(
+  windowsCredentialGate,
+  "assertWindowsReleaseCredentials",
+  "Windows release credential gate",
+);
+includes(
+  windowsCredentialGate,
+  "validateWindowsCertificateReference",
+  "Windows release credential gate",
+);
+includes(windowsCredentialGate, "process.platform", "Windows release credential gate");
 includes(installedDmgGate, "requireMacPlatform(process.platform)", "verify-installed-dmg");
 includes(installedDmgGate, 'runFile("/usr/bin/hdiutil"', "verify-installed-dmg");
 includes(installedDmgGate, 'runFile("/usr/bin/ditto"', "verify-installed-dmg");
@@ -291,6 +424,28 @@ for (const source of legacyPersistenceSources) {
 }
 includes(installedDmgSupport, '"-readonly"', "installed-dmg support");
 includes(installedDmgSupport, "selectSingleArtifact", "installed-dmg support");
+includes(
+  installedWindowsGate,
+  "requireWindowsInstallGate(process.platform, process.env)",
+  "verify-installed-windows",
+);
+includes(installedWindowsGate, "validateAuthenticodeSignatures", "verify-installed-windows");
+includes(installedWindowsGate, "validateWindowsRuntimeDigests", "verify-installed-windows");
+includes(installedWindowsGate, "validateInstalledWorkbenchSnapshot", "verify-installed-windows");
+includes(installedWindowsGate, "windowsInstallerArguments", "verify-installed-windows");
+includes(installedWindowsGate, "windowsUninstallerArguments", "verify-installed-windows");
+includes(installedWindowsSupport, "requireAuthenticode: true", "installed-windows support");
+includes(
+  installedWindowsSupport,
+  'arguments_[0] === "--allow-unsigned"',
+  "installed-windows support",
+);
+includes(
+  installedWindowsSupport,
+  "installer、application 与 uninstaller",
+  "installed-windows support",
+);
+includes(installedWindowsSupport, "validateUninstallOutcome", "installed-windows support");
 check(
   installedDmgGate.indexOf('runFile("/usr/bin/ditto"') <
     installedDmgGate.indexOf("await detachMountedDmg(mountPoint)"),
@@ -341,29 +496,45 @@ includes(release, '      - "v*"', "release workflow");
 includes(release, "RELEASE_TAG: ${{ github.ref_name }}", "release workflow");
 includes(release, "npm run accept:m9", "release workflow");
 includes(release, "npm run notices:check", "release workflow");
-includes(release, "npm run accept:m6", "release workflow");
-includes(release, "npm run accept:m7", "release workflow");
-includes(release, "npm run accept:m8", "release workflow");
-includes(release, "npm run accept:m0-m5-regression", "release workflow");
-includes(release, "npm run test:e2e", "release workflow");
-includes(release, "id: electron_e2e", "release workflow");
-includes(release, "steps.electron_e2e.outcome == 'failure'", "release workflow");
-includes(release, "Upload Electron failure traces", "release workflow");
-includes(release, "${{ runner.temp }}/c-block-algorithm-panel-playwright", "release workflow");
-includes(release, "npm run dist:mac", "release workflow");
-includes(release, "npm run verify:installed-dmg", "release workflow");
-includes(release, "MACOS_CERTIFICATE_P12_BASE64", "release workflow");
-includes(release, "APPLE_API_KEY_P8_BASE64", "release workflow");
-includes(release, "APPLE_API_KEY_ID", "release workflow");
-includes(release, "APPLE_API_ISSUER", "release workflow");
-includes(release, '--title "AlgoLatch ${GITHUB_REF_NAME}"', "release workflow");
-includes(release, "environment: macos-release", "release workflow");
+includes(release, "name: Release signed Windows build", "release workflow");
+includes(release, "verify_windows:", "release workflow");
+includes(release, "publish_windows:", "release workflow");
+includes(release, "needs: [verify_windows]", "release workflow");
+includes(release, "runs-on: windows-2025", "release workflow");
+includes(release, "environment: windows-release", "release workflow");
 includes(release, "git merge-base --is-ancestor", "release workflow");
-includes(release, "Remove temporary notarization key", "release workflow");
+includes(release, "WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}", "release workflow");
+includes(release, "WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}", "release workflow");
+includes(release, "npm run dist:win", "release workflow");
+includes(release, "npm run verify:installed-win", "release workflow");
+includes(release, "Get-FileHash", "release workflow");
+includes(release, "SHA256SUMS-windows.txt", "release workflow");
+includes(release, "release-windows/*.exe", "release workflow");
+for (const forbidden of [
+  "verify_macos",
+  "macos-release",
+  "runs-on: macos",
+  "MACOS_CERTIFICATE",
+  "APPLE_API_",
+  "npm run dist:mac",
+  "npm run verify:installed-dmg",
+  ".dmg",
+]) {
+  check(!release.includes(forbidden), `Windows 正式发布工作流不得包含 ${forbidden}`);
+}
+for (const forbidden of [
+  "npm run dist:win:beta",
+  "npm run verify:installed-win:beta",
+  "--allow-unsigned",
+]) {
+  check(!release.includes(forbidden), `正式发布工作流不得调用未签名通道 ${forbidden}`);
+}
 check(!release.includes("gh release edit"), "已发布 Release 元数据不得被工作流覆盖");
 check(!release.includes("--clobber"), "已发布 Release 资产不得被工作流覆盖");
-includes(release, "shasum -a 256", "release workflow");
-includes(release, "shasum -a 256 --check", "release workflow");
+check(!release.includes("git tag"), "发布工作流不得创建、移动或覆盖 tag");
+check(!release.includes("gh api --method PATCH"), "发布工作流不得修改既有 GitHub 对象");
+includes(release, "sha256sum ./*.exe > SHA256SUMS.txt", "release workflow");
+includes(release, "sha256sum --check SHA256SUMS.txt", "release workflow");
 includes(
   release,
   "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -384,19 +555,42 @@ includes(release, "persist-credentials: false", "release workflow");
 includes(release, "permissions:\n      contents: write", "release publish job");
 includes(release, "gh release view", "release workflow");
 includes(release, "gh release create", "release workflow");
+check(
+  (release.match(/gh release create/gu) ?? []).length === 1,
+  "发布工作流必须只有一个 fail-closed Release 创建点",
+);
 includes(release, "--verify-tag", "release workflow");
 includes(release, "--latest", "release workflow");
 includes(release, 'notes_file="docs/releases/${GITHUB_REF_NAME}.md"', "release workflow");
+includes(release, '--title "AlgoLatch ${GITHUB_REF_NAME} for Windows"', "release workflow");
 check(!release.includes("--prerelease"), "正式 GitHub Release 不得标记为 prerelease");
 includes(playwrightConfiguration, "process.env.RUNNER_TEMP ?? tmpdir()", "Playwright config");
 includes(playwrightConfiguration, '"c-block-algorithm-panel-playwright"', "Playwright config");
 try {
-  assertReleaseGateOrder(release);
-  check(true, "release workflow installed-DMG order");
+  assertOrderedWorkflowStages(
+    release,
+    [
+      { label: "Windows Authenticode 构建", fragment: "run: npm run dist:win" },
+      { label: "Windows 安装态门禁", fragment: "run: npm run verify:installed-win" },
+      { label: "Windows SHA-256", fragment: "- name: Create Windows SHA-256 manifest" },
+      {
+        label: "已验证 Windows artifact 上传",
+        fragment: "- name: Upload verified Windows artifact",
+      },
+      {
+        label: "已验证 Windows artifact 下载",
+        fragment: "- name: Download verified Windows artifact",
+      },
+      { label: "不可变 Release 存在性检查", fragment: "gh release view" },
+      { label: "GitHub Release", fragment: "gh release create" },
+    ],
+    "Windows release workflow",
+  );
+  check(true, "release workflow Windows gate order");
 } catch (error) {
   check(
     false,
-    error instanceof Error ? error.message : "release workflow 的安装态 DMG 门禁顺序无效",
+    error instanceof Error ? error.message : "release workflow 的 Windows 安装态门禁顺序无效",
   );
 }
 
@@ -411,6 +605,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(`✓ M9 发布基础通过：${checks} 项离线配置检查`);
-  console.log("  正式通道强制 Developer ID、Hardened Runtime、公证、staple 与安装态验证。");
-  console.log("  未签名构建只保留在显式 Beta 通道，不允许发布流程调用。");
+  console.log("  活动正式通道仅发布 Authenticode 签名且通过安装态门禁的 Windows x64 包。");
+  console.log("  macOS 签名配置保留待未来版本启用；未签名构建不得进入正式发布流程。");
 }

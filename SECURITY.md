@@ -2,14 +2,15 @@
 
 ## Supported releases
 
-Only the latest GitHub Release receives security fixes. `v0.0.1` is the first
-public release in the reset version line.
+Only the latest available release for each platform receives security fixes.
+`v0.0.1` is the first public release in the reset version line.
 
 The historical `v0.0.1` Universal DMG is unsigned and unnotarized. Public
 availability is not an Apple security review, signing claim, or notarization
-claim. Future AlgoLatch releases are published only after the applicable
-macOS and Windows signing and installed-application gates pass. Windows support
-in the source tree does not mean a Windows stable installer has been released.
+claim. Each platform is published only after its own applicable signing and
+installed-application gates pass. A Windows release does not require Developer
+ID, Apple notarization, or a macOS artifact. Windows support in the source tree
+does not mean a Windows stable installer has been released.
 
 ## Reporting a vulnerability
 
@@ -157,12 +158,17 @@ warnings when its certificate or download history has not accumulated enough
 reputation. The project does not describe Authenticode as a guarantee that
 SmartScreen will suppress every prompt.
 
-The separate Beta builder explicitly disables signing and notarization, writes
-to `release-beta/`, and includes `unsigned` in the filename. It is for local
-development only and must never be described or published as Apple-verified.
+The separate macOS Beta builder explicitly disables signing and notarization,
+writes to `release-beta/`, and includes `unsigned` in the filename. It is a
+test package, not an Apple-verified stable release. Gatekeeper can require
+Control-click → Open or explicit approval in **System Settings → Privacy &
+Security**; never disable Gatekeeper globally.
 The Windows Beta follows the same separation under `release-windows-beta/` and
 must never be described as Authenticode-verified.
 
-A stable GitHub Release is created only after both platform jobs succeed. The
-publish job downloads the already-verified DMG and EXE, produces one
-`SHA256SUMS.txt`, rejects an existing Release, and never overwrites assets.
+A formal Windows Release can be created after the Windows Authenticode and
+installed-state jobs succeed. It does not wait for Apple credentials or macOS
+verification. A future formal macOS Release remains blocked until its Developer
+ID, notarization, Gatekeeper, and installed-state gates pass. Release jobs use
+only already-verified platform assets, produce matching checksums, reject an
+existing Release, and never overwrite assets.

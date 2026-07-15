@@ -28,9 +28,9 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - Separate formal and unsigned-Beta Windows NSIS configurations, a multi-size
   Windows icon, fail-closed `WIN_CSC_LINK` credential validation, and an
   install/launch/run/uninstall gate.
-- Windows `windows-2025` CI and a dual-platform release pipeline that requires
-  both macOS and Windows verification before creating one immutable Release
-  containing DMG, EXE, and `SHA256SUMS.txt`.
+- Windows `windows-2025` CI and an independent Windows release path that can
+  publish an Authenticode-signed EXE and `SHA256SUMS.txt` after the Windows
+  gates pass, without Apple credentials or a macOS artifact.
 
 ### Changed
 
@@ -50,6 +50,9 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
   install, launch, project creation, bundled-toolchain compile/run, uninstall,
   and managed-project retention all passed in GitHub Actions. This does not
   promote the Preview to a stable release asset.
+- Separated platform release readiness. Windows can ship after its own signing
+  and installed-state gates pass; macOS remains on the explicitly unsigned test
+  channel until a Developer ID and notarization credentials are available.
 
 ### Security
 

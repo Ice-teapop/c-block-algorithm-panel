@@ -14,9 +14,10 @@
 [当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
 [安全](./SECURITY.md)
 
-> 已发布的 `v0.0.1` 是改名前的历史未签名包。当前源码版本为 `0.0.2`，正式
-> 发布链已准备 macOS Developer ID/公证门禁与 Windows Authenticode/安装态
-> 门禁；在对应凭据和全部平台门禁通过前，不会把候选包描述为已发布稳定版。
+> 已发布的 `v0.0.1` 是改名前的历史未签名包。当前源码版本为 `0.0.2`，但
+> `v0.0.2` 尚未发布。Windows 与 macOS 使用相互独立的发布门禁：Windows
+> 正式包只依赖 Authenticode 和 Windows 安装态验证，不需要任何 Apple 凭据；
+> macOS 当前只保留未签名测试通道，未来取得 Developer ID 后再发布正式包。
 
 ## 为什么做这个工具
 
@@ -115,18 +116,21 @@ Windows 通常对应
 
 ## 安装
 
-### macOS 签名版本
+### macOS 未签名测试版本
 
-签名版本发布后，安装只保留 macOS 的标准动作：
+macOS 当前只保留明确标记为 `unsigned` 的测试构建，不把它描述为 Apple
+验证的正式包。`v0.0.2` 尚未附加新的 macOS 下载资产；如果你参与本地测试，
+请先校验发布者提供的 SHA-256，再按以下步骤打开未签名 DMG：
 
-1. 从 [Releases](https://github.com/Ice-teapop/algolatch/releases)
-   下载 `AlgoLatch-<version>-universal.dmg`。
-2. 打开 DMG，把 **AlgoLatch** 拖入 **Applications**。
-3. 从 Applications 直接打开。无需终端命令、Control-click 或关闭 Gatekeeper。
+1. 打开 DMG，把 **AlgoLatch** 拖入 **Applications**。
+2. 如果 Gatekeeper 阻止首次启动，在 Finder 中按住 Control 单击应用，选择
+   **打开**并再次确认。
+3. 如果仍被阻止，在 **系统设置 → 隐私与安全性** 中确认来源后选择
+   **仍要打开**。
 
-发布流水线只有在 Developer ID、Hardened Runtime、固定最小 entitlements、
-Apple 公证票据、staple、quarantine 后 Gatekeeper 检查和安装态回归全部通过时
-才会上传该 DMG。
+不要全局关闭 Gatekeeper。未来的 macOS 正式包仍要求 Developer ID、Hardened
+Runtime、固定最小 entitlements、Apple 公证、staple、quarantine 后
+Gatekeeper 检查和安装态回归全部通过。该计划不会阻塞 Windows 正式包。
 
 如果 Applications 中仍有改名前的 `C 积木算法面板.app`，确认 AlgoLatch 能
 正常打开并看到原项目后，可手动删除旧 app；项目和设置不会由安装器擅自删除。
@@ -147,9 +151,9 @@ Authenticode，新签名证书或较少下载量仍可能触发 Microsoft SmartS
 信誉提示；签名证明发布者和文件完整性，不等同于已经积累 SmartScreen 信誉。
 
 Windows x64 未签名 Preview 已在 GitHub Actions 中通过构建、安装、启动、
-创建项目、编译运行和卸载回归；它仍不是稳定发布资产。只有正式
-Authenticode 与 macOS/Windows 联合发布门禁全部通过后，Release 才会同时
-包含 Windows EXE。
+创建项目、编译运行和卸载回归；它仍不是稳定发布资产。Windows 正式包可在
+Authenticode 签名、签名校验和 Windows 安装态门禁通过后独立发布，不等待
+Developer ID、Apple 公证或任何 macOS 发布任务。
 
 ### 历史 v0.0.1
 
@@ -208,15 +212,17 @@ npm test
 npm run build
 ```
 
-完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。macOS 正式构建使用
-`npm run dist:mac`；Windows 正式构建使用 `npm run dist:win`。缺少对应签名或
-公证凭据会直接失败。开发测试必须显式选择 `npm run dist:mac:beta` 或
-`npm run dist:win:beta`，未签名包使用独立输出目录和文件名。
+完整回归和发布命令见 [Contributing](./CONTRIBUTING.md)。Windows 正式构建
+使用 `npm run dist:win`，只检查 Windows Authenticode 与安装态门禁。macOS
+正式构建使用 `npm run dist:mac`，并继续在缺少 Developer ID 或公证凭据时
+失败；当前 macOS 测试使用 `npm run dist:mac:beta`。Windows 未签名验证使用
+`npm run dist:win:beta`。所有未签名包都使用独立输出目录和文件名。
 
 ## 版本与边界
 
-当前源码目标为 `v0.0.2`；只有签名与安装态门禁全部通过后才会创建对应
-Release。`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
+当前源码目标为 `v0.0.2`，但尚未发布。每个平台只有在自己的签名与安装态
+门禁通过后才能成为正式资产；Windows 不因 macOS 缺少 Apple 凭据而等待。
+`v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 `v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
 变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md)、
 [v0.0.2 说明](./docs/releases/v0.0.2.md) 与
