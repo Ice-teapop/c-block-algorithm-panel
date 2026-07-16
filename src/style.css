@@ -4290,7 +4290,7 @@ h2 {
   border: 1px solid var(--line-strong);
   border-radius: 2px;
   background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  pointer-events: auto;
+  pointer-events: none;
   transform: none;
 }
 
@@ -4323,6 +4323,7 @@ h2 {
   font-size: 9px;
   text-align: left;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .flow-minimap[data-collapsed="true"] .flow-minimap__toggle {
@@ -4339,6 +4340,7 @@ h2 {
   width: 100%;
   height: 112px;
   background: color-mix(in srgb, var(--input-surface) 96%, transparent);
+  pointer-events: none;
 }
 
 .flow-minimap__node {
@@ -4380,7 +4382,16 @@ h2 {
   stroke: var(--accent-line);
   stroke-width: 1;
   cursor: move;
-  pointer-events: all;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.flow-minimap__viewport-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  cursor: move;
+  pointer-events: stroke;
   vector-effect: non-scaling-stroke;
 }
 

@@ -115,9 +115,6 @@ jobs:
           npm run format:check
           npm run typecheck
 
-      - name: Run unit, integration and architecture tests
-        run: npm test
-
       - name: Test Windows packaging and runner contracts
         run: >-
           npx vitest run

@@ -702,6 +702,10 @@ export function createFlowCanvas(
     minimap.viewport.setAttribute("y", formatCoordinate(visible.top));
     minimap.viewport.setAttribute("width", formatCoordinate(visible.right - visible.left));
     minimap.viewport.setAttribute("height", formatCoordinate(visible.bottom - visible.top));
+    minimap.viewportHit.setAttribute("x", formatCoordinate(visible.left));
+    minimap.viewportHit.setAttribute("y", formatCoordinate(visible.top));
+    minimap.viewportHit.setAttribute("width", formatCoordinate(visible.right - visible.left));
+    minimap.viewportHit.setAttribute("height", formatCoordinate(visible.bottom - visible.top));
   }
 
   function renderWires(): void {
@@ -3248,10 +3252,12 @@ function createMinimap(ownerDocument: Document, english = false) {
   nodes.classList.add("flow-minimap__nodes");
   const viewport = ownerDocument.createElementNS(SVG_NAMESPACE, "rect");
   viewport.classList.add("flow-minimap__viewport");
-  viewport.dataset.flowMinimapViewport = "true";
-  svg.append(edges, nodes, viewport);
+  const viewportHit = ownerDocument.createElementNS(SVG_NAMESPACE, "rect");
+  viewportHit.classList.add("flow-minimap__viewport-hit");
+  viewportHit.dataset.flowMinimapViewport = "true";
+  svg.append(edges, nodes, viewport, viewportHit);
   root.append(toggle, svg);
-  return { root, toggle, svg, edges, nodes, viewport };
+  return { root, toggle, svg, edges, nodes, viewport, viewportHit };
 }
 
 function createDetailWindow(ownerDocument: Document, english = false) {
