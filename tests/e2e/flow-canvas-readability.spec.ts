@@ -276,15 +276,15 @@ test("keeps detached block source visible as grey code until the draft is delete
 
 test("uses Tab for C indentation and keeps keyboard focus in the source editor", async () => {
   const content = page.locator(".code-pane .cm-content");
-  await content.click({ position: { x: 8, y: 8 } });
-  await page.keyboard.press("Home");
-  const before = await page.locator(".code-pane .cm-line").first().textContent();
+  const editableLine = page.locator(".code-pane .cm-line", { hasText: "int main" }).first();
+  await editableLine.click({ position: { x: 12, y: 8 } });
+  const before = await editableLine.textContent();
   await page.keyboard.press("Tab");
   await expect(content).toBeFocused();
-  const indented = await page.locator(".code-pane .cm-line").first().textContent();
+  const indented = await editableLine.textContent();
   expect(indented).toBe(`  ${before ?? ""}`);
   await page.keyboard.press("Shift+Tab");
-  await expect(page.locator(".code-pane .cm-line").first()).toHaveText(before ?? "");
+  await expect(editableLine).toHaveText(before ?? "");
 });
 
 test("collapses the overview inside a short canvas instead of covering the toolbar", async () => {
