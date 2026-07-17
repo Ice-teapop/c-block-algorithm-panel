@@ -427,11 +427,11 @@ export function createAiWorkspaceIntegration(
   };
 
   const onTrigger = (): void => {
-    void options.api.toggleAiWindow().then((result) => {
+    void options.api.openAiWindow().then((result) => {
       if (destroyed || result.status !== "ok") return;
-      windowOpen = !windowOpen;
-      options.trigger.setAttribute("aria-expanded", String(windowOpen));
-      if (windowOpen) void refreshProvider();
+      windowOpen = true;
+      options.trigger.setAttribute("aria-expanded", "true");
+      void refreshProvider();
     });
   };
   const onProviderChange = (): void => void refreshProvider();

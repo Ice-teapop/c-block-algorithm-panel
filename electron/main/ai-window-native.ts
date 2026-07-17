@@ -30,7 +30,7 @@ export function registerNativeAiWindow(options: NativeAiWindowOptions): AiWindow
     resolveSender: (event) =>
       BrowserWindow.fromWebContents(event.sender) as AiWindowNativeWindow | null,
     isShuttingDown: options.isShuttingDown,
-    createChildWindow(parent) {
+    createChildWindow() {
       const webPreferences = Object.freeze({
         preload: options.preloadPath,
         contextIsolation: true,
@@ -42,8 +42,6 @@ export function registerNativeAiWindow(options: NativeAiWindowOptions): AiWindow
         navigateOnDragDrop: false,
       }) satisfies Readonly<WebPreferences>;
       const child = new BrowserWindow({
-        parent: parent as BrowserWindow,
-        modal: false,
         width: rememberedBounds?.width ?? 860,
         height: rememberedBounds?.height ?? 680,
         ...(rememberedBounds === null ? {} : { x: rememberedBounds.x, y: rememberedBounds.y }),
@@ -81,7 +79,7 @@ export function registerNativeAiWindow(options: NativeAiWindowOptions): AiWindow
         callback(false),
       );
       child.on("close", () => {
-        if (!child.isDestroyed()) rememberedBounds = child.getBounds();
+        if (!child.isDestroyed()) rememberedBounds = child.getNormalBounds();
       });
       if (options.developmentServerUrl === null) {
         void child.loadFile(options.rendererFilePath);

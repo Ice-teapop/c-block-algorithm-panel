@@ -47,6 +47,45 @@ describe("native AI window manager", () => {
     ).resolves.toEqual({ status: "failed", code: "INVALID_PAYLOAD" });
   });
 
+  it("keeps minimized windows in the background until an explicit open restores them", async () => {
+    const harness = managerHarness();
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.publishState, stateEnvelope(1));
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.open);
+    const child = harness.children[0]!;
+    child.emit("ready-to-show");
+    await harness.invoke(child, AI_WINDOW_IPC_CHANNELS.ready);
+    expect(child.focusCount).toBe(1);
+
+    child.minimize();
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.publishState, stateEnvelope(2));
+    expect(child.isMinimized()).toBe(true);
+    expect(child.restoreCount).toBe(0);
+    expect(child.focusCount).toBe(1);
+
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.open);
+    expect(child.isMinimized()).toBe(false);
+    expect(child.restoreCount).toBe(1);
+    expect(child.focusCount).toBe(2);
+  });
+
+  it("does not steal focus on state updates and brings a background window forward on toggle", async () => {
+    const harness = managerHarness();
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.publishState, stateEnvelope(1));
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.open);
+    const child = harness.children[0]!;
+    child.emit("ready-to-show");
+    await harness.invoke(child, AI_WINDOW_IPC_CHANNELS.ready);
+    child.blur();
+
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.publishState, stateEnvelope(2));
+    expect(child.focusCount).toBe(1);
+    expect(child.hideCount).toBe(0);
+
+    await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.toggle);
+    expect(child.focusCount).toBe(2);
+    expect(child.hideCount).toBe(0);
+  });
+
   it("returns model settings to the workbench without making the child modal", async () => {
     const harness = managerHarness();
     await harness.invoke(harness.parent, AI_WINDOW_IPC_CHANNELS.open);
@@ -126,6 +165,8 @@ class FakeWindow implements AiWindowNativeWindow {
   readonly webContents: FakeWebContents;
   private destroyed = false;
   private visible = false;
+  private minimized = false;
+  private focused = false;
   private readonly listeners = new Map<
     string,
     { readonly callback: () => void; readonly once: boolean }[]
@@ -134,6 +175,7 @@ class FakeWindow implements AiWindowNativeWindow {
   hideCount = 0;
   focusCount = 0;
   closeCount = 0;
+  restoreCount = 0;
   title = "";
 
   constructor(id: number) {
@@ -145,15 +187,36 @@ class FakeWindow implements AiWindowNativeWindow {
   isVisible(): boolean {
     return this.visible;
   }
+  isFocused(): boolean {
+    return this.focused;
+  }
+  isMinimized(): boolean {
+    return this.minimized;
+  }
   show(): void {
     this.visible = true;
     this.showCount += 1;
   }
   hide(): void {
     this.visible = false;
+    this.focused = false;
     this.hideCount += 1;
   }
+  minimize(): void {
+    this.minimized = true;
+    this.visible = false;
+    this.focused = false;
+  }
+  restore(): void {
+    this.minimized = false;
+    this.visible = true;
+    this.restoreCount += 1;
+  }
+  blur(): void {
+    this.focused = false;
+  }
   focus(): void {
+    this.focused = true;
     this.focusCount += 1;
   }
   close(): void {

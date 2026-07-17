@@ -18,10 +18,13 @@ export interface AiWindowWebContents {
 export interface AiWindowNativeWindow {
   readonly webContents: AiWindowWebContents;
   isDestroyed(): boolean;
+  isFocused(): boolean;
+  isMinimized(): boolean;
   isVisible(): boolean;
   show(): void;
   hide(): void;
   focus(): void;
+  restore(): void;
   close(): void;
   setTitle(title: string): void;
   on(event: "closed", listener: WindowListener): unknown;
@@ -46,6 +49,7 @@ interface WindowRecord {
   rendererReady: boolean;
   readyToShow: boolean;
   desiredVisible: boolean;
+  activationPending: boolean;
 }
 
 const OK: AiWindowCommandResult = Object.freeze({ status: "ok" });
@@ -78,7 +82,8 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     record.child.webContents.send(AI_WINDOW_IPC_CHANNELS.state, latest);
   };
 
-  const reveal = (record: WindowRecord): void => {
+  const fulfillActivation = (record: WindowRecord): void => {
+    if (!record.activationPending) return;
     record.desiredVisible = true;
     if (
       !record.readyToShow ||
@@ -88,8 +93,16 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     ) {
       return;
     }
-    record.child.show();
-    record.child.focus();
+    if (record.child.isMinimized()) record.child.restore();
+    if (!record.child.isVisible()) record.child.show();
+    if (!record.child.isFocused()) record.child.focus();
+    record.activationPending = false;
+  };
+
+  const activate = (record: WindowRecord): void => {
+    record.desiredVisible = true;
+    record.activationPending = true;
+    fulfillActivation(record);
   };
 
   const ensureWindow = (parent: AiWindowNativeWindow): WindowRecord => {
@@ -104,6 +117,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
       rendererReady: false,
       readyToShow: false,
       desiredVisible: false,
+      activationPending: false,
     };
     records.add(record);
     recordByParent.set(parent, record);
@@ -111,7 +125,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     child.once("ready-to-show", () => {
       if (child.isDestroyed()) return;
       record.readyToShow = true;
-      if (record.desiredVisible) reveal(record);
+      fulfillActivation(record);
     });
     child.on("closed", () => {
       closeRecord(record);
@@ -134,7 +148,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     const parent = hostContext(options, event, args, 0);
     if (typeof parent === "string") return failed(parent);
     const record = ensureWindow(parent);
-    reveal(record);
+    activate(record);
     publishLatest(record);
     return OK;
   });
@@ -143,12 +157,23 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     const parent = hostContext(options, event, args, 0);
     if (typeof parent === "string") return failed(parent);
     const record = ensureWindow(parent);
-    if (!record.readyToShow) record.desiredVisible = !record.desiredVisible;
-    else if (record.child.isVisible()) {
+    if (!record.readyToShow || !record.rendererReady) {
+      if (record.activationPending) {
+        record.desiredVisible = false;
+        record.activationPending = false;
+      } else {
+        activate(record);
+      }
+    } else if (
+      record.child.isVisible() &&
+      !record.child.isMinimized() &&
+      record.child.isFocused()
+    ) {
       record.desiredVisible = false;
+      record.activationPending = false;
       record.child.hide();
     } else {
-      reveal(record);
+      activate(record);
       publishLatest(record);
     }
     return OK;
@@ -167,7 +192,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
       const record = recordByParent.get(parent);
       if (record !== undefined) {
         publishLatest(record);
-        if (record.desiredVisible) reveal(record);
+        fulfillActivation(record);
       }
       return OK;
     },
@@ -182,7 +207,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     }
     record.rendererReady = true;
     publishLatest(record);
-    if (record.desiredVisible) reveal(record);
+    fulfillActivation(record);
     return OK;
   });
 
@@ -202,6 +227,7 @@ export function registerAiWindowManager(options: AiWindowManagerOptions): AiWind
     }
     if (intent.type === "open-model-settings") {
       record.desiredVisible = false;
+      record.activationPending = false;
       record.child.hide();
       record.parent.show();
       record.parent.focus();

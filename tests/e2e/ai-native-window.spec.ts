@@ -62,6 +62,9 @@ test("opens AI in a native child window and synchronizes interface preferences",
 
   await expect(mainPage.locator(".ai-workspace-window")).toHaveCount(0);
   await expect(aiPage.locator('.ai-workspace-window[data-presentation="native"]')).toBeVisible();
+  await expect
+    .poll(() => nativeAiWindowState(application!))
+    .toMatchObject({ parentTitle: null, minimized: false, visible: true });
   await expect(aiPage.locator("html")).toHaveAttribute("lang", "en");
   const englishLayout = await nativeAiLayoutSnapshot(aiPage);
   expect(englishLayout).toMatchObject({
@@ -115,10 +118,73 @@ test("opens AI in a native child window and synchronizes interface preferences",
   expect(coolChineseLayout.fontFamily).toBe(englishLayout.fontFamily);
   expect(coolChineseLayout.canvasColor).toBe("rgb(237, 242, 244)");
 
+  await application.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows().find(
+      (window) =>
+        (window as unknown as { panelWindowRole?: string }).panelWindowRole !== "ai-assistant",
+    );
+    main?.show();
+    main?.focus();
+  });
+  await expect.poll(() => nativeAiWindowState(application!)).toMatchObject({ focused: false });
+  await mainPage.evaluate(() => {
+    const background = document.querySelector<HTMLSelectElement>("#interface-background");
+    if (background === null) throw new Error("Interface background control is unavailable");
+    background.value = "white";
+    background.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect.poll(() => nativeAiWindowState(application!)).toMatchObject({ focused: false });
+
+  await application.evaluate(({ BrowserWindow }) => {
+    const child = BrowserWindow.getAllWindows().find(
+      (window) =>
+        (window as unknown as { panelWindowRole?: string }).panelWindowRole === "ai-assistant",
+    );
+    child?.minimize();
+  });
+  await expect.poll(() => nativeAiWindowState(application!)).toMatchObject({ minimized: true });
+  await mainPage.locator("#ai-assistant-button").click();
+  await expect
+    .poll(() => nativeAiWindowState(application!))
+    .toMatchObject({ minimized: false, visible: true });
+
   await aiPage.close();
   await expect(mainPage.locator("#workbench-shell")).toBeVisible();
   await expect.poll(() => application?.windows().length ?? 0).toBe(1);
+
+  const reopenedWindow = application.waitForEvent("window");
+  await mainPage.locator("#ai-assistant-button").click();
+  const reopenedAiPage = await reopenedWindow;
+  await reopenedAiPage.waitForLoadState("domcontentloaded");
+  await expect(
+    reopenedAiPage.locator('.ai-workspace-window[data-presentation="native"]'),
+  ).toBeVisible();
+  await expect
+    .poll(() => nativeAiWindowState(application!))
+    .toMatchObject({ parentTitle: null, minimized: false, visible: true });
+  await reopenedAiPage.close();
 });
+
+async function nativeAiWindowState(application: ElectronApplication): Promise<{
+  readonly focused: boolean;
+  readonly minimized: boolean;
+  readonly parentTitle: string | null;
+  readonly visible: boolean;
+}> {
+  return application.evaluate(({ BrowserWindow }) => {
+    const child = BrowserWindow.getAllWindows().find(
+      (window) =>
+        (window as unknown as { panelWindowRole?: string }).panelWindowRole === "ai-assistant",
+    );
+    if (child === undefined) throw new Error("AI BrowserWindow is unavailable");
+    return {
+      focused: child.isFocused(),
+      minimized: child.isMinimized(),
+      parentTitle: child.getParentWindow()?.getTitle() ?? null,
+      visible: child.isVisible(),
+    };
+  });
+}
 
 async function nativeAiLayoutSnapshot(page: Page): Promise<{
   readonly shellDisplay: string;
