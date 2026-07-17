@@ -50,10 +50,7 @@ test.afterAll(async () => {
 });
 
 test("starts on an empty, dense Dashboard instead of silently loading a demo", async () => {
-  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".workspace-dashboard")).toBeVisible();
   await expect(page.getByText("这里还没有本地条目。")).toBeVisible();
   await expect(page.locator(".cm-line")).toHaveText([""]);
@@ -97,10 +94,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await reloadThroughApplicationLifecycle();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
-  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute("aria-selected", "true");
   const projectRow = page.getByRole("link", { name: "打开项目“二分搜索”" });
   await projectRow.focus();
   await expect(projectRow).toBeFocused();

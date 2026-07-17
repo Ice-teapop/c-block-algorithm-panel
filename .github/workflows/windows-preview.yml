@@ -7,11 +7,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: cross-platform-preview-v0.0.2-preview.2
+  group: cross-platform-preview-v0.0.3-preview.1
   cancel-in-progress: false
 
 env:
-  PREVIEW_TAG: v0.0.2-preview.2
+  PREVIEW_TAG: v0.0.3-preview.1
 
 jobs:
   build_macos:
@@ -55,8 +55,11 @@ jobs:
       - name: Build ad-hoc-signed macOS Universal preview
         run: npm run dist:mac:beta
 
-      - name: Run changed canvas Electron regression
-        run: npx playwright test tests/e2e/flow-canvas-readability.spec.ts
+      - name: Run changed canvas and AI window Electron regressions
+        run: >-
+          npx playwright test
+          tests/e2e/flow-canvas-readability.spec.ts
+          tests/e2e/ai-native-window.spec.ts
 
       - name: Install, launch and verify the macOS preview
         run: npm run verify:installed-dmg:beta

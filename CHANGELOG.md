@@ -9,6 +9,8 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+## [0.0.3-preview.1] - 2026-07-17
+
 ### Changed
 
 - Changed current and future source from the MIT License to the PolyForm
@@ -18,6 +20,17 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
   copies and that previously granted MIT permissions are not revoked.
 - Closed the unsuccessful SignPath Foundation path and removed pending or
   planned SignPath signature claims from current download documentation.
+- Made the application, GitHub tag and installer filenames share the exact
+  `0.0.3-preview.1` prerelease version instead of reusing an ambiguous base
+  version.
+
+### Fixed
+
+- Made the AI assistant an independent top-level window so the workbench and
+  assistant can move freely between foreground and background.
+- Restored a minimized AI assistant when the user opens it again, allowed a
+  closed assistant to be recreated, and stopped background state updates from
+  stealing focus.
 
 ## [0.0.2-preview.2] - 2026-07-16
 

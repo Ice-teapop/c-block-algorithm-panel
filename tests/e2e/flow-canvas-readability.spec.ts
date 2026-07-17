@@ -295,19 +295,31 @@ test("collapses the overview inside a short canvas instead of covering the toolb
     if (canvas === null || minimap === null || map === null) {
       throw new Error("Canvas overview fixture is incomplete");
     }
+    const originalStyle = {
+      alignSelf: canvas.style.alignSelf,
+      height: canvas.style.height,
+      maxHeight: canvas.style.maxHeight,
+    };
     canvas.style.height = "150px";
     canvas.style.maxHeight = "150px";
     canvas.style.alignSelf = "start";
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const canvasBounds = canvas.getBoundingClientRect();
     const minimapBounds = minimap.getBoundingClientRect();
-    return {
+    const geometry = {
       canvasTop: canvasBounds.top,
       canvasBottom: canvasBounds.bottom,
       minimapTop: minimapBounds.top,
       minimapBottom: minimapBounds.bottom,
       mapDisplay: getComputedStyle(map).display,
     };
+    canvas.style.height = originalStyle.height;
+    canvas.style.maxHeight = originalStyle.maxHeight;
+    canvas.style.alignSelf = originalStyle.alignSelf;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    return geometry;
   });
 
   expect(geometry.mapDisplay).toBe("none");

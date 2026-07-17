@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 const expected = Object.freeze({
-  version: "0.0.2",
+  version: "0.0.3-preview.1",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   license: "PolyForm-Noncommercial-1.0.0",
@@ -116,7 +116,10 @@ const releaseNotes = await Promise.all(
 );
 
 check(manifest.version === expected.version, `package version 必须为 ${expected.version}`);
-check(/^0\.\d+\.\d+$/u.test(manifest.version), "当前公开版本线只允许 0.x.y 初始版本");
+check(
+  /^0\.\d+\.\d+(?:-preview\.\d+)?$/u.test(manifest.version),
+  "当前公开版本线只允许 0.x.y 或对应 preview 版本",
+);
 check(manifest.name === "c-block-algorithm-panel", "内部 package name 必须保持旧数据兼容");
 check(manifest.private === true, "npm 包必须保持 private，防止误发布到 npm");
 check(manifest.license === expected.license, `package license 必须为 ${expected.license}`);
