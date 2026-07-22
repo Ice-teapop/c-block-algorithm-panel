@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 const expected = Object.freeze({
-  version: "0.0.3-preview.1",
+  version: "0.1.1-preview.1",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   license: "PolyForm-Noncommercial-1.0.0",
@@ -55,6 +55,7 @@ const [
   windowsBetaBuilder,
   ci,
   release,
+  previewRelease,
   toolchain,
   credentialGate,
   windowsCredentialGate,
@@ -79,6 +80,7 @@ const [
   readJson(expected.windowsBetaBuilderConfig),
   readText(".github/workflows/ci.yml"),
   readText(".github/workflows/release.yml"),
+  readText(".github/workflows/windows-preview.yml"),
   readText("scripts/verify-toolchain.mjs"),
   readText("scripts/verify-macos-release-credentials.mjs"),
   readText("scripts/verify-windows-release-credentials.mjs"),
@@ -130,6 +132,14 @@ check(nodeVersion.trim() === "24.14.0", ".node-version 必须固定当前 Node 2
 check(manifest.repository?.url === expected.repository, "GitHub repository 元数据不正确");
 includes(currentReleaseNotes, `# AlgoLatch v${expected.version}`, "current release notes");
 includes(currentReleaseNotes, "Authenticode", "current release notes");
+includes(previewRelease, `PREVIEW_TAG: v${expected.version}`, "preview workflow");
+includes(
+  previewRelease,
+  `- docs/releases/v${expected.version}.md`,
+  "preview workflow one-shot push trigger",
+);
+includes(previewRelease, `docs/releases/\${PREVIEW_TAG}.md`, "preview workflow release notes");
+includes(release, "!v*-preview.*", "stable release tag filter");
 check(
   !currentReleaseNotes.includes("Control-click bypass required"),
   "签名版说明不得要求绕过 Gatekeeper",

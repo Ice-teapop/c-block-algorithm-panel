@@ -924,6 +924,18 @@ function branchOutcomeCount(snapshot: ProgramAnalysisSnapshot | null): number {
 function scenarioLabel(id: string | null): string {
   const labels: Readonly<Record<string, string>> = Object.freeze({
     "scenario.sorting.integers": "整数排序",
+    "scenario.sorting.insertion": "插入排序 · 确定性随机",
+    "scenario.sorting.insertion.sorted": "插入排序 · 已排序",
+    "scenario.sorting.insertion.reverse": "插入排序 · 逆序",
+    "scenario.sorting.insertion.duplicates": "插入排序 · 重复值",
+    "scenario.sorting.quick": "快速排序 · 确定性随机",
+    "scenario.sorting.quick.sorted": "快速排序 · 已排序",
+    "scenario.sorting.quick.reverse": "快速排序 · 逆序",
+    "scenario.sorting.quick.duplicates": "快速排序 · 重复值",
+    "scenario.sorting.merge": "归并排序 · 确定性随机",
+    "scenario.sorting.merge.sorted": "归并排序 · 已排序",
+    "scenario.sorting.merge.reverse": "归并排序 · 逆序",
+    "scenario.sorting.merge.duplicates": "归并排序 · 重复值",
     "scenario.searching.linear": "线性搜索",
     "scenario.recursion.factorial": "递归阶乘",
     "scenario.linked-list.reverse": "链表逆序遍历",

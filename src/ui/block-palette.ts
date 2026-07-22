@@ -25,6 +25,9 @@ interface BlockPaletteCopy {
   readonly insertAtSelection: string;
   readonly virtualRole: string;
   readonly sourceRole: string;
+  readonly codeBlock: string;
+  readonly structureBlock: string;
+  readonly runtimeMarker: string;
   dragAria(label: string, virtual: boolean): string;
 }
 
@@ -43,6 +46,9 @@ const BLOCK_PALETTE_COPY: Readonly<Record<BlockPaletteLocale, BlockPaletteCopy>>
     insertAtSelection: "插入所选位置",
     virtualRole: "可拖拽虚拟流程节点",
     sourceRole: "可拖拽 C 积木",
+    codeBlock: "代码块",
+    structureBlock: "结构块",
+    runtimeMarker: "运行标记",
     dragAria: (label: string, virtual: boolean) =>
       virtual ? `${label}，可拖到自由画布，不生成 C 源码` : `${label}，可拖到组装插槽或自由画布`,
   }),
@@ -60,6 +66,9 @@ const BLOCK_PALETTE_COPY: Readonly<Record<BlockPaletteLocale, BlockPaletteCopy>>
     insertAtSelection: "Insert at Selection",
     virtualRole: "draggable virtual flow node",
     sourceRole: "draggable C block",
+    codeBlock: "Code Block",
+    structureBlock: "Structure Block",
+    runtimeMarker: "Runtime Marker",
     dragAria: (label: string, virtual: boolean) =>
       virtual
         ? `${label}, drag to the free canvas; does not generate C source`
@@ -503,6 +512,7 @@ function renderTemplateRow(
   row.dataset.category = template.category;
   row.dataset.fragmentKind = visualKind;
   row.dataset.blockKind = template.blockKind;
+  row.dataset.blockRole = presetRole(template);
   row.dataset.stage = template.stage;
   row.setAttribute("role", "listitem");
 
@@ -512,6 +522,7 @@ function renderTemplateRow(
   dragSurface.dataset.category = template.category;
   dragSurface.dataset.fragmentKind = visualKind;
   dragSurface.dataset.blockKind = template.blockKind;
+  dragSurface.dataset.blockRole = presetRole(template);
   dragSurface.dataset.stage = template.stage;
   dragSurface.draggable = true;
   dragSurface.tabIndex = 0;
@@ -529,7 +540,8 @@ function renderTemplateRow(
   const label = ownerDocument.createElement("strong");
   label.textContent = presentation.label;
   const category = ownerDocument.createElement("span");
-  category.textContent = `${copy.dragPrefix} · ${categoryLabel(template.category, locale)}`;
+  category.textContent = `${presetRoleLabel(template, copy)} · ${syntaxPlacementSummary(template, locale)}`;
+  category.title = `${categoryLabel(template.category, locale)} · ${presentation.description}`;
   heading.append(label, category);
   const source = ownerDocument.createElement("code");
   source.className = "block-palette__source";
@@ -548,6 +560,35 @@ function renderTemplateRow(
   dragSurface.append(heading, source);
   row.append(dragSurface, description, insert);
   return row;
+}
+
+function presetRole(template: CatalogPresetBlock): "code" | "structure" | "runtime-marker" {
+  if (template.blockKind === "virtual") return "runtime-marker";
+  return template.blockKind === "control" ? "structure" : "code";
+}
+
+function presetRoleLabel(template: CatalogPresetBlock, copy: BlockPaletteCopy): string {
+  const role = presetRole(template);
+  if (role === "runtime-marker") return copy.runtimeMarker;
+  return role === "structure" ? copy.structureBlock : copy.codeBlock;
+}
+
+function syntaxPlacementSummary(template: CatalogPresetBlock, locale: BlockPaletteLocale): string {
+  if (template.source === null) return locale === "en" ? "Canvas only" : "仅画布";
+  if (template.placement.providedSyntaxSlots.length > 0) {
+    const branchCount = template.placement.providedSyntaxSlots.length;
+    return locale === "en"
+      ? `${String(branchCount)} child ${branchCount === 1 ? "slot" : "slots"}`
+      : `提供 ${String(branchCount)} 个子插槽`;
+  }
+  const accepted = new Set(template.placement.acceptedSyntaxSlots);
+  if (accepted.size === 1 && accepted.has("loop-body")) {
+    return locale === "en" ? "Loop body" : "仅循环体";
+  }
+  if (accepted.size === 2 && accepted.has("loop-body") && accepted.has("switch-case")) {
+    return locale === "en" ? "Loop / switch" : "循环 / switch";
+  }
+  return locale === "en" ? "C statement slot" : "C 语句插槽";
 }
 
 function compactSource(source: string): string {

@@ -23,6 +23,7 @@ export const DSA_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     [
       "单链表节点保存 next，双链表还保存 prev。头指针、尾指针和空表状态必须维持一致不变量。",
       "每个动态节点需要明确释放；删除节点时先保存后继，再断链和 free，避免丢失剩余列表。",
+      "在位置 i 插入时，先遍历到拥有该链接的前驱（或 head），再分配节点、令 new->next 指向后继，最后改写前驱链接。两次指针写入的顺序不能颠倒。",
     ],
     {
       aliases: ["linked list", "singly linked", "doubly linked"],
@@ -215,6 +216,7 @@ export const DSA_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     [
       "循环不变量在每轮开始或结束时保持，根据选定位置一致证明。退出条件与不变量共同推出后置条件。",
       "递归证明使用基本情况和归纳步骤，并指出子问题严格变小，从而保证终止。",
+      "欧几里得算法中 b 严格缩小；运行可视化应逐轮保留 (a,b,remainder)，而不是把多轮压成一张结果卡。",
     ],
     {
       aliases: ["correctness proof", "loop invariant", "termination"],
@@ -262,6 +264,7 @@ export const DSA_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     [
       "插入排序对小型或近乎有序数据有效；归并排序稳定且最坏 O(n log n) 但需额外空间；堆排序原地且最坏 O(n log n)。",
       "快速排序平均 O(n log n)，不良枢轴会退化 O(n²)。库实现的比较器必须一致且无溢出。",
+      "教材相邻交换版最直接地显示当前元素如何左移；key+右移是减少部分写入的优化对照。Benchmark 必须把算法与已排序、逆序、重复值或随机输入分布分别记录。",
     ],
     {
       aliases: ["sorting", "merge sort", "quick sort", "heap sort", "insertion sort"],

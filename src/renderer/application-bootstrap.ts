@@ -7,6 +7,7 @@ import type { SourceImportController } from "../app/source-import-controller.js"
 import type { StructureEditController } from "../app/structure-edit-controller.js";
 import type { WorkspaceController } from "../app/workspace-controller.js";
 import type { CAnalysisSnapshot, CParser } from "../core/index.js";
+import type { FoaLessonDefinition } from "../tutorials/foa-curriculum.js";
 import type { PanelApi } from "../shared/api.js";
 import type { BlockTree } from "../ui/block-tree.js";
 import type { StartupLoader } from "../ui/startup-loader.js";
@@ -24,6 +25,7 @@ export interface ApplicationBootstrapOptions {
   readonly getAnalysis: () => CAnalysisSnapshot | null;
   readonly isDestroyed: () => boolean;
   readonly onStartGuidedLesson: () => void;
+  readonly onOpenFoaWorkspace: (lesson: FoaLessonDefinition) => void;
   readonly onReady: (
     parser: CParser,
     learningSurface: LearningSurface,
@@ -66,7 +68,9 @@ export async function initializeWorkbenchApplication(
       getAnalysis: options.getAnalysis,
       getAnalyzer: () => readyParser,
       storage: catalogStorage.storage,
+      traceApi: options.api,
       onStartGuidedLesson: options.onStartGuidedLesson,
+      onOpenFoaWorkspace: options.onOpenFoaWorkspace,
       onError: options.onLearningError,
     });
     options.onReady(readyParser, learningSurface, catalogStorage);

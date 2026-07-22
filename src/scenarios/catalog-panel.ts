@@ -117,9 +117,21 @@ const COPY = Object.freeze({
 const BUILTIN_ENGLISH: Readonly<Record<string, readonly [string, string, string]>> = Object.freeze({
   "scenario.sorting.integers": [
     "Integer sorting",
-    "Read descending integers and print them in ascending order.",
+    "Read integers and print them in ascending order; no algorithm-specific growth curve is implied.",
     "The first value is n, followed by n integers in descending order.",
   ],
+  "scenario.sorting.insertion": sortingEnglish("Insertion sort", "deterministically shuffled"),
+  "scenario.sorting.insertion.sorted": sortingEnglish("Insertion sort", "already sorted"),
+  "scenario.sorting.insertion.reverse": sortingEnglish("Insertion sort", "reverse-order"),
+  "scenario.sorting.insertion.duplicates": sortingEnglish("Insertion sort", "duplicate-value"),
+  "scenario.sorting.quick": sortingEnglish("Quicksort", "deterministically shuffled"),
+  "scenario.sorting.quick.sorted": sortingEnglish("Quicksort", "already sorted"),
+  "scenario.sorting.quick.reverse": sortingEnglish("Quicksort", "reverse-order"),
+  "scenario.sorting.quick.duplicates": sortingEnglish("Quicksort", "duplicate-value"),
+  "scenario.sorting.merge": sortingEnglish("Merge sort", "deterministically shuffled"),
+  "scenario.sorting.merge.sorted": sortingEnglish("Merge sort", "already sorted"),
+  "scenario.sorting.merge.reverse": sortingEnglish("Merge sort", "reverse-order"),
+  "scenario.sorting.merge.duplicates": sortingEnglish("Merge sort", "duplicate-value"),
   "scenario.searching.linear": [
     "Linear search",
     "Search for the final value in an increasing integer sequence.",
@@ -161,6 +173,14 @@ const BUILTIN_ENGLISH: Readonly<Record<string, readonly [string, string, string]
     "stdin contains n; the maximum fits a signed 32-bit example.",
   ],
 });
+
+function sortingEnglish(algorithm: string, shape: string): readonly [string, string, string] {
+  return Object.freeze([
+    `${algorithm} · ${shape}`,
+    `Verify ${algorithm} with a ${shape} input in a separate benchmark cohort.`,
+    `The first value is n, followed by n ${shape} integers; output is ascending.`,
+  ]);
+}
 
 export interface ScenarioCatalogPanelOptions {
   readonly store: ScenarioCatalogStore;

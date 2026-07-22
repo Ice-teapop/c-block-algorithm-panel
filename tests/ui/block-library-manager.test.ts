@@ -6,12 +6,13 @@ import {
   createCustomTemplateId,
   type BlockLibraryManagerCallbacks,
 } from "../../src/ui/block-library-manager.js";
+import { readStyleManifestSource } from "../test-support/style-manifest.js";
 
 const managerSource = readFileSync(
   new URL("../../src/ui/block-library-manager.ts", import.meta.url),
   "utf8",
 );
-const styleSource = readFileSync(new URL("../../src/style.css", import.meta.url), "utf8");
+const styleSource = readStyleManifestSource(new URL("../../src/style.css", import.meta.url));
 
 describe("block library manager", () => {
   it("renders builtin, active, deprecated and retired entries with distinct controls", () => {

@@ -42,6 +42,7 @@ test("maps clang byte columns onto the code and matching block after one native 
   await page.getByRole("tab", { name: "运行", exact: true }).click();
   const panel = page.locator("#run-panel .run-panel");
   await expect(panel).toHaveAttribute("data-state", "ready");
+  await openManualRunTools();
   await page.getByRole("button", { name: "静态诊断", exact: true }).click();
 
   await expect(panel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
@@ -104,6 +105,7 @@ test("drops a diagnosis result when the source changes during native authorizati
   await deferTrustedDiagnosis();
   await page.getByRole("tab", { name: "运行", exact: true }).click();
   const panel = page.locator("#run-panel .run-panel");
+  await openManualRunTools();
   await page.getByRole("button", { name: "静态诊断", exact: true }).click();
   await expect
     .poll(() =>
@@ -140,6 +142,7 @@ test("clears old diagnostics without erasing a structure edit's new explanation"
   await acceptTrustedDiagnosis();
   await page.getByRole("tab", { name: "运行", exact: true }).click();
   const panel = page.locator("#run-panel .run-panel");
+  await openManualRunTools();
   await page.getByRole("button", { name: "静态诊断", exact: true }).click();
   await expect(panel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
@@ -219,6 +222,18 @@ async function pasteSource(source: string): Promise<void> {
   await page.getByRole("button", { name: "载入工作台" }).click();
   await expect(dialog).toBeHidden();
   await expect(page.locator("#file-name")).toHaveText("pasted.c");
+}
+
+async function openManualRunTools(): Promise<void> {
+  const advanced = page.locator("details.runtime-advanced");
+  if ((await advanced.getAttribute("open")) === null) {
+    await advanced.locator(":scope > summary").click();
+  }
+  const tools = page.locator("details.run-panel__tools");
+  if ((await tools.getAttribute("open")) === null) {
+    await tools.locator(":scope > summary").click();
+  }
+  await expect(page.getByRole("button", { name: "静态诊断", exact: true })).toBeVisible();
 }
 
 async function acceptTrustedDiagnosis(): Promise<void> {

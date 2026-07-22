@@ -82,6 +82,7 @@ export interface FlowWorkbenchControllerOptions {
   readonly onDraftPresentationChange: (nodes: readonly FlowCanvasDraftNode[]) => void;
   readonly onLearningObservation?: ((observation: FlowLearningObservation) => void) | undefined;
   readonly onSourceUndo: () => void;
+  readonly onSourceRedo?: (() => void) | undefined;
   readonly onVirtualPlaybackNode?:
     ((node: FlowCanvasDraftNode, mode: FlowCanvasActivePath["mode"]) => void) | undefined;
   readonly onStatus: (message: string, state: "ready" | "warning" | "error") => void;
@@ -127,6 +128,13 @@ interface ResolvedFlowPreset {
   readonly blockKind: PresetBlockKind;
   readonly lifecycle: PresetBlockLifecycle;
   readonly ports: readonly PresetPortDefinition[];
+}
+
+interface FlowWorkbenchHistorySnapshot {
+  readonly view: FlowViewState;
+  readonly drafts: FlowCanvasDraftVisualState;
+  readonly sourceMutation: boolean;
+  readonly action: string;
 }
 
 export interface FlowWorkbenchController {
@@ -232,11 +240,8 @@ export function createFlowWorkbenchController(
   let activeVirtualNodeIds = new Set<string>();
   let analysis: ProgramAnalysisSnapshot | null = null;
   let runtimeEvidence: FlowNodeRuntimeSnapshot | null = null;
-  const undoHistory: Array<{
-    readonly view: FlowViewState;
-    readonly drafts: FlowCanvasDraftVisualState;
-    readonly sourceMutation: boolean;
-  }> = [];
+  const undoHistory: FlowWorkbenchHistorySnapshot[] = [];
+  const redoHistory: FlowWorkbenchHistorySnapshot[] = [];
   const canvasToolbar = required(options.elements.shell, ".canvas-toolbar__actions");
   const canvasHint = required(options.elements.shell, ".canvas-toolbar__hint");
   const alignLeftButton = required(
@@ -325,7 +330,7 @@ export function createFlowWorkbenchController(
       }
     },
     onConnectionIntent(gesture) {
-      handleConnectionIntent(gesture);
+      return handleConnectionIntent(gesture);
     },
     onConnectionPreflight(gesture) {
       if (gesture.edgeKind === null) return Object.freeze({ accepted: false });
@@ -344,12 +349,13 @@ export function createFlowWorkbenchController(
     onDraftConnectionIntent(intent) {
       const beforeProjection = projection;
       const historyDepth = undoHistory.length;
-      checkpoint(true);
+      checkpoint(true, "接入草稿积木");
       try {
         const committed = options.onDraftConnectionIntent(intent);
         if (!committed) {
           undoHistory.splice(historyDepth);
-          return;
+          markDraftInvalid(intent.draftNodeId);
+          return false;
         }
         emitLearningObservations({
           workspaceId: activeEntryId,
@@ -375,14 +381,17 @@ export function createFlowWorkbenchController(
         });
         presentDraftState();
         persist();
+        return true;
       } catch (error: unknown) {
         undoHistory.splice(historyDepth);
+        markDraftInvalid(intent.draftNodeId);
         const detail = error instanceof Error ? error.message : String(error);
         options.onStatus(`草稿连接被拒绝：${detail}。main.c 未修改。`, "error");
+        return false;
       }
     },
     onVirtualConnectionIntent(intent) {
-      handleVirtualConnectionIntent(intent);
+      return handleVirtualConnectionIntent(intent);
     },
     onWireStatus(message, state) {
       options.onStatus(message, state);
@@ -391,8 +400,9 @@ export function createFlowWorkbenchController(
       canvasInteractionContext = context;
       renderCanvasInteractionContext();
     },
-    onHistoryCheckpoint: () => checkpoint(false),
+    onHistoryCheckpoint: () => checkpoint(false, "调整画布"),
     onUndo: undo,
+    onRedo: redo,
     onDraftStateChange(state, reason) {
       currentDraftState = state;
       publishDraftPresentation();
@@ -470,6 +480,21 @@ export function createFlowWorkbenchController(
 
   function presentDraftState(): void {
     canvas.setDraftVisualState(currentDraftState);
+  }
+
+  function markDraftInvalid(nodeId: string): void {
+    if (!currentDraftState.nodes.some((node) => node.id === nodeId)) return;
+    currentDraftState = Object.freeze({
+      ...currentDraftState,
+      nodes: Object.freeze(
+        currentDraftState.nodes.map((node) =>
+          node.id === nodeId ? Object.freeze({ ...node, status: "invalid" as const }) : node,
+        ),
+      ),
+      connection: null,
+    });
+    presentDraftState();
+    persist();
   }
 
   publishDraftPresentation();
@@ -570,11 +595,11 @@ export function createFlowWorkbenchController(
   options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_COLLECT_EVENT, onQuickOpenCollect);
   options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT, onQuickOpenActivate);
 
-  function handleVirtualConnectionIntent(intent: FlowCanvasVirtualConnectionIntent): void {
+  function handleVirtualConnectionIntent(intent: FlowCanvasVirtualConnectionIntent): boolean {
     const current = projection;
-    if (current === null) return;
+    if (current === null) return false;
     const historyDepth = undoHistory.length;
-    checkpoint(false);
+    checkpoint(false, "连接运行标记");
     try {
       currentDraftState = connectVirtualFlowOverlay(current, currentDraftState, intent);
       presentDraftState();
@@ -592,22 +617,26 @@ export function createFlowWorkbenchController(
           : "已连接虚拟节点一端；请把另一端接到同一条真实 CFG 边。",
         edge?.status === "valid" ? "ready" : "warning",
       );
+      return true;
     } catch (error: unknown) {
       undoHistory.splice(historyDepth);
       const detail = error instanceof Error ? error.message : String(error);
       options.onStatus(`虚拟连线被拒绝：${detail}。main.c 未修改。`, "error");
+      return false;
     }
   }
 
-  function checkpoint(sourceMutation: boolean): void {
+  function checkpoint(sourceMutation: boolean, action: string): void {
     if (restoring || currentViewState === null) return;
     undoHistory.push(
       Object.freeze({
         view: currentViewState,
         drafts: currentDraftState,
         sourceMutation,
+        action,
       }),
     );
+    redoHistory.length = 0;
     if (undoHistory.length > 50) undoHistory.splice(0, undoHistory.length - 50);
   }
 
@@ -616,6 +645,16 @@ export function createFlowWorkbenchController(
     if (snapshot === undefined) {
       options.onSourceUndo();
       return;
+    }
+    if (currentViewState !== null) {
+      redoHistory.push(
+        Object.freeze({
+          view: currentViewState,
+          drafts: currentDraftState,
+          sourceMutation: snapshot.sourceMutation,
+          action: snapshot.action,
+        }),
+      );
     }
     restoring = true;
     try {
@@ -628,13 +667,49 @@ export function createFlowWorkbenchController(
       restoring = false;
     }
     persist();
+    options.onStatus(`已撤销：${snapshot.action}。`, "ready");
   }
 
-  function handleConnectionIntent(gesture: FlowCanvasConnectionGesture): void {
+  function redo(): void {
+    const snapshot = redoHistory.pop();
+    if (snapshot === undefined) {
+      options.onStatus("没有可重做的画布操作。", "warning");
+      return;
+    }
+    if (snapshot.sourceMutation && options.onSourceRedo === undefined) {
+      redoHistory.push(snapshot);
+      options.onStatus("当前源码编辑器未提供重做通道；可继续使用撤销历史。", "warning");
+      return;
+    }
+    if (currentViewState !== null) {
+      undoHistory.push(
+        Object.freeze({
+          view: currentViewState,
+          drafts: currentDraftState,
+          sourceMutation: snapshot.sourceMutation,
+          action: snapshot.action,
+        }),
+      );
+    }
+    restoring = true;
+    try {
+      if (snapshot.sourceMutation) options.onSourceRedo?.();
+      currentViewState = snapshot.view;
+      currentDraftState = snapshot.drafts;
+      canvas.setViewState(snapshot.view);
+      presentDraftState();
+    } finally {
+      restoring = false;
+    }
+    persist();
+    options.onStatus(`已重做：${snapshot.action}。`, "ready");
+  }
+
+  function handleConnectionIntent(gesture: FlowCanvasConnectionGesture): boolean {
     const current = projection;
     if (current === null || gesture.edgeKind === null) {
       options.onStatus("连接缺少明确的 C 控制流类型；源码未修改。", "error");
-      return;
+      return false;
     }
     const intent: ConnectionIntent = Object.freeze({
       sourceFingerprint: gesture.sourceFingerprint,
@@ -648,10 +723,10 @@ export function createFlowWorkbenchController(
     const plan = planFlowConnection(current, intent);
     if (plan.status === "rejected") {
       options.onStatus(`连接被拒绝：${plan.message}。main.c 未修改。`, "error");
-      return;
+      return false;
     }
     const historyDepth = undoHistory.length;
-    checkpoint(true);
+    checkpoint(true, "改接控制流");
     try {
       const committed = options.onConnectionIntent(intent);
       if (!committed) undoHistory.splice(historyDepth);
@@ -661,6 +736,7 @@ export function createFlowWorkbenchController(
           : "已取消连线；main.c 未修改。",
         committed ? "ready" : "warning",
       );
+      return committed;
     } catch (error: unknown) {
       if (!(error instanceof FlowSourceCommitError)) undoHistory.splice(historyDepth);
       const detail = error instanceof Error ? error.message : String(error);
@@ -670,6 +746,7 @@ export function createFlowWorkbenchController(
           : `连线被拒绝：${detail}。main.c 未修改。`,
         "error",
       );
+      return false;
     }
   }
 
@@ -891,9 +968,23 @@ export function createFlowWorkbenchController(
       position,
       preset,
     );
+    const retainRejectedInsertionDraft = (): void => {
+      checkpoint(false, "保留未接入积木");
+      currentDraftState = Object.freeze({
+        ...currentDraftState,
+        nodes: Object.freeze([
+          ...currentDraftState.nodes,
+          Object.freeze({ ...next, status: "invalid" as const }),
+        ]),
+        selectedNodeIds: Object.freeze([next.id]),
+        connection: null,
+      });
+      presentDraftState();
+      persist();
+    };
     if (insertionEdge !== null && preset.source !== null && preset.blockKind !== "virtual") {
       const historyDepth = undoHistory.length;
-      checkpoint(true);
+      checkpoint(true, "插入预设积木");
       const intent: FlowCanvasDraftConnectionIntent = Object.freeze({
         sourceFingerprint: projection?.sourceFingerprint ?? "",
         draftNodeId: next.id,
@@ -917,7 +1008,8 @@ export function createFlowWorkbenchController(
         const committed = options.onDraftConnectionIntent(intent);
         if (!committed) {
           undoHistory.splice(historyDepth);
-          options.onStatus("已取消插入；main.c 未修改。", "warning");
+          retainRejectedInsertionDraft();
+          options.onStatus("插入未提交；积木已保留为未接入草稿，main.c 未修改。", "warning");
           return;
         }
         emitLearningObservations({
@@ -933,12 +1025,16 @@ export function createFlowWorkbenchController(
         options.onStatus(`已把“${preset.label}”插入所选连线并通过 CFG 后置验证。`, "ready");
       } catch (error: unknown) {
         undoHistory.splice(historyDepth);
+        retainRejectedInsertionDraft();
         const detail = error instanceof Error ? error.message : String(error);
-        options.onStatus(`连线插入被拒绝：${detail}。main.c 未修改。`, "error");
+        options.onStatus(
+          `连线插入被拒绝：${detail}。积木已保留为无效草稿，main.c 未修改。`,
+          "error",
+        );
       }
       return;
     }
-    checkpoint(false);
+    checkpoint(false, "放置积木");
     currentDraftState = Object.freeze({
       nodes: Object.freeze([...currentDraftState.nodes, next]),
       selectedNodeIds: Object.freeze([next.id]),
@@ -988,7 +1084,10 @@ export function createFlowWorkbenchController(
       projection = nextProjection;
       currentDraftState = reconcileVirtualFlowOverlay(nextProjection, currentDraftState);
       activeVirtualNodeIds = new Set();
-      if (!sameSource && undoHistory.at(-1)?.sourceMutation !== true) undoHistory.length = 0;
+      if (!sameSource && undoHistory.at(-1)?.sourceMutation !== true) {
+        undoHistory.length = 0;
+        redoHistory.length = 0;
+      }
       if (analysis?.sourceFingerprint !== nextProjection.sourceFingerprint) analysis = null;
       if (runtimeEvidence?.sourceFingerprint !== nextProjection.sourceFingerprint) {
         runtimeEvidence = null;
@@ -1052,6 +1151,7 @@ export function createFlowWorkbenchController(
         activeEntryId = null;
         activeVirtualNodeIds = new Set();
         undoHistory.length = 0;
+        redoHistory.length = 0;
         await persistence.deactivate();
         return;
       }
@@ -1125,6 +1225,7 @@ export function createFlowWorkbenchController(
       analysis = null;
       runtimeEvidence = null;
       undoHistory.length = 0;
+      redoHistory.length = 0;
     },
   });
 }

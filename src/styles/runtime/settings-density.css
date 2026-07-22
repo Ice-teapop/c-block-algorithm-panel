@@ -1,0 +1,479 @@
+/* Section: Appearance settings and compact runtime evidence. */
+:root[data-theme="light"][data-background="white"] {
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-soft: #f5f6f7;
+  --surface-raised: #ffffff;
+  --surface-hover: #eef0f2;
+  --surface-active: #e5e9ee;
+  --input-surface: #ffffff;
+}
+
+:root[data-theme="light"][data-background="paper"] {
+  --canvas: #f2efe7;
+  --surface: #f8f6f0;
+  --surface-soft: #efede6;
+  --surface-raised: #fbfaf6;
+  --input-surface: #fcfbf7;
+}
+
+:root[data-theme="light"][data-background="cool"] {
+  --canvas: #edf2f4;
+  --surface: #f7f9fa;
+  --surface-soft: #e9eef0;
+  --surface-raised: #fbfcfc;
+  --input-surface: #fbfcfd;
+}
+
+.settings-form {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid var(--line);
+}
+
+#workbench-drawer[data-menu-branch="about-logs"] #workbench-drawer-copy {
+  max-width: 44rem;
+  white-space: pre-line;
+  line-height: 1.55;
+}
+
+.settings-form label {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-secondary);
+  font-size: 10px;
+}
+
+.settings-form select {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+}
+
+.settings-form .button {
+  justify-self: start;
+  min-height: 30px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-provider-settings {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-provider-settings__purpose,
+.ai-provider-settings__boundary,
+.ai-provider-settings__next-step,
+.ai-provider-settings__credential,
+.ai-provider-settings__status {
+  display: block;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.ai-provider-settings__purpose {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.ai-provider-settings__next-step {
+  border-top: 1px solid var(--line);
+  color: var(--ink-secondary);
+}
+
+.ai-provider-settings > label:not(.ai-provider-settings__checkbox) {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-secondary);
+  font-size: 9px;
+}
+
+.ai-provider-settings input[type="text"],
+.ai-provider-settings input[type="url"],
+.ai-provider-settings input[type="password"] {
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+
+.ai-provider-settings__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+  font-size: 9px;
+}
+
+.ai-provider-settings__actions {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0 0;
+}
+
+.ai-provider-settings__actions button {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-secondary);
+  background: transparent;
+}
+
+.ai-provider-settings__actions button:first-child {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.ai-provider-settings__credential[data-state="ready"],
+.ai-provider-settings__status[data-state="ready"] {
+  color: var(--success);
+}
+
+.ai-provider-settings__credential[data-state="error"],
+.ai-provider-settings__status[data-state="error"] {
+  color: var(--danger);
+}
+
+.canvas-toolbar__actions button,
+.panel-tabs > button,
+.scenario-panel__actions button,
+.scenario-panel__run-simulation,
+.scenario-panel__run-benchmark,
+.trace-panel__button,
+.run-panel__run-button,
+.run-panel__diagnose-button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.canvas-toolbar__actions button:hover,
+.panel-tabs > button:hover,
+.scenario-panel__actions button:hover:not(:disabled),
+.scenario-panel__run-simulation:hover:not(:disabled),
+.scenario-panel__run-benchmark:hover:not(:disabled),
+.trace-panel__button:hover:not(:disabled),
+.run-panel__run-button:hover:not(:disabled),
+.run-panel__diagnose-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.scenario-panel__run-real,
+.trace-panel__button[data-trace-action="start"],
+.run-panel__run-button {
+  color: var(--accent);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.scenario-panel__preview,
+.scenario-panel__benchmark {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: 1px solid var(--line);
+}
+
+.scenario-panel__preview > summary,
+.scenario-panel__benchmark > summary {
+  padding: 6px 0;
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.trace-panel__visual {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-panel__chart-caption {
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.trace-panel__chart {
+  display: block;
+  width: 100%;
+  min-width: 260px;
+  height: auto;
+  min-height: 118px;
+  overflow: visible;
+}
+
+.trace-panel__chart-axis {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-panel__chart-label {
+  fill: var(--muted-subtle);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+}
+
+.trace-panel__chart-series {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-panel__chart-reference {
+  fill: none;
+  stroke: var(--muted-subtle);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-panel__chart-branch {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-panel__chart-point {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-panel__chart-empty {
+  fill: var(--muted-subtle);
+  font-size: 9px;
+}
+
+.trace-panel__chart-guide,
+.analysis-dashboard__chart-guide {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-secondary);
+}
+
+.trace-panel__chart-guide > summary,
+.analysis-dashboard__chart-guide > summary {
+  padding: 7px 0;
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.trace-panel__chart-guide dl,
+.analysis-dashboard__chart-guide dl {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.trace-panel__chart-guide dl > div,
+.analysis-dashboard__chart-guide dl > div {
+  display: grid;
+  grid-template-columns: minmax(68px, 0.24fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-panel__chart-guide dl > div:last-child,
+.analysis-dashboard__chart-guide dl > div:last-child {
+  border-bottom: 0;
+}
+
+.trace-panel__chart-guide dt,
+.trace-panel__chart-guide dd,
+.analysis-dashboard__chart-guide dt,
+.analysis-dashboard__chart-guide dd {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.trace-panel__chart-guide dt,
+.analysis-dashboard__chart-guide dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.trace-panel__reference {
+  display: block;
+  min-height: 16px;
+  margin-bottom: 5px;
+  color: var(--ink-secondary);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.trace-panel__reference[data-available="false"] {
+  color: var(--muted-subtle);
+}
+
+#run-panel {
+  height: 100%;
+}
+
+#scenario-workbench-host,
+#trace-workbench-host,
+#run-host {
+  height: 100%;
+  padding: 9px 12px;
+  overscroll-behavior: contain;
+}
+
+#trace-workbench-host {
+  background: var(--surface);
+}
+
+#scenario-workbench-host {
+  flex: 1 1 420px;
+}
+
+#trace-workbench-host {
+  flex: 1 1 420px;
+}
+
+#trace-workbench-host:has(.trace-panel[data-status="idle"]) {
+  display: none;
+}
+
+#run-panel:has(> #trace-workbench-host .trace-panel[data-status="idle"]):has(
+    > .runtime-advanced:not([open])
+  )
+  > #scenario-workbench-host {
+  flex: 1 1 0 !important;
+  max-width: none !important;
+}
+
+#run-panel:has(> #trace-workbench-host .trace-panel[data-status="idle"])
+  > .resizable-layout__splitter[data-splitter-for="trace"],
+#run-panel:has(> #trace-workbench-host .trace-panel[data-status="idle"]):has(
+    > .runtime-advanced:not([open])
+  )
+  > .resizable-layout__splitter[data-splitter-for="scenario"],
+#run-panel:has(> .runtime-advanced:not([open]))
+  > .resizable-layout__splitter[data-splitter-for="trace"] {
+  display: none;
+}
+
+#run-panel:not(:has(> #trace-workbench-host .trace-panel[data-status="idle"])):has(
+    > .runtime-advanced:not([open])
+  )
+  > #trace-workbench-host {
+  flex-grow: 1 !important;
+  max-width: none !important;
+}
+
+#scenario-workbench-host .scenario-panel__actions {
+  display: none;
+}
+
+.runtime-advanced {
+  height: 100%;
+  overflow: hidden !important;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.runtime-advanced:not([open]) {
+  flex: 0 0 118px !important;
+  min-width: 118px !important;
+}
+
+.runtime-advanced[open] {
+  min-width: 260px;
+}
+
+.runtime-advanced > summary {
+  padding: 9px 12px;
+  color: var(--ink-secondary);
+  font-size: 9px;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.runtime-advanced > summary:hover,
+.runtime-advanced > summary:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.runtime-advanced:not([open]) #run-host {
+  display: none;
+}
+
+.runtime-advanced #run-host {
+  height: calc(100% - 30px);
+  overflow: auto;
+}
+
+.runtime-grid > #run-panel,
+.runtime-grid > #metrics-panel,
+.runtime-grid > #mentor-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.runtime-grid > #mentor-panel {
+  overflow: hidden;
+}
+
+#mentor-hints-host {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 9px 12px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.workbench-page--extension > .workbench-page__host {
+  grid-row: auto;
+}

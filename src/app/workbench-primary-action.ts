@@ -1,4 +1,8 @@
-export type WorkbenchPrimaryActionKind = "run" | "observe" | "problem";
+/**
+ * The workbench primary action has one stable meaning. Observation and diagnostics
+ * are separate controls so the same button never changes purpose after a run.
+ */
+export type WorkbenchPrimaryActionKind = "run";
 
 export type WorkbenchPrimaryRunState = "none" | "passed" | "failed";
 export type WorkbenchPrimaryObservationState = "none" | "completed" | "failed";
@@ -52,14 +56,11 @@ export function reduceWorkbenchPrimaryActionState(
     return freezeState(
       state.sourceFingerprint,
       event.ok ? "passed" : "failed",
-      "none",
+      state.observation,
       state.problemPresent,
     );
   }
   if (event.type === "observation-finished") {
-    // A validation Trace may finish inside a scenario run. It must not skip the explicit
-    // observation step until a successful run for this exact source has been recorded.
-    if (state.run !== "passed") return state;
     return freezeState(
       state.sourceFingerprint,
       state.run,
@@ -71,12 +72,8 @@ export function reduceWorkbenchPrimaryActionState(
 }
 
 export function selectWorkbenchPrimaryAction(
-  state: WorkbenchPrimaryActionState,
+  _state: WorkbenchPrimaryActionState,
 ): WorkbenchPrimaryActionKind {
-  if (state.run === "failed" || state.observation === "failed") return "problem";
-  if (state.run !== "passed") return "run";
-  if (state.problemPresent) return "problem";
-  if (state.observation !== "completed") return "observe";
   return "run";
 }
 

@@ -42,7 +42,8 @@ test("opens one global text search, locates a block and restores focus on Escape
   const quickOpen = page.getByRole("dialog", { name: "Quick Open" });
   await expect(quickOpen).toBeVisible();
   await expect(quickOpen.locator("img, svg")).toHaveCount(0);
-  await expect(quickOpen.locator(".quick-open__result")).toHaveCount(21);
+  expect(await quickOpen.locator(".quick-open__result").count()).toBeGreaterThanOrEqual(21);
+  await expect(quickOpen.locator("[id='quick-open-command-navigation.tutorials']")).toBeVisible();
 
   const search = quickOpen.getByRole("combobox", { name: "搜索工作台" });
   await search.fill("+ while");

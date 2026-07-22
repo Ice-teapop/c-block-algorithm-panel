@@ -25,9 +25,9 @@ export interface RealScenarioRunRequest {
   readonly scenario: AlgorithmScenarioDefinition;
   readonly runCase: ScenarioRunCase;
   readonly targetBranch: ScenarioBranchSelection | null;
-  /** A target branch is only successful after the runtime trace confirms it was visited. */
-  readonly traceValidation: "required";
-  readonly historyPolicy: "record-after-trace-validation";
+  /** Path evidence is created only by the separate Observe action, never by this run. */
+  readonly pathEvidence: "separate-observation";
+  readonly historyPolicy: "record-after-successful-run";
 }
 
 export interface TeachingSimulationRequest {
@@ -50,6 +50,8 @@ export interface ScenarioBenchmarkRequest {
 
 export interface ScenarioPanelOptions {
   readonly provider: ScenarioProvider;
+  /** Workbench toolbar can own the one visible real-run control. */
+  readonly primaryRunControl?: "embedded" | "external";
   readonly onScenarioChange?: ((binding: ScenarioBinding) => void) | undefined;
   readonly onRealRun: (request: RealScenarioRunRequest) => void | Promise<void>;
   readonly onTeachingSimulation: (request: TeachingSimulationRequest) => void | Promise<void>;
@@ -270,7 +272,8 @@ export function createScenarioPanel(
   simulationButton.dataset.mode = "teaching-simulation";
   simulationButton.title = copy().simulationTitle;
   simulationButton.disabled = true;
-  actionRow.append(realButton);
+  const embedsPrimaryRun = options.primaryRunControl !== "external";
+  if (embedsPrimaryRun) actionRow.append(realButton);
 
   const advanced = ownerDocument.createElement("details");
   advanced.className = "scenario-panel__advanced";
@@ -317,16 +320,9 @@ export function createScenarioPanel(
   status.textContent = copy().waiting;
   status.hidden = true;
 
-  root.append(
-    header,
-    scenarioField.root,
-    sizeField.root,
-    branchField.root,
-    preview,
-    actionRow,
-    advanced,
-    status,
-  );
+  root.append(header, scenarioField.root, sizeField.root, branchField.root, preview);
+  if (embedsPrimaryRun) root.append(actionRow);
+  root.append(advanced, status);
   host.replaceChildren(root);
 
   let destroyed = false;
@@ -562,6 +558,7 @@ export function createScenarioPanel(
     },
     selectScenario(scenarioId: string): void {
       assertAlive(destroyed);
+      if (scenarioBinding === "explicit" && scenario.id === scenarioId) return;
       const next = options.provider.get(scenarioId);
       if (next === null) throw new RangeError(`未知算法案例：${scenarioId}`);
       scenarioBinding = "explicit";
@@ -585,6 +582,7 @@ export function createScenarioPanel(
     setSize(nextSize: number): void {
       assertAlive(destroyed);
       assertSize(nextSize, scenario, locale);
+      if (size === nextSize) return;
       size = nextSize;
       runCase = options.provider.generate(scenario.id, size);
       selectedBranchId = null;
@@ -663,8 +661,8 @@ export function createScenarioPanel(
             scenario,
             runCase,
             targetBranch: targetSelection(),
-            traceValidation: "required",
-            historyPolicy: "record-after-trace-validation",
+            pathEvidence: "separate-observation",
+            historyPolicy: "record-after-successful-run",
           }),
         ),
       );
@@ -966,9 +964,13 @@ const ENGLISH_SCENARIO_PRESENTATIONS: Readonly<Record<string, ScenarioPresentati
   Object.freeze({
     "scenario.sorting.integers": Object.freeze({
       label: "Integer sorting",
-      description: "Read integers in descending order and print them in ascending order.",
+      description:
+        "Read integers and print them in ascending order; no algorithm-specific growth curve is implied.",
       inputModel: "The first value is n, followed by n integers in descending order.",
     }),
+    ...sortingScenarioPresentations("insertion", "Insertion sort"),
+    ...sortingScenarioPresentations("quick", "Quicksort"),
+    ...sortingScenarioPresentations("merge", "Merge sort"),
     "scenario.searching.linear": Object.freeze({
       label: "Linear search",
       description: "Search an ascending integer sequence for its last element.",
@@ -1010,6 +1012,30 @@ const ENGLISH_SCENARIO_PRESENTATIONS: Readonly<Record<string, ScenarioPresentati
       inputModel: "stdin contains only n; the upper bound fits the signed 32-bit example.",
     }),
   });
+
+function sortingScenarioPresentations(
+  id: "insertion" | "quick" | "merge",
+  label: string,
+): Readonly<Record<string, ScenarioPresentation>> {
+  const shapes = Object.freeze({
+    "": "deterministically shuffled",
+    ".sorted": "already sorted",
+    ".reverse": "reverse-order",
+    ".duplicates": "duplicate-value",
+  });
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(shapes).map(([suffix, shape]) => [
+        `scenario.sorting.${id}${suffix}`,
+        Object.freeze({
+          label: `${label} · ${shape}`,
+          description: `Verify ${label} with a ${shape} input in a separate benchmark cohort.`,
+          inputModel: `The first value is n, followed by n ${shape} integers; output is ascending.`,
+        }),
+      ]),
+    ),
+  );
+}
 
 function scenarioPresentation(
   scenario: AlgorithmScenarioDefinition,

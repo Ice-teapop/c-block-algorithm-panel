@@ -7,6 +7,7 @@ import {
   type SourceDoc,
   type TextRange,
 } from "../core/index.js";
+import type { PresetSyntaxAncestorCapability, PresetSyntaxSlotKind } from "../learning/index.js";
 
 type BlockTreeLocale = "zh-CN" | "en";
 
@@ -109,7 +110,11 @@ export interface BlockDiagnosticMarker {
 export interface BlockTree {
   setDocument(document: SourceDoc, index: BlockIndex): void;
   setInteractionEnabled(enabled: boolean): void;
-  setTemplateDrag(templateId: string | null): void;
+  setTemplateDrag(
+    templateId: string | null,
+    acceptedSyntaxSlots?: readonly PresetSyntaxSlotKind[],
+    requiredAnyAncestorCapabilities?: readonly PresetSyntaxAncestorCapability[],
+  ): void;
   setDiagnostics(markers: readonly BlockDiagnosticMarker[]): void;
   getSelectedEntry(): BlockIndexEntry | null;
   select(entry: BlockIndexEntry | null): void;
@@ -149,6 +154,9 @@ export function createBlockTree(
   let draggedButton: HTMLButtonElement | null = null;
   let dropTargetButton: HTMLButtonElement | null = null;
   let draggedTemplateId: string | null = null;
+  let draggedAcceptedSyntaxSlots: ReadonlySet<PresetSyntaxSlotKind> | null = null;
+  let draggedRequiredAncestorCapabilities: ReadonlySet<PresetSyntaxAncestorCapability> | null =
+    null;
   let templateDropTarget: HTMLElement | null = null;
   let interactionEnabled = true;
   let diagnosticMarkers: readonly BlockDiagnosticMarker[] = Object.freeze([]);
@@ -186,6 +194,30 @@ export function createBlockTree(
   const clearTemplateDropTarget = () => {
     templateDropTarget?.classList.remove("is-template-drop-target");
     templateDropTarget = null;
+  };
+  const refreshTemplateSlotCompatibility = () => {
+    for (const slot of host.querySelectorAll<HTMLElement>("[data-syntax-slot]")) {
+      const syntaxSlot = slot.dataset.syntaxSlot as PresetSyntaxSlotKind | undefined;
+      const ancestorCapabilities = syntaxAncestorCapabilitiesForSlot(slot);
+      const ancestorCompatible =
+        draggedRequiredAncestorCapabilities === null ||
+        draggedRequiredAncestorCapabilities.size === 0 ||
+        [...draggedRequiredAncestorCapabilities].some((capability) =>
+          ancestorCapabilities.has(capability),
+        );
+      const compatible =
+        draggedTemplateId !== null &&
+        syntaxSlot !== undefined &&
+        (draggedAcceptedSyntaxSlots === null || draggedAcceptedSyntaxSlots.has(syntaxSlot)) &&
+        ancestorCompatible;
+      if (compatible) slot.classList.add("is-template-compatible");
+      else slot.classList.remove("is-template-compatible");
+      if (draggedTemplateId !== null && !compatible) {
+        slot.classList.add("is-template-incompatible");
+      } else {
+        slot.classList.remove("is-template-incompatible");
+      }
+    }
   };
   const setTemplateDropTarget = (slot: HTMLElement | null) => {
     if (templateDropTarget === slot) return;
@@ -232,6 +264,18 @@ export function createBlockTree(
       slot === null ||
       currentIndex === null ||
       onInsert === undefined
+    ) {
+      return null;
+    }
+    const syntaxSlot = slot.dataset.syntaxSlot as PresetSyntaxSlotKind | undefined;
+    if (
+      syntaxSlot === undefined ||
+      (draggedAcceptedSyntaxSlots !== null && !draggedAcceptedSyntaxSlots.has(syntaxSlot)) ||
+      (draggedRequiredAncestorCapabilities !== null &&
+        draggedRequiredAncestorCapabilities.size > 0 &&
+        ![...draggedRequiredAncestorCapabilities].some((capability) =>
+          syntaxAncestorCapabilitiesForSlot(slot).has(capability),
+        ))
     ) {
       return null;
     }
@@ -321,7 +365,10 @@ export function createBlockTree(
       clearDragState();
       clearTemplateDropTarget();
       draggedTemplateId = null;
+      draggedAcceptedSyntaxSlots = null;
+      draggedRequiredAncestorCapabilities = null;
       delete host.dataset.templateDrag;
+      refreshTemplateSlotCompatibility();
       onInsert?.(templateIntent);
       return;
     }
@@ -380,7 +427,18 @@ export function createBlockTree(
     tree.setAttribute("role", "tree");
     tree.setAttribute("aria-label", copy().treeAria);
     for (const block of currentDocument.blocks) {
-      tree.append(renderBlock(ownerDocument, currentDocument, block, byBlock, 1, copy()));
+      tree.append(
+        renderBlock(
+          ownerDocument,
+          currentDocument,
+          block,
+          byBlock,
+          1,
+          copy(),
+          "function-body",
+          Object.freeze([]),
+        ),
+      );
     }
     if (currentDocument.blocks.length === 0) {
       const empty = ownerDocument.createElement("p");
@@ -406,6 +464,7 @@ export function createBlockTree(
       selectedButton.classList.add("is-selected");
     }
     refreshDraggability();
+    refreshTemplateSlotCompatibility();
     renderDiagnosticMarkers(host, currentIndex, diagnosticMarkers, copy());
   };
 
@@ -454,6 +513,8 @@ export function createBlockTree(
       clearTemplateDropTarget();
       if (!enabled) {
         draggedTemplateId = null;
+        draggedAcceptedSyntaxSlots = null;
+        draggedRequiredAncestorCapabilities = null;
         delete host.dataset.templateDrag;
       }
       host.inert = !enabled;
@@ -463,8 +524,13 @@ export function createBlockTree(
         host.setAttribute("aria-disabled", "true");
       }
       refreshDraggability();
+      refreshTemplateSlotCompatibility();
     },
-    setTemplateDrag(templateId: string | null) {
+    setTemplateDrag(
+      templateId: string | null,
+      acceptedSyntaxSlots?: readonly PresetSyntaxSlotKind[],
+      requiredAnyAncestorCapabilities?: readonly PresetSyntaxAncestorCapability[],
+    ) {
       assertActive(destroyed);
       if (templateId !== null && (typeof templateId !== "string" || templateId.length === 0)) {
         throw new TypeError("templateId 必须是非空字符串或 null");
@@ -472,8 +538,17 @@ export function createBlockTree(
       clearDragState();
       clearTemplateDropTarget();
       draggedTemplateId = interactionEnabled ? templateId : null;
+      draggedAcceptedSyntaxSlots =
+        draggedTemplateId === null || acceptedSyntaxSlots === undefined
+          ? null
+          : new Set(acceptedSyntaxSlots);
+      draggedRequiredAncestorCapabilities =
+        draggedTemplateId === null || requiredAnyAncestorCapabilities === undefined
+          ? null
+          : new Set(requiredAnyAncestorCapabilities);
       if (draggedTemplateId === null) delete host.dataset.templateDrag;
       else host.dataset.templateDrag = "true";
+      refreshTemplateSlotCompatibility();
     },
     setDiagnostics(markers: readonly BlockDiagnosticMarker[]) {
       assertActive(destroyed);
@@ -516,6 +591,8 @@ export function createBlockTree(
       clearDragState();
       clearTemplateDropTarget();
       draggedTemplateId = null;
+      draggedAcceptedSyntaxSlots = null;
+      draggedRequiredAncestorCapabilities = null;
       delete host.dataset.templateDrag;
       host.removeEventListener("click", onClick);
       host.removeEventListener("keydown", onKeyDown);
@@ -598,6 +675,8 @@ function renderBlock(
   byBlock: ReadonlyMap<Block, BlockIndexEntry>,
   level: number,
   copy: BlockTreeCopy,
+  containerSlot: PresetSyntaxSlotKind | null,
+  ancestorCapabilities: readonly PresetSyntaxAncestorCapability[],
 ): HTMLLIElement {
   const item = ownerDocument.createElement("li");
   const semanticKind = blockSemanticKind(block);
@@ -637,9 +716,11 @@ function renderBlock(
     badge.title = concerns.map((concern) => concern.message).join("\n");
     button.append(badge);
   }
-  if (entry !== undefined && isMovableEntry(entry)) {
+  if (entry !== undefined && isMovableEntry(entry) && containerSlot !== null) {
     item.dataset.assemblyTargetIndex = String(entry.index);
-    item.append(renderAssemblySlot(ownerDocument, entry, "before"));
+    item.append(
+      renderAssemblySlot(ownerDocument, entry, "before", containerSlot, ancestorCapabilities),
+    );
   }
   item.append(button);
 
@@ -647,13 +728,31 @@ function renderBlock(
     const group = ownerDocument.createElement("ul");
     group.className = "block-tree-children";
     group.setAttribute("role", "group");
+    const childSlot = childSyntaxSlot(block, containerSlot);
+    const childAncestorCapabilities = syntaxAncestorCapabilitiesForChildren(
+      block,
+      ancestorCapabilities,
+    );
     for (const child of block.children) {
-      group.append(renderBlock(ownerDocument, document, child, byBlock, level + 1, copy));
+      group.append(
+        renderBlock(
+          ownerDocument,
+          document,
+          child,
+          byBlock,
+          level + 1,
+          copy,
+          childSlot,
+          childAncestorCapabilities,
+        ),
+      );
     }
     item.append(group);
   }
-  if (entry !== undefined && isMovableEntry(entry)) {
-    item.append(renderAssemblySlot(ownerDocument, entry, "after"));
+  if (entry !== undefined && isMovableEntry(entry) && containerSlot !== null) {
+    item.append(
+      renderAssemblySlot(ownerDocument, entry, "after", containerSlot, ancestorCapabilities),
+    );
   }
   return item;
 }
@@ -662,17 +761,80 @@ function renderAssemblySlot(
   ownerDocument: Document,
   entry: BlockIndexEntry,
   position: AssemblyInsertPosition,
+  syntaxSlot: PresetSyntaxSlotKind,
+  ancestorCapabilities: readonly PresetSyntaxAncestorCapability[],
 ): HTMLDivElement {
   const slot = ownerDocument.createElement("div");
   slot.className = "assembly-slot";
   slot.dataset.blockIndex = String(entry.index);
   slot.dataset.assemblySlot = position;
+  slot.dataset.syntaxSlot = syntaxSlot;
+  if (ancestorCapabilities.length > 0) {
+    slot.dataset.syntaxAncestorCapabilities = ancestorCapabilities.join(" ");
+  }
   slot.setAttribute("aria-hidden", "true");
   const track = ownerDocument.createElement("span");
   track.className = "assembly-slot__track";
   track.setAttribute("aria-hidden", "true");
   slot.append(track);
   return slot;
+}
+
+function childSyntaxSlot(
+  block: Block,
+  inherited: PresetSyntaxSlotKind | null,
+): PresetSyntaxSlotKind | null {
+  if (block.kind !== "syntax") return inherited;
+  if (block.nodeType === "function_definition") return "function-body";
+  if (
+    block.nodeType === "for_statement" ||
+    block.nodeType === "while_statement" ||
+    block.nodeType === "do_statement"
+  ) {
+    return "loop-body";
+  }
+  if (block.nodeType === "switch_statement" || block.nodeType === "case_statement") {
+    return "switch-case";
+  }
+  if (block.nodeType === "if_statement" || block.nodeType === "compound_statement") {
+    return "compound-body";
+  }
+  return inherited;
+}
+
+function syntaxAncestorCapabilitiesForChildren(
+  block: Block,
+  inherited: readonly PresetSyntaxAncestorCapability[],
+): readonly PresetSyntaxAncestorCapability[] {
+  if (block.kind !== "syntax") return inherited;
+  const additions: PresetSyntaxAncestorCapability[] = [];
+  if (
+    block.nodeType === "for_statement" ||
+    block.nodeType === "while_statement" ||
+    block.nodeType === "do_statement"
+  ) {
+    additions.push("loop");
+  }
+  if (block.nodeType === "switch_statement" || block.nodeType === "case_statement") {
+    additions.push("switch");
+  }
+  if (additions.length === 0) return inherited;
+  return Object.freeze([...new Set([...inherited, ...additions])]);
+}
+
+function syntaxAncestorCapabilitiesForSlot(
+  slot: HTMLElement,
+): ReadonlySet<PresetSyntaxAncestorCapability> {
+  const value = slot.dataset.syntaxAncestorCapabilities;
+  if (value === undefined || value.length === 0) return new Set();
+  return new Set(
+    value
+      .split(/\s+/u)
+      .filter(
+        (candidate): candidate is PresetSyntaxAncestorCapability =>
+          candidate === "loop" || candidate === "switch",
+      ),
+  );
 }
 
 function directAssemblySlot(

@@ -35,6 +35,8 @@ export interface WorkbenchElements {
   readonly blockTree: HTMLElement;
   readonly flowCanvas: HTMLElement;
   readonly tracePrimaryButton: HTMLButtonElement;
+  readonly traceObserveButton: HTMLButtonElement;
+  readonly analysisPrimaryButton: HTMLButtonElement;
   readonly manualRunInputHost: HTMLElement;
   readonly codePane: HTMLElement;
   readonly buildLayout: HTMLElement;
@@ -66,9 +68,17 @@ export interface WorkbenchElements {
   readonly setPanelVisibility: (value: Readonly<Record<string, boolean>>) => void;
   readonly applyLayoutPreset: (layoutId: string, options?: ApplyLayoutPresetOptions) => void;
   readonly executeMenuAction: (rootId: string, branchId: string) => void;
+  readonly setWorkspaceLessonFocus: (request: WorkspaceLessonFocusRequest | null) => void;
   readonly setAppInfo: (info: AppInfoSnapshot) => void;
   readonly setLocale: (locale: InterfaceLocale) => void;
   readonly destroy: () => void;
+}
+
+export interface WorkspaceLessonFocusRequest {
+  readonly lessonId: string;
+  readonly title: Readonly<{ zh: string; en: string }>;
+  readonly instruction: Readonly<{ zh: string; en: string }>;
+  readonly onExit: () => void;
 }
 
 export interface ApplyLayoutPresetOptions {
@@ -88,6 +98,7 @@ interface NavigationModel {
 
 const FULL_PAGE_IDS = Object.freeze([
   "dashboard",
+  "tutorials",
   "build",
   "analysis",
   "block-library",
@@ -206,6 +217,11 @@ export function mountWorkbench(
   const languageSelect = required(app, "#interface-language", HTMLSelectElement);
   const backgroundSelect = required(app, "#interface-background", HTMLSelectElement);
   const aiProviderSettingsHost = required(app, "#ai-provider-settings-host", HTMLElement);
+  const workspaceLessonStrip = required(app, "#workspace-lesson-strip", HTMLElement);
+  const workspaceLessonTitle = required(app, "#workspace-lesson-title", HTMLElement);
+  const workspaceLessonInstruction = required(app, "#workspace-lesson-instruction", HTMLElement);
+  const workspaceLessonExit = required(app, "#workspace-lesson-exit", HTMLButtonElement);
+  const workspaceLessonPresetsMask = required(app, "#workspace-lesson-presets-mask", HTMLElement);
   const pasteSource = required(app, "#paste-source", HTMLTextAreaElement);
   const pasteSourceIndentation = installCodeTextareaIndentation(pasteSource);
 
@@ -221,6 +237,7 @@ export function mountWorkbench(
 
   const viewTabs = new Map<string, HTMLButtonElement>([
     ["dashboard", required(app, "#dashboard-tab", HTMLButtonElement)],
+    ["tutorials", required(app, "#tutorials-tab", HTMLButtonElement)],
     ["build", required(app, "#build-tab", HTMLButtonElement)],
     ["analysis", required(app, "#analysis-tab", HTMLButtonElement)],
   ]);
@@ -251,14 +268,31 @@ export function mountWorkbench(
   let currentPageId = "dashboard";
   let currentLocale: InterfaceLocale = "zh-CN";
   let appInfo: AppInfoSnapshot | null = null;
+  let workspaceLessonFocus: WorkspaceLessonFocusRequest | null = null;
+  const focusDisabledSnapshot = new Map<HTMLButtonElement, boolean>();
+  let blockPaletteInertBeforeFocus = false;
   let destroyed = false;
 
   const setLocale = (locale: InterfaceLocale): void => {
     currentLocale = locale === "en" ? "en" : "zh-CN";
     shell.dataset.locale = currentLocale;
     const english = currentLocale === "en";
+    if (workspaceLessonFocus !== null) {
+      workspaceLessonStrip.setAttribute(
+        "aria-label",
+        english ? "Current lesson task" : "当前课程任务",
+      );
+      workspaceLessonTitle.textContent = workspaceLessonFocus.title[english ? "en" : "zh"];
+      workspaceLessonInstruction.textContent =
+        workspaceLessonFocus.instruction[english ? "en" : "zh"];
+      workspaceLessonExit.textContent = english ? "Exit lesson" : "退出课程";
+      workspaceLessonPresetsMask.textContent = english
+        ? "Unavailable in this lesson"
+        : "本课程暂不使用";
+    }
     const labels: readonly [string, string, string][] = [
       ["#dashboard-tab", "项目", "Projects"],
+      ["#tutorials-tab", "教程", "Tutorials"],
       ["#build-tab", "工作区", "Workspace"],
       ["#analysis-tab", "分析", "Analysis"],
       ["#ai-assistant-button", "打开 AI 助手", "Open AI Assistant"],
@@ -269,6 +303,8 @@ export function mountWorkbench(
       ["#outline-pane .panel__header h2", "源码结构", "Source Outline"],
       ["#center-canvas-pane .canvas-toolbar h2", "自由画布", "Flow Canvas"],
       ["#trace-primary-action", "运行", "Run"],
+      ["#trace-observe-action", "观察", "Observe"],
+      ["#analysis-primary-action", "分析", "Analyze"],
       [
         "#center-canvas-pane .canvas-toolbar__hint",
         "拖入积木 · 拖空白平移 · 滚轮缩放",
@@ -306,6 +342,7 @@ export function mountWorkbench(
         element.textContent = english ? en : zh;
         if (
           selector === "#dashboard-tab" ||
+          selector === "#tutorials-tab" ||
           selector === "#build-tab" ||
           selector === "#analysis-tab"
         ) {
@@ -327,6 +364,12 @@ export function mountWorkbench(
       ["#left-pane", "aria-label", "预设与源码结构", "Blocks and Source Outline"],
       ["#center-pane", "aria-label", "自由节点画布", "Free Node Canvas"],
       [".canvas-toolbar__actions", "aria-label", "画布排列与历史", "Canvas Layout and History"],
+      [
+        ".canvas-toolbar__runtime-actions",
+        "aria-label",
+        "运行、观察与分析",
+        "Run, Observe, and Analyze",
+      ],
       [
         ".canvas-toolbar__actions [data-flow-command='undo']",
         "title",
@@ -438,6 +481,75 @@ export function mountWorkbench(
       ?.setAttribute("aria-current", "false");
   };
 
+  const setWorkspaceLessonFocus = (request: WorkspaceLessonFocusRequest | null): void => {
+    assertActive(destroyed);
+    if (workspaceLessonFocus !== null) clearWorkspaceLessonFocusUi();
+    workspaceLessonFocus = request;
+    if (request === null) return;
+
+    shell.dataset.workspaceLessonFocus = request.lessonId;
+    workspaceLessonStrip.hidden = false;
+    const english = currentLocale === "en";
+    workspaceLessonStrip.setAttribute(
+      "aria-label",
+      english ? "Current lesson task" : "当前课程任务",
+    );
+    workspaceLessonTitle.textContent = request.title[english ? "en" : "zh"];
+    workspaceLessonInstruction.textContent = request.instruction[english ? "en" : "zh"];
+    workspaceLessonExit.textContent = english ? "Exit lesson" : "退出课程";
+    workspaceLessonPresetsMask.textContent = english
+      ? "Unavailable in this lesson"
+      : "本课程暂不使用";
+    workspaceLessonPresetsMask.hidden = false;
+
+    const palette = required(app, "#block-palette", HTMLElement);
+    blockPaletteInertBeforeFocus = palette.inert;
+    palette.inert = true;
+    const selectors = [
+      "#dashboard-tab",
+      "#tutorials-tab",
+      "#analysis-tab",
+      "#analysis-primary-action",
+      "#open-source",
+      "#open-paste",
+      "#mentor-tab",
+      "#ai-assistant-button",
+      "#workbench-dock [data-menu-root-trigger='presets']",
+      "#workbench-dock [data-menu-root-trigger='library']",
+      "#workbench-dock [data-menu-root-trigger='panels']",
+    ] as const;
+    for (const selector of selectors) {
+      const button = app.querySelector<HTMLButtonElement>(selector);
+      if (button === null) continue;
+      focusDisabledSnapshot.set(button, button.disabled);
+      button.disabled = true;
+      button.setAttribute("aria-disabled", "true");
+    }
+    showFullPage("build");
+  };
+
+  const clearWorkspaceLessonFocusUi = (): void => {
+    delete shell.dataset.workspaceLessonFocus;
+    workspaceLessonStrip.hidden = true;
+    workspaceLessonPresetsMask.hidden = true;
+    const palette = app.querySelector<HTMLElement>("#block-palette");
+    if (palette !== null) palette.inert = blockPaletteInertBeforeFocus;
+    for (const [button, wasDisabled] of focusDisabledSnapshot) {
+      button.disabled = wasDisabled;
+      if (wasDisabled) button.setAttribute("aria-disabled", "true");
+      else button.removeAttribute("aria-disabled");
+    }
+    focusDisabledSnapshot.clear();
+  };
+
+  const exitWorkspaceLesson = (): void => {
+    const active = workspaceLessonFocus;
+    if (active === null) return;
+    clearWorkspaceLessonFocusUi();
+    workspaceLessonFocus = null;
+    active.onExit();
+  };
+
   const showFullPage = (pageId: string): void => {
     const requestedPanel = pagePanels.get(pageId);
     if (requestedPanel === undefined) throw new RangeError(`未知工作台页面：${pageId}`);
@@ -493,6 +605,7 @@ export function mountWorkbench(
 
   const showRuntimeView = (viewId: string): void => {
     if (!runtimeTabs.has(viewId)) throw new RangeError(`未知运行面板：${viewId}`);
+    if (workspaceLessonFocus !== null && viewId === "mentor") return;
     showFullPage("build");
     const panelId = Object.entries(RUNTIME_PANEL_VIEW).find(([, id]) => id === viewId)?.[0];
     if (panelId !== undefined) panelVisibility.set(panelId, true);
@@ -547,6 +660,7 @@ export function mountWorkbench(
     layoutId: string,
     options: ApplyLayoutPresetOptions = {},
   ): void => {
+    if (workspaceLessonFocus !== null) return;
     const layout = registrySnapshot.layoutPresets.find((candidate) => candidate.id === layoutId);
     if (layout === undefined) throw new RangeError(`未知工作台布局：${layoutId}`);
     const visible = new Set(layout.panelIds);
@@ -554,12 +668,22 @@ export function mountWorkbench(
       if (panel.id === "project" || panel.id === "library") continue;
       setPanelVisible(panel.id, visible.has(panel.id));
     }
+    // Applying a preset toggles several bottom panels in registry order. Select the
+    // preset's intended primary view explicitly instead of letting the last visible
+    // contribution accidentally win.
+    if (layoutId === "analyze") renderRuntimePanels("metrics");
+    else if (layoutId === "learn") renderRuntimePanels("mentor");
+    else if (layoutId === "build" || layoutId === "debug") renderRuntimePanels("run");
+    else if (visible.has("flow")) renderRuntimePanels("run");
+    else if (visible.has("metrics")) renderRuntimePanels("metrics");
+    else if (visible.has("ai-hints")) renderRuntimePanels("mentor");
     if (options.activateWorkspace !== false) showFullPage("build");
     shell.dataset.layoutPreset = layoutId;
   };
 
   const showPage = (pageId: string): void => {
     assertActive(destroyed);
+    if (workspaceLessonFocus !== null && pageId !== "build") return;
     if (!navigation.pages.some((page) => page.id === pageId)) {
       throw new RangeError(`未知工作台页面：${pageId}`);
     }
@@ -590,6 +714,11 @@ export function mountWorkbench(
 
   const focusPanel = (panelId: string): void => {
     assertActive(destroyed);
+    if (
+      workspaceLessonFocus !== null &&
+      (panelId === "project" || panelId === "presets" || panelId === "mentor")
+    )
+      return;
     const targetId = PANEL_FOCUS_TARGETS[panelId];
     if (targetId === undefined) throw new RangeError(`未知工作台面板：${panelId}`);
     const visibilityId = FOCUS_PANEL_VISIBILITY[panelId];
@@ -642,6 +771,7 @@ export function mountWorkbench(
   };
 
   const handleMenuSelection = (selection: WorkbenchMenuSelection): void => {
+    if (workspaceLessonFocus !== null && selection.rootId !== "settings") return;
     emitAction(selection.rootId, selection.branchId);
     if (selection.rootId === "settings") {
       openSettingsBranch(selection.branchId);
@@ -716,7 +846,11 @@ export function mountWorkbench(
     runtimeTabListeners.set(tab, listener);
   }
   const onDrawerClose = (): void => closeDrawer();
+  const analysisPrimaryButton = required(app, "#analysis-primary-action", HTMLButtonElement);
+  const onAnalysisPrimary = (): void => showPage("analysis");
   drawerClose.addEventListener("click", onDrawerClose);
+  analysisPrimaryButton.addEventListener("click", onAnalysisPrimary);
+  workspaceLessonExit.addEventListener("click", exitWorkspaceLesson);
 
   applyRegisteredLayout("build");
   showFullPage("dashboard");
@@ -743,6 +877,8 @@ export function mountWorkbench(
     blockTree: required(app, "#block-tree", HTMLElement),
     flowCanvas: required(app, "#flow-canvas", HTMLElement),
     tracePrimaryButton: required(app, "#trace-primary-action", HTMLButtonElement),
+    traceObserveButton: required(app, "#trace-observe-action", HTMLButtonElement),
+    analysisPrimaryButton,
     manualRunInputHost: required(app, "#manual-run-input-host", HTMLElement),
     codePane: required(app, "#code-pane", HTMLElement),
     buildLayout: required(app, "#build-layout", HTMLElement),
@@ -775,6 +911,7 @@ export function mountWorkbench(
     getPanelVisibility: () => Object.freeze(Object.fromEntries(panelVisibility)),
     setPanelVisibility: restorePanelVisibility,
     applyLayoutPreset: applyRegisteredLayout,
+    setWorkspaceLessonFocus,
     executeMenuAction(rootId: string, branchId: string): void {
       assertActive(destroyed);
       const definition = menuDefinitions.find((item) => item.id === rootId);
@@ -795,6 +932,10 @@ export function mountWorkbench(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      workspaceLessonExit.removeEventListener("click", exitWorkspaceLesson);
+      analysisPrimaryButton.removeEventListener("click", onAnalysisPrimary);
+      if (workspaceLessonFocus !== null) clearWorkspaceLessonFocusUi();
+      workspaceLessonFocus = null;
       drawerClose.removeEventListener("click", onDrawerClose);
       for (const [tab, listener] of pageTabListeners) tab.removeEventListener("click", listener);
       for (const [tab, listener] of inspectorTabListeners) {
@@ -831,11 +972,12 @@ function workbenchMarkup(): string {
       <header class="app-bar">
         <nav class="workspace-switcher" role="tablist" aria-label="工作区位置">
           <button id="dashboard-tab" class="workspace-switcher__button" type="button" role="tab" aria-label="项目" aria-controls="dashboard-panel">项目</button>
+          <button id="tutorials-tab" class="workspace-switcher__button" type="button" role="tab" aria-label="教程" aria-controls="tutorials-panel">教程</button>
           <button id="build-tab" class="workspace-switcher__button" type="button" role="tab" aria-label="工作区" aria-controls="build-panel">工作区</button>
           <button id="analysis-tab" class="workspace-switcher__button" type="button" role="tab" aria-label="分析" aria-controls="analysis-panel">分析</button>
         </nav>
         <div id="workbench-dock" class="dock-bar" data-tour-target="dock"></div>
-        <div class="document-identity" aria-label="当前文档">
+        <div class="document-identity" aria-label="当前文档" data-tour-target="local-save">
           <span class="document-identity__label">当前文件</span>
           <span id="file-name">本地工作区</span>
           <span id="source-meta" class="source-meta">—</span>
@@ -843,6 +985,7 @@ function workbenchMarkup(): string {
         <nav class="app-actions" aria-label="源码操作" data-tour-target="import-actions">
           <button id="open-source" class="button button--quiet" type="button" aria-label="打开 C 文件" disabled>打开</button>
           <button id="open-paste" class="button button--quiet" type="button" aria-label="粘贴源码" disabled>粘贴</button>
+          <button id="workspace-recovery" class="workspace-recovery-button" type="button" hidden>重新载入磁盘版本</button>
         </nav>
       </header>
 
@@ -851,13 +994,23 @@ function workbenchMarkup(): string {
           <div id="dashboard-host" class="workbench-page__host dashboard" data-tour-target="dashboard"></div>
         </section>
 
+        <section id="tutorials-panel" class="workbench-page workbench-page--extension" data-workbench-page-id="tutorials" role="tabpanel" aria-labelledby="tutorials-tab" hidden>
+          <div id="tutorials-host" class="workbench-page__host tutorials-host" data-tour-target="tutorials"></div>
+        </section>
+
         <section id="build-panel" class="workbench-page workbench-page--build" role="tabpanel" aria-labelledby="build-tab" hidden>
           <div id="build-host" class="build-workspace">
+            <aside id="workspace-lesson-strip" class="workspace-lesson-strip" aria-label="当前课程任务" hidden>
+              <strong id="workspace-lesson-title"></strong>
+              <span id="workspace-lesson-instruction"></span>
+              <button id="workspace-lesson-exit" type="button">退出课程</button>
+            </aside>
             <div id="build-layout" class="build-layout" data-tour-target="layout-resize">
               <aside id="left-pane" class="workbench-region workbench-region--left" tabindex="-1" aria-label="预设与源码结构">
                 <section id="presets-pane" class="panel panel--palette" data-tour-target="preset-blocks">
                   <header class="panel__header"><h2>预设块</h2></header>
                   <div id="block-palette" class="block-palette workbench-scroll-region"></div>
+                  <div id="workspace-lesson-presets-mask" class="workspace-lesson-focus-mask" hidden>本课程暂不使用</div>
                 </section>
                 <section id="outline-pane" class="panel panel--outline">
                   <header class="panel__header"><h2>源码结构</h2></header>
@@ -871,7 +1024,11 @@ function workbenchMarkup(): string {
                     <section id="center-canvas-pane" class="center-canvas-pane">
                       <header class="canvas-toolbar">
                         <h2>自由画布</h2>
-                        <button id="trace-primary-action" class="canvas-toolbar__trace-action" type="button" data-primary-action="run" data-tour-target="trace-start">运行</button>
+                        <nav class="canvas-toolbar__runtime-actions" aria-label="运行、观察与分析">
+                          <button id="trace-primary-action" class="canvas-toolbar__runtime-action canvas-toolbar__runtime-action--primary" type="button" data-primary-action="run" data-tour-target="trace-start">运行</button>
+                          <button id="trace-observe-action" class="canvas-toolbar__runtime-action" type="button" data-observe-state="unavailable" disabled>观察</button>
+                          <button id="analysis-primary-action" class="canvas-toolbar__runtime-action" type="button">分析</button>
+                        </nav>
                         <div id="manual-run-input-host" class="manual-run-input-host"></div>
                         <span class="canvas-toolbar__hint">拖入积木 · 拖空白平移 · 滚轮缩放</span>
                         <div class="canvas-toolbar__actions" aria-label="画布排列与历史">
@@ -951,12 +1108,11 @@ function workbenchMarkup(): string {
         <div id="ai-provider-settings-host" hidden></div>
       </aside>
 
-      <footer class="status-bar">
+      <div class="workbench-live-status visually-hidden">
         <output id="parser-status" class="status-pill" aria-live="polite" data-state="loading">正在加载 C 解析器…</output>
-        <output id="workspace-save-status" class="workspace-save-status" aria-live="polite" data-state="unmanaged" data-tour-target="local-save">本地工作区未打开</output>
-        <button id="workspace-recovery" class="workspace-recovery-button" type="button" hidden>重新载入磁盘版本</button>
-        <output id="import-status" class="status-message" aria-live="polite">解析器就绪后可打开、拖入或粘贴 .c 文件</output>
-      </footer>
+        <output id="workspace-save-status" class="workspace-save-status" aria-live="polite" data-state="unmanaged">本地工作区未打开</output>
+      </div>
+      <output id="import-status" class="context-status" role="alert" aria-live="assertive" data-state="ready">解析器就绪后可打开、拖入或粘贴 .c 文件</output>
 
       <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true"><div class="drop-overlay__card"><strong>放下 .c 文件</strong><span>仅在本机读取</span></div></div>
       <dialog id="paste-dialog" class="paste-dialog" aria-labelledby="paste-title">
@@ -982,6 +1138,7 @@ function validateNavigation(snapshot: WorkbenchRegistrySnapshot): NavigationMode
   if (pageIds.size !== pages.length) throw new TypeError("工作台页面 id 不得重复");
   for (const requiredId of [
     "dashboard",
+    "tutorials",
     "build",
     "analysis",
     "block-library",

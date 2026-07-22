@@ -55,6 +55,8 @@ export interface LibraryTutorialStep {
 export interface LibraryTutorial {
   /** Opens the evidence-gated lesson instead of rendering its missions as static prose. */
   readonly guidedLessonId?: string | undefined;
+  /** Opens a lightweight in-Library task lesson that owns no workspace or runtime authority. */
+  readonly taskLessonId?: string | undefined;
   readonly pathId: string;
   readonly order: number;
   readonly level: LibraryTutorialLevel;

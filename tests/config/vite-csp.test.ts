@@ -33,8 +33,11 @@ describe("CodeMirror CSP nonce Vite configuration", () => {
 
     const transformedHtml = injectCodeMirrorStyleNonce(sourceHtml, serveNonce);
     expect(transformedHtml).toContain(`style-src 'self' 'nonce-${serveNonce}'`);
+    // CodeMirror and the free canvas position runtime geometry through style attributes. Keep
+    // those attributes usable without weakening script-src or nonce-protected style elements.
+    expect(transformedHtml).toContain("style-src-attr 'unsafe-inline'");
     expect(transformedHtml).not.toContain(CODE_MIRROR_STYLE_NONCE_PLACEHOLDER);
-    expect(transformedHtml).not.toContain("unsafe-inline");
+    expect(transformedHtml).not.toMatch(/script-src[^;]*'unsafe-inline'/u);
   });
 
   it("fails closed when the CSP nonce placeholder is missing or duplicated", () => {

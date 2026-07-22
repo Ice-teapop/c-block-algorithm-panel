@@ -130,8 +130,9 @@ to expose.
 
 ## Distribution trust boundary
 
-Download the `v0.0.1` DMG and `SHA256SUMS.txt` from the same GitHub Release,
-then run:
+Download the current installer and `SHA256SUMS.txt` from the same
+[GitHub Release](https://github.com/Ice-teapop/algolatch/releases), then verify
+the macOS DMG with:
 
 ```sh
 shasum -a 256 --check SHA256SUMS.txt

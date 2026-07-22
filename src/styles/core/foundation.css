@@ -1,0 +1,242 @@
+/* Section: Global tokens, resets, and interaction variables. */
+:root {
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #e7eaee;
+  background: #0d0f11;
+
+  --ink: #e7eaee;
+  --ink-secondary: #c1c6cd;
+  --muted: #9ba2ac;
+  --muted-subtle: #7a8490;
+  --canvas: #0d0f11;
+  --surface: #151719;
+  --surface-soft: #191b1e;
+  --surface-raised: #1d2024;
+  --surface-hover: #22262b;
+  --surface-active: #202a3b;
+  --input-surface: #111315;
+  --line: #2a2e33;
+  --line-strong: #3a4048;
+  --accent: #5f91ef;
+  --accent-hover: #76a3f4;
+  --accent-soft: rgba(95, 145, 239, 0.14);
+  --accent-line: rgba(95, 145, 239, 0.72);
+  --focus: #8cb5ff;
+  --on-accent: #08101e;
+  --success: #77c994;
+  --success-soft: rgba(119, 201, 148, 0.12);
+  --warning: #d6a25e;
+  --warning-soft: rgba(214, 162, 94, 0.11);
+  --danger: #ff8585;
+  --danger-soft: rgba(255, 133, 133, 0.1);
+  --raw: #d6a25e;
+  --code-ink: #d9dde3;
+  --code-gutter: #7f8995;
+  --code-active-line: rgba(255, 255, 255, 0.035);
+  --syntax-keyword: #b8a1d7;
+  --syntax-type: #7fb2c8;
+  --syntax-string: #9eb982;
+  --syntax-number: #c7a176;
+  --syntax-comment: #7f8995;
+  --syntax-function: #7fa5d7;
+  --syntax-macro: #c29abb;
+  --syntax-operator: #aeb6c1;
+  --syntax-invalid: #f08a8a;
+  --overlay: rgba(5, 7, 9, 0.82);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #3a4048;
+  --scrollbar-thumb-hover: #4a525d;
+  --block-statement: #273644;
+  --block-statement-line: #486177;
+  --block-declaration: #263b45;
+  --block-declaration-line: #48707e;
+  --block-control: #473a29;
+  --block-control-line: #806b48;
+  --block-function: #343247;
+  --block-function-line: #5f5b7b;
+  --block-raw-fill: #3f3325;
+  --block-raw-line: #755d3c;
+}
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  color: #17191b;
+  background: var(--canvas);
+
+  --ink: #17191b;
+  --ink-secondary: #35393d;
+  --muted: #5a6066;
+  --muted-subtle: #737a81;
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-soft: #f5f6f7;
+  --surface-raised: #ffffff;
+  --surface-hover: #eef0f2;
+  --surface-active: #e5e9ee;
+  --input-surface: #ffffff;
+  --line: #d9dde1;
+  --line-strong: #bcc2c8;
+  --accent: #315f9b;
+  --accent-hover: #244d83;
+  --accent-soft: rgba(49, 95, 155, 0.1);
+  --accent-line: rgba(49, 95, 155, 0.68);
+  --focus: #214f8c;
+  --on-accent: #fafaf8;
+  --success: #28613e;
+  --success-soft: rgba(40, 97, 62, 0.09);
+  --warning: #76511d;
+  --warning-soft: rgba(118, 81, 29, 0.09);
+  --danger: #9f3131;
+  --danger-soft: rgba(159, 49, 49, 0.08);
+  --raw: #80591f;
+  --code-ink: #202326;
+  --code-gutter: #666d73;
+  --code-active-line: rgba(23, 25, 27, 0.04);
+  --syntax-keyword: #634b7d;
+  --syntax-type: #256479;
+  --syntax-string: #4d682f;
+  --syntax-number: #7a5424;
+  --syntax-comment: #59626c;
+  --syntax-function: #315f9a;
+  --syntax-macro: #754f73;
+  --syntax-operator: #47515d;
+  --syntax-invalid: #a52b2b;
+  --overlay: rgba(39, 41, 43, 0.38);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #b9bbb9;
+  --scrollbar-thumb-hover: #969a9b;
+  --block-statement: #e9ecee;
+  --block-statement-line: #9aa5ae;
+  --block-declaration: #e6ebea;
+  --block-declaration-line: #8ea09e;
+  --block-control: #eeeae1;
+  --block-control-line: #a39579;
+  --block-function: #ebe9ee;
+  --block-function-line: #9d97a6;
+  --block-raw-fill: #eee9df;
+  --block-raw-line: #a28e70;
+}
+
+/* Section: Shared interaction targets and motion timings. */
+:root {
+  --interaction-target-compact: 28px;
+  --interaction-target-default: 32px;
+  --interaction-focus-width: 2px;
+  --interaction-focus-offset: -2px;
+  --interaction-disabled-opacity: 0.42;
+  --interaction-hover-background: var(--surface-hover);
+  --interaction-pressed-background: var(--surface-active);
+  --interaction-selected-background: var(--accent-soft);
+  --interaction-selected-ink: var(--accent);
+  --motion-instant: 80ms;
+  --motion-feedback: 110ms;
+  --motion-state: 160ms;
+  --motion-surface: 200ms;
+  --motion-exit: 90ms;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-state: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 0;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--ink);
+  background: var(--canvas);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.cm-editor.cm-focused {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+
+::selection {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

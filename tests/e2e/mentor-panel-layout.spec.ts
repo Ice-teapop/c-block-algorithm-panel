@@ -46,55 +46,54 @@ test.afterAll(async () => {
   await rm(workspaceRoot, { recursive: true, force: true });
 });
 
-test("keeps the complete AI conversation reachable in a short runtime pane", async () => {
+test("keeps every local check reachable in a short runtime pane", async () => {
   await page.locator("#build-tab").click();
   await page.locator("#mentor-tab").click();
   await expect(page.locator("#mentor-panel")).toBeVisible();
-  await page.waitForFunction(() => {
-    const form = document.querySelector<HTMLElement>(".mentor-panel__remote-form");
-    const missing = document.querySelector<HTMLElement>(".mentor-panel__setup");
-    return form !== null && missing !== null && (!form.hidden || !missing.hidden);
-  });
 
   await page.evaluate(() => {
-    const form = document.querySelector<HTMLElement>(".mentor-panel__remote-form");
-    const missing = document.querySelector<HTMLElement>(".mentor-panel__setup");
-    if (form === null || missing === null) throw new Error("AI 对话表单未挂载");
-    form.hidden = false;
-    missing.hidden = true;
+    const list = document.querySelector<HTMLElement>(".mentor-panel__list");
+    if (list === null) throw new Error("本地检查列表未挂载");
+    for (let index = 0; index < 12; index += 1) {
+      const item = document.createElement("article");
+      item.className = "mentor-hint";
+      item.setAttribute("role", "listitem");
+      if (index === 11) item.dataset.e2eLastHint = "true";
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "mentor-hint__action";
+      action.textContent = `检查 ${String(index + 1)}：定位证据并验证下一步实验。`;
+      item.append(action);
+      list.append(item);
+    }
   });
 
   const layout = await page.evaluate(() => {
     const host = document.querySelector<HTMLElement>("#mentor-hints-host");
-    const actions = document.querySelector<HTMLElement>(".mentor-panel__remote-actions");
-    const prompt = document.querySelector<HTMLTextAreaElement>(".mentor-panel__composer textarea");
-    if (host === null || actions === null || prompt === null) {
-      throw new Error("AI 对话控件未挂载");
+    const lastHint = document.querySelector<HTMLElement>("[data-e2e-last-hint='true']");
+    if (host === null || lastHint === null) {
+      throw new Error("本地检查滚动夹具未挂载");
     }
     const before = host.scrollTop;
     host.scrollTop = host.scrollHeight;
     const hostBounds = host.getBoundingClientRect();
-    const actionBounds = actions.getBoundingClientRect();
-    const promptBounds = prompt.getBoundingClientRect();
+    const lastHintBounds = lastHint.getBoundingClientRect();
     return {
       overflowY: getComputedStyle(host).overflowY,
       scrollable: host.scrollHeight > host.clientHeight,
       moved: host.scrollTop > before,
-      actionsReachable:
-        actionBounds.top >= hostBounds.top && actionBounds.bottom <= hostBounds.bottom,
-      promptReachable:
-        promptBounds.top >= hostBounds.top && promptBounds.bottom <= hostBounds.bottom,
+      lastHintReachable:
+        lastHintBounds.top >= hostBounds.top && lastHintBounds.bottom <= hostBounds.bottom,
     };
   });
 
   expect(layout.overflowY).toBe("auto");
   expect(layout.scrollable).toBe(true);
   expect(layout.moved).toBe(true);
-  expect(layout.actionsReachable).toBe(true);
-  expect(layout.promptReachable).toBe(true);
-  await page.locator(".mentor-panel__composer textarea").focus();
-  await page.keyboard.insertText("解释当前算法");
-  await expect(page.locator(".mentor-panel__composer textarea")).toHaveValue("解释当前算法");
+  expect(layout.lastHintReachable).toBe(true);
+  const lastHintAction = page.locator("[data-e2e-last-hint='true'] .mentor-hint__action");
+  await lastHintAction.focus();
+  await expect(lastHintAction).toBeFocused();
 
   const splitter = page.locator(
     "#work-area > .resizable-layout__splitter[data-splitter-for='primary']",

@@ -2,16 +2,21 @@ name: Publish unsigned cross-platform preview
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/releases/v0.1.1-preview.1.md
 
 permissions:
   contents: read
 
 concurrency:
-  group: cross-platform-preview-v0.0.3-preview.1
+  group: cross-platform-preview-v0.1.1-preview.1
   cancel-in-progress: false
 
 env:
-  PREVIEW_TAG: v0.0.3-preview.1
+  PREVIEW_TAG: v0.1.1-preview.1
 
 jobs:
   build_macos:
@@ -55,10 +60,14 @@ jobs:
       - name: Build ad-hoc-signed macOS Universal preview
         run: npm run dist:mac:beta
 
-      - name: Run changed canvas and AI window Electron regressions
+      - name: Run changed canvas, tutorial and AI window Electron regressions
         run: >-
           npx playwright test
           tests/e2e/flow-canvas-readability.spec.ts
+          tests/e2e/foa-tutorials-course.spec.ts
+          tests/e2e/foa-runtime-visual-matrix.spec.ts
+          tests/e2e/foa-transition-responsive-matrix.spec.ts
+          tests/e2e/foa-late-courses-visual-audit.spec.ts
           tests/e2e/ai-native-window.spec.ts
 
       - name: Install, launch and verify the macOS preview
@@ -198,6 +207,10 @@ jobs:
           set -euo pipefail
           if gh release view "${PREVIEW_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "Release ${PREVIEW_TAG} already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${PREVIEW_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${PREVIEW_TAG} already exists without a published Release; refusing an ambiguous publish." >&2
             exit 1
           fi
           gh release create "${PREVIEW_TAG}" \

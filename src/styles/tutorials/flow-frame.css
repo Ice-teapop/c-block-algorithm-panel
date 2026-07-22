@@ -1,0 +1,554 @@
+/* Section: FlowFrame graph, transport controls, and source rail. */
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__primary {
+  grid-template-rows:
+    minmax(320px, 42vh) 6px
+    minmax(220px, 1fr);
+}
+
+.foa-flow-demo[data-flow-frame-kind] {
+  grid-template-rows: 38px minmax(0, 1fr);
+  overflow: hidden;
+  background: #fff;
+}
+
+.foa-flow-demo__frame {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) 38px;
+  outline: none;
+}
+
+.foa-flow-demo__frame:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent, #275e9f);
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__frame:focus-visible {
+  box-shadow: inset 3px 0 0 var(--accent, #275e9f);
+}
+
+.foa-flow-demo__canvas[data-flow-canvas] {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(190px, 1fr) auto auto 30px;
+  gap: 0;
+  padding: 4px clamp(14px, 2vw, 28px) 0;
+  overflow: hidden;
+}
+
+.foa-flow-demo__graph {
+  position: relative;
+  min-width: 0;
+  min-height: 210px;
+  transform: scale(var(--flow-viewport-compensation, 1));
+  transform-origin: left center;
+}
+
+.foa-flow-demo__iterations {
+  grid-row: 2;
+}
+
+.foa-flow-demo__prediction {
+  display: flex;
+  min-height: 30px;
+  grid-row: 3;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--ink, #111);
+  font-size: var(--tutorial-type-body, 12px);
+}
+
+.foa-flow-demo__prediction[hidden] {
+  display: none;
+}
+
+.foa-flow-demo__prediction > button {
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  color: var(--accent, #275e9f);
+  background: transparent;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foa-flow-demo__prediction > button:focus-visible {
+  outline: 2px solid var(--accent, #275e9f);
+  outline-offset: 2px;
+}
+
+.foa-flow-demo__prediction[data-state="error"] {
+  color: var(--danger, #972e2e);
+}
+
+.foa-flow-demo__edges {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.foa-flow-demo__edges path[data-flow-edge-id] {
+  fill: none;
+  stroke: var(--line-strong, #a8afb7);
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.46;
+  transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.foa-flow-demo__edges path[data-state="taken"] {
+  stroke: var(--accent, #275e9f);
+  opacity: 1;
+}
+
+.foa-flow-demo__edges path[data-state="traversing"] {
+  stroke: var(--line-strong, #a8afb7);
+  opacity: 0.76;
+}
+
+.foa-flow-demo__edges text[data-flow-edge-label] {
+  fill: var(--muted, #68717c);
+  font-size: 11px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
+.foa-flow-demo__node {
+  position: absolute;
+  z-index: 1;
+  top: var(--flow-node-y);
+  left: var(--flow-node-x);
+  display: grid;
+  width: clamp(112px, 13vw, 154px);
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(16px, auto) 20px;
+  gap: 3px;
+  padding: 8px 9px 6px;
+  border: 0;
+  color: var(--muted, #68717c);
+  background: #fff;
+  box-shadow: inset 0 -1px 0 var(--line-strong, #a8afb7);
+  text-align: left;
+  transform: translate(-50%, -50%);
+  transition:
+    color 120ms cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 120ms cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 120ms cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.foa-flow-demo__node:hover:not([data-state="skipped"]),
+.foa-flow-demo__node:focus-visible {
+  color: var(--ink, #111);
+  background: #f7f9fb;
+}
+
+.foa-flow-demo__node:focus-visible {
+  outline: 2px solid var(--accent, #275e9f);
+  outline-offset: 2px;
+}
+
+.foa-flow-demo__node > strong {
+  overflow: hidden;
+  font-size: var(--tutorial-type-body, 12px);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-flow-demo__node > small {
+  min-height: 16px;
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--tutorial-type-meta, 11px);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-flow-demo__node[data-state="active"] {
+  color: var(--ink, #111);
+  background: var(--accent-soft, #eef5fc);
+  box-shadow: inset 0 -2px 0 var(--accent, #275e9f);
+  opacity: 1;
+}
+
+.foa-flow-demo__node:not(:disabled):active {
+  transform: translate(-50%, -50%);
+  translate: none;
+}
+
+.foa-flow-demo__node[data-state="done"] {
+  color: var(--ink-secondary, #343a42);
+}
+
+.foa-flow-demo__node[data-flow-output="true"][data-state="done"] {
+  color: var(--success, #286140);
+}
+
+.foa-flow-demo__node[data-arrival-state="receiving"] {
+  z-index: 2;
+  color: var(--ink, #111);
+  box-shadow: inset 0 -1px 0 var(--accent, #275e9f);
+}
+
+.foa-flow-demo__node[data-state="skipped"] {
+  opacity: 0.36;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"]
+  .foa-flow-demo__edges
+  path[data-flow-edge-id][data-state="idle"] {
+  opacity: 0.18;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__edges path[data-state="taken"] {
+  stroke-width: 2.4;
+  opacity: 0.78;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__edges path[data-state="traversing"] {
+  stroke: var(--accent, #275e9f);
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__node[data-state="pending"] {
+  opacity: 0.34;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__node[data-arrival-state="receiving"] {
+  opacity: 1;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__node[data-state="done"] {
+  box-shadow: inset 0 -1px 0 var(--accent, #275e9f);
+  opacity: 0.68;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__node[data-state="active"] {
+  box-shadow: inset 0 -3px 0 var(--accent, #275e9f);
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__node[data-state="skipped"] {
+  opacity: 0.18;
+}
+
+.foa-flow-demo__value-mount {
+  min-width: 0;
+  grid-column: 1;
+}
+
+.foa-flow-demo__moving-value {
+  position: relative;
+  z-index: 3;
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 0;
+  overflow: hidden;
+  border-bottom: 2px solid currentcolor;
+  color: var(--accent, #275e9f);
+  font:
+    650 var(--tutorial-type-body, 12px) / 1.25 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  will-change: auto;
+}
+
+.foa-flow-demo__moving-value[data-motion-state="moving"] {
+  background: #fff;
+  will-change: transform, opacity;
+}
+
+.foa-flow-demo[data-flow-lesson-order="5"] .foa-flow-demo__moving-value {
+  min-width: 44px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="linear"] .foa-flow-demo__node {
+  width: clamp(108px, 18%, 176px);
+  min-height: 72px;
+  grid-template-rows: auto 30px;
+  align-content: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  text-align: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="linear"] .foa-flow-demo__node > strong {
+  overflow: visible;
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.foa-flow-demo__graph[data-scene-kind="linear"] .foa-flow-demo__node > small {
+  display: none;
+}
+
+.foa-flow-demo__graph[data-scene-kind="linear"] .foa-flow-demo__value-mount {
+  grid-row: 2;
+  justify-self: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="linear"] .foa-flow-demo__moving-value {
+  min-width: 48px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="branch"] .foa-flow-demo__node {
+  width: clamp(96px, 17%, 154px);
+  min-height: 68px;
+  grid-template-rows: auto 26px;
+  align-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="branch"] .foa-flow-demo__node > small {
+  display: none;
+}
+
+.foa-flow-demo__graph[data-scene-kind="branch"] .foa-flow-demo__value-mount {
+  grid-row: 2;
+  justify-self: center;
+}
+
+.foa-flow-demo__graph[data-scene-kind="branch"] .foa-flow-demo__moving-value {
+  min-width: 42px;
+  text-align: center;
+}
+
+.foa-flow-demo[data-flow-frame-kind="linear"] .foa-flow-demo__graph {
+  min-width: 0;
+}
+
+.foa-flow-demo__iterations {
+  display: flex;
+  min-width: 0;
+  min-height: 20px;
+  justify-content: center;
+  gap: clamp(8px, 1.4vw, 16px);
+  overflow: hidden;
+  color: var(--muted, #68717c);
+  font-size: var(--tutorial-type-meta, 11px);
+  line-height: 1.35;
+}
+
+.foa-flow-demo__iterations:empty {
+  display: none;
+}
+
+.foa-flow-demo__iterations > span {
+  opacity: 0.38;
+}
+
+.foa-flow-demo__iterations > span[data-state="active"] {
+  color: var(--accent, #275e9f);
+  opacity: 1;
+}
+
+.foa-flow-demo__iterations > span[data-state="done"] {
+  color: var(--success, #286140);
+  opacity: 0.84;
+}
+
+.foa-flow-demo__observation {
+  grid-row: 4;
+  align-self: center;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink, #111);
+  font-size: var(--tutorial-type-body, 12px);
+  line-height: 1.4;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-flow-demo__controls {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto auto auto minmax(120px, 1fr) 54px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  box-shadow: inset 0 1px 0 var(--line, #d9dde2);
+}
+
+.foa-flow-demo__control {
+  min-height: 30px;
+  padding: 2px 0;
+  border: 0;
+  color: var(--ink, #111);
+  background: transparent;
+  font: inherit;
+}
+
+.foa-flow-demo__control:hover:not(:disabled) {
+  color: var(--accent, #275e9f);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foa-flow-demo__control:focus-visible {
+  outline: 2px solid var(--accent, #275e9f);
+  outline-offset: 2px;
+}
+
+.foa-flow-demo__control:disabled {
+  color: var(--muted, #68717c);
+  opacity: 0.42;
+}
+
+.foa-flow-demo__controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent, #275e9f);
+}
+
+.foa-flow-demo__position,
+.foa-flow-demo__evidence {
+  color: var(--muted, #68717c);
+  font-size: var(--tutorial-type-meta, 11px);
+}
+
+.foa-flow-demo__position {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.foa-flow-demo > header > div {
+  gap: 10px;
+}
+
+.foa-flow-demo__evidence {
+  padding-left: 10px;
+  box-shadow: inset 1px 0 0 var(--line, #d9dde2);
+  font-weight: 650;
+}
+
+.foa-flow-demo__evidence[data-runtime-state="ready"] {
+  color: var(--ink-secondary, #343a42);
+}
+
+.foa-flow-demo__evidence[data-runtime-state="running"] {
+  color: var(--accent, #275e9f);
+}
+
+.foa-flow-demo__evidence[data-runtime-state="paused"] {
+  color: var(--warning, #7a5b22);
+}
+
+.foa-flow-demo__evidence[data-runtime-state="prediction"] {
+  color: var(--warning, #7a5b22);
+}
+
+.foa-flow-demo__evidence[data-runtime-state="completed"] {
+  color: var(--success, #286140);
+}
+
+.foa-flow-demo[data-reduced-motion="true"] *,
+.foa-flow-demo[data-reduced-motion="true"] *::before,
+.foa-flow-demo[data-reduced-motion="true"] *::after {
+  animation: none !important;
+}
+
+.foa-flow-demo[data-reduced-motion="true"] .foa-flow-demo__node,
+.foa-flow-demo[data-reduced-motion="true"] .foa-flow-demo__edges path[data-flow-edge-id] {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .foa-flow-demo *,
+  .foa-flow-demo *::before,
+  .foa-flow-demo *::after {
+    animation: none !important;
+  }
+
+  .foa-flow-demo__node,
+  .foa-flow-demo__edges path[data-flow-edge-id] {
+    transition: none !important;
+  }
+}
+
+@container tutorial-stage (max-width: 900px) {
+  .foa-flow-demo__node {
+    width: clamp(102px, 14vw, 126px);
+    padding-inline: 6px;
+  }
+
+  .foa-flow-demo__controls {
+    gap: 8px;
+  }
+}
+
+/* Compatibility: Narrow or zoomed stages keep the graph fixed while source owns scrolling. */
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__task {
+  grid-template-rows: 48px minmax(0, 1fr);
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .library-task-stage__header {
+  grid-template-rows: 48px;
+  min-height: 48px;
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__primary,
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__workspace,
+.foa-flow-demo[data-flow-frame-kind] .foa-flow-demo__canvas[data-flow-canvas] {
+  overflow: clip;
+}
+
+.foa-flow-demo[data-flow-compact="true"] .foa-flow-demo__graph {
+  transform: none;
+}
+
+.foa-flow-demo[data-flow-compact="true"] .foa-flow-demo__node,
+.foa-flow-demo[data-flow-compact="true"]
+  .foa-flow-demo__graph[data-scene-kind="branch"]
+  .foa-flow-demo__node {
+  width: 84px;
+  min-height: 60px;
+  padding: 6px;
+}
+
+.foa-flow-demo[data-flow-compact="true"]
+  .foa-flow-demo__graph[data-scene-kind="linear"]
+  .foa-flow-demo__node {
+  width: 84px;
+  min-height: 62px;
+  padding: 7px;
+}
+
+.foa-flow-demo[data-flow-compact="true"] .foa-flow-demo__node > strong,
+.foa-flow-demo[data-flow-compact="true"]
+  .foa-flow-demo__graph[data-scene-kind="linear"]
+  .foa-flow-demo__node
+  > strong {
+  overflow: visible;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}

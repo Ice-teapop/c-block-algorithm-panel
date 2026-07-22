@@ -1,9 +1,7 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
-import {
-  createFlowWorkbenchController,
-  type FlowWorkbenchController,
-} from "./app/flow-workbench-controller.js";
+import { createFlowWorkbenchController } from "./app/flow-workbench-controller.js";
+import type { FlowWorkbenchController } from "./app/flow-workbench-controller.js";
 import { createFlowSourceEditor } from "./app/flow-source-editor.js";
 import type { LearningSurface } from "./app/learning-surface.js";
 import type { LoadedLearningCatalogStorage } from "./app/learning-catalog-disk-storage.js";
@@ -151,6 +149,7 @@ flowWorkbench = createFlowWorkbenchController({
   onDraftPresentationChange: (nodes) => codePane.setDraftPreviews(draftCodePreviewsFor(nodes)),
   onLearningObservation: (observation) => forwardFlowLearningObservation(guidedLesson, observation),
   onSourceUndo: () => codePane.undo(),
+  onSourceRedo: () => codePane.redo(),
   onVirtualPlaybackNode(node) {
     if (node.presetId === "builtin.flow.pause") runtimeWorkspace?.trace.pausePlayback();
   },
@@ -261,7 +260,7 @@ runtimeWorkspace = createRuntimeWorkspaceController({
   onFocusNode: (nodeId) => requireFlowWorkbench().focusNode(nodeId),
   onRevealRange: (range) => codePane.reveal(range),
   onLearningObservation: (observation) =>
-    forwardRuntimeLearningObservation(guidedLesson, observation),
+    forwardRuntimeLearningObservation(guidedLesson, observation, learningSurface ?? undefined),
 });
 const workspaceLesson = createWorkspaceLessonIntegration({
   elements,
@@ -271,6 +270,7 @@ const workspaceLesson = createWorkspaceLessonIntegration({
   runtime: requireRuntimeWorkspace(),
   loadSource,
   onActiveEntryChange: (entry) => void aiWorkspace?.setWorkspace(entry),
+  isDestroyed: () => destroyed,
   onError: (message) =>
     mainStatus.setError(message, "The guided workspace operation could not be completed."),
 });
@@ -351,6 +351,7 @@ void initializeWorkbenchApplication({
       .catch((error: Error) =>
         mainStatus.setBanner(error.message, "error", "The lesson could not be started."),
       ),
+  onOpenFoaWorkspace: workspaceLesson.openFoaLesson,
   onReady(loadedParser, surface, storage) {
     parser = loadedParser;
     learningSurface = surface;
@@ -359,7 +360,7 @@ void initializeWorkbenchApplication({
   onLearningError(error) {
     mainStatus.setEditError(error, "The learning block operation could not be completed.");
   },
-}).then(() => guidedLesson?.showFirstRunIfNeeded());
+});
 function loadSource(imported: ImportedSource): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
   const analysis = parser.analyze(imported.source, nextSessionRevision());
@@ -488,7 +489,6 @@ function destroyApplication(): void {
   parser?.dispose();
   runtime.destroy();
 }
-
 installApplicationPersistence({
   workspace: workspaceController,
   flow: requireFlowWorkbench(),

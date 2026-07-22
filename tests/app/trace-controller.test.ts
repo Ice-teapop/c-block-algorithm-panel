@@ -10,6 +10,7 @@ import { fingerprintSource } from "../../src/shared/source-snapshot.js";
 import type {
   SuccessfulTraceBatch,
   TraceEvent,
+  TraceRequest,
   TraceRunEvidence,
   TraceStartResult,
 } from "../../src/shared/trace.js";
@@ -22,6 +23,8 @@ const SOURCE = [
   "}",
 ].join("\n");
 const SESSION_ID = "trace-session-1";
+const EMPTY_INPUT_FINGERPRINT = fingerprintSource("");
+const PROFILE_AUTHORIZATION_DIGEST = "a".repeat(64);
 
 describe("trace controller", () => {
   it("polls at about 100 ms and emits only real path updates", async () => {
@@ -174,7 +177,12 @@ describe("trace controller", () => {
     const fixtureBytes = Uint8Array.from([1, 2, 3]);
     const fixtures: FixtureInput[] = [{ path: "fixtures/input.bin", contents: fixtureBytes }];
 
-    const start = controller.start({ stdin: "42\n", args, fixtures });
+    const start = controller.start({
+      stdin: "42\n",
+      args,
+      fixtures,
+      observationProfileId: "foa-transition-63-v1",
+    });
     args[0] = "--mutated";
     fixtureBytes[0] = 99;
     fixtures[0] = { path: "changed.bin", contents: "changed" };
@@ -185,11 +193,17 @@ describe("trace controller", () => {
       stdin: "42\n",
       args: ["--branch", "right"],
       fixtures: [{ path: "fixtures/input.bin" }],
+      observationProfileId: "foa-transition-63-v1",
     });
     expect(request.fixtures[0]?.contents).toEqual(Uint8Array.from([1, 2, 3]));
     expect(Object.isFrozen(request.args)).toBe(true);
     expect(Object.isFrozen(request.fixtures)).toBe(true);
     expect(Object.isFrozen(request.fixtures[0])).toBe(true);
+    expect(controller.getState()).toMatchObject({
+      inputFingerprint: fingerprintSource("42\n"),
+      observationProfileId: "foa-transition-63-v1",
+      observationAuthorizationDigest: PROFILE_AUTHORIZATION_DIGEST,
+    });
   });
 
   it("cancels and clears stale evidence immediately when source is invalidated", async () => {
@@ -257,6 +271,9 @@ describe("trace controller", () => {
         ok: true,
         sessionId: SESSION_ID,
         sourceFingerprint: fingerprintSource(`${SOURCE}\n`),
+        inputFingerprint: EMPTY_INPUT_FINGERPRINT,
+        observationProfileId: null,
+        observationAuthorizationDigest: null,
         status: "preparing",
       },
     });
@@ -272,6 +289,54 @@ describe("trace controller", () => {
       error: { code: "TRACE_SOURCE_MISMATCH" },
     });
     expect(scheduler.pendingCount).toBe(0);
+  });
+
+  it("rejects a start echo bound to another input or observation profile", async () => {
+    const api = traceApi({
+      start: {
+        ok: true,
+        sessionId: SESSION_ID,
+        sourceFingerprint: fingerprintSource(SOURCE),
+        inputFingerprint: fingerprintSource("other input"),
+        observationProfileId: null,
+        observationAuthorizationDigest: null,
+        status: "preparing",
+      },
+    });
+    const controller = createController(api, new FakeScheduler());
+
+    await controller.start({ stdin: "42\n", observationProfileId: "foa-transition-63-v1" });
+
+    expect(api.cancelTrace).toHaveBeenCalledWith(SESSION_ID);
+    expect(controller.getState()).toMatchObject({
+      status: "error",
+      sessionId: null,
+      error: { code: "TRACE_PROTOCOL_ERROR" },
+    });
+  });
+
+  it("rejects a later batch whose main-bound execution identity changes", async () => {
+    const scheduler = new FakeScheduler();
+    const api = traceApi({
+      reads: [
+        batch({
+          status: "running",
+          inputFingerprint: fingerprintSource("other input"),
+        }),
+      ],
+    });
+    const controller = createController(api, scheduler);
+    await controller.start();
+
+    scheduler.runNext();
+    await flushAsyncWork();
+
+    expect(api.cancelTrace).toHaveBeenCalledWith(SESSION_ID);
+    expect(controller.getState()).toMatchObject({
+      status: "error",
+      sessionId: null,
+      error: { code: "TRACE_PROTOCOL_ERROR" },
+    });
   });
 
   it("keeps unsupported, resource and truncated outcomes distinct", async () => {
@@ -391,13 +456,19 @@ function traceApi(options: TraceApiOptions = {}): Pick<
 } {
   const reads = [...(options.reads ?? [])];
   return {
-    startTrace: vi.fn().mockResolvedValue(
-      options.start ?? {
-        ok: true,
-        sessionId: SESSION_ID,
-        sourceFingerprint: fingerprintSource(SOURCE),
-        status: "preparing",
-      },
+    startTrace: vi.fn().mockImplementation((request: TraceRequest) =>
+      Promise.resolve(
+        options.start ?? {
+          ok: true,
+          sessionId: SESSION_ID,
+          sourceFingerprint: fingerprintSource(SOURCE),
+          inputFingerprint: fingerprintSource(request.stdin ?? ""),
+          observationProfileId: request.observationProfileId ?? null,
+          observationAuthorizationDigest:
+            request.observationProfileId === undefined ? null : PROFILE_AUTHORIZATION_DIGEST,
+          status: "preparing",
+        },
+      ),
     ),
     readTrace: vi.fn().mockImplementation(() => {
       const result = reads.shift();
@@ -434,6 +505,9 @@ interface BatchOverrides {
   readonly truncated?: boolean;
   readonly evidence?: TraceRunEvidence | null;
   readonly error?: RunnerError | null;
+  readonly inputFingerprint?: string;
+  readonly observationProfileId?: SuccessfulTraceBatch["observationProfileId"];
+  readonly observationAuthorizationDigest?: string | null;
 }
 
 function batch(overrides: BatchOverrides): SuccessfulTraceBatch {
@@ -441,6 +515,9 @@ function batch(overrides: BatchOverrides): SuccessfulTraceBatch {
     ok: true,
     sessionId: SESSION_ID,
     sourceFingerprint: fingerprintSource(SOURCE),
+    inputFingerprint: overrides.inputFingerprint ?? EMPTY_INPUT_FINGERPRINT,
+    observationProfileId: overrides.observationProfileId ?? null,
+    observationAuthorizationDigest: overrides.observationAuthorizationDigest ?? null,
     status: overrides.status,
     afterSequence: overrides.afterSequence ?? 0,
     nextSequence: overrides.nextSequence ?? 0,

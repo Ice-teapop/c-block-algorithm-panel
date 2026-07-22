@@ -12,20 +12,26 @@
 
 | 平台                          | 当前状态                   | 下载                                                                                                                                                                                                                                                |
 | ----------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS · Apple Silicon / Intel | `v0.0.3-preview.1`，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/AlgoLatch-0.0.3-preview.1-unsigned-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/SHA256SUMS.txt) |
-| Windows 10/11 · x64           | `v0.0.3-preview.1`，未签名 | [下载 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/AlgoLatch-Setup-0.0.3-preview.1-unsigned-x64.exe) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/SHA256SUMS.txt)      |
+| macOS · Apple Silicon / Intel | `v0.1.1-preview.1`，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/AlgoLatch-0.1.1-preview.1-unsigned-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/SHA256SUMS.txt) |
+| Windows 10/11 · x64           | `v0.1.1-preview.1`，未签名 | [下载 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/AlgoLatch-Setup-0.1.1-preview.1-unsigned-x64.exe) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/SHA256SUMS.txt)      |
 
 [下载与安装包状态](./DOWNLOADS.md) ·
 [查看所有版本](https://github.com/Ice-teapop/algolatch/releases) ·
-[v0.0.3-preview.1 说明](./docs/releases/v0.0.3-preview.1.md) ·
+[v0.1.1-preview.1 说明](./docs/releases/v0.1.1-preview.1.md) ·
 [当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
 [安全](./SECURITY.md) · [许可说明](./LICENSING.md) ·
 [Code signing policy](./CODE_SIGNING_POLICY.md)
 
-> GitHub 自动显示的 **Source code** 压缩包不是安装器。`v0.0.3-preview.1`
+> GitHub 自动显示的 **Source code** 压缩包不是安装器。`v0.1.1-preview.1`
 > 同时提供 macOS 与 Windows 安装包，但两者都是未签名先行版，不是正式稳定
 > 版。macOS 可能触发 Gatekeeper，Windows 可能显示未知发布者或 SmartScreen
 > 提示；请先核对同一 Release 中的 SHA-256 清单。
+
+> **教程测试提示：** 本版大幅扩展了课程、动画和运行状态可视化。部分课程
+> 仍可能存在交互、排版、本地化或结果错误。若发现问题，请在
+> [GitHub Issues](https://github.com/Ice-teapop/algolatch/issues/new/choose)
+> 提交课程编号、操作系统与显示缩放、复现步骤和截图；请勿在 Issue 中提交
+> 私人源码、API 密钥或安全漏洞细节。
 
 SignPath Foundation 申请未通过，现有下载没有 SignPath、Apple Developer ID
 或 Windows Authenticode 受信任发布者签名。未来只有在取得适用证书并通过对应
@@ -74,10 +80,10 @@ SignPath Foundation 申请未通过，现有下载没有 SignPath、Apple Develo
 ### 学习、设计与分析
 
 - 80 个版本化预设，其中包括 75 个源码积木和 5 个虚拟流程节点。
-- 114 个 Library 词条，覆盖 C 语法、标准库、数据结构、算法、复杂度、案例
-  和工作台操作。
-- 第一课“扫描求最大值”使用独立沙箱和真实任务证据，训练运行、Trace、
-  补全、图表阅读、调试和迁移。
+- 独立的 FOA 教程模块提供 120 个课程定义，并把课程知识点同步到 Library；
+  课程按内容使用输入、操作、语义动画、源码高亮和受边界约束的运行证据。
+- 第一课“扫描求最大值”继续使用独立沙箱和真实任务证据；教程场景明确区分
+  教学推演、结构匹配与真实 Trace，不把推演变量冒充真实采样。
 - 保守静态分析提供函数级 CFG、def-use、到达定义、循环、数组和直接唯一
   堆句柄 typestate 事实。
 - 本地证据提示不需要联网，并明确区分确定事实、可能问题和启发式建议。
@@ -131,7 +137,7 @@ Windows 通常对应
 
 ### macOS 先行版
 
-1. 在顶部下载表中下载 `v0.0.3-preview.1` Universal DMG 和对应的
+1. 在顶部下载表中下载 `v0.1.1-preview.1` Universal DMG 和对应的
    `SHA256SUMS.txt`。
 2. 在下载目录运行：
 
@@ -159,7 +165,7 @@ Windows 正式包。
 Windows 10/11 x64 先行版已经公开：
 
 1. 从顶部下载表下载
-   `AlgoLatch-Setup-0.0.3-preview.1-unsigned-x64.exe` 和 `SHA256SUMS.txt`。
+   `AlgoLatch-Setup-0.1.1-preview.1-unsigned-x64.exe` 和 `SHA256SUMS.txt`。
 2. 校验 SHA-256 后双击安装器。NSIS 使用 one-click per-user 安装和
    `asInvoker`，不要求管理员权限。
 3. 安装完成后直接打开 AlgoLatch。C 编译器已经包含在安装包中，不需要另装
@@ -222,13 +228,13 @@ npm run build
 
 ## 版本与边界
 
-当前源码版本为 `0.0.3-preview.1`，macOS 与 Windows 已通过同名未签名先行版
-同步提供；正式 `v0.0.3` 尚未发布。每个平台只有在自己的
+当前源码版本为 `0.1.1-preview.1`，macOS 与 Windows 通过同名未签名先行版
+同步提供；正式 `v0.1.1` 尚未发布。每个平台只有在自己的
 签名与安装态门禁通过后才能成为正式资产。
 `v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 `v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
 变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md)、
-[v0.0.3-preview.1 说明](./docs/releases/v0.0.3-preview.1.md) 与
+[v0.1.1-preview.1 说明](./docs/releases/v0.1.1-preview.1.md) 与
 [历史 v0.0.1 发布说明](./docs/releases/v0.0.1.md)。
 
 当前限制包括：
@@ -240,7 +246,7 @@ npm run build
 - Seatbelt 是最佳努力隔离；关键隔离能力不可用时，运行器会拒绝执行或要求
   用户针对该次可信请求明确授权。
 - Windows Job Object 只限制进程树、内存和 CPU，不提供文件或网络隔离。
-- 当前 macOS 与 Windows `v0.0.3-preview.1` 都未使用受信任发布者签名；稳定
+- 当前 macOS 与 Windows `v0.1.1-preview.1` 都未使用受信任发布者签名；稳定
   包尚未发布。
 
 当前源码采用

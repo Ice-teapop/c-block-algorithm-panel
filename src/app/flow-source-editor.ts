@@ -41,6 +41,12 @@ export interface FlowSourceEditorOptions {
     preferredTarget: EditTarget | null,
   ) => void;
   readonly confirm: (message: string) => boolean;
+  /**
+   * Reversible canvas edits commit inline by default. Hosts that operate in a stricter teaching
+   * or kiosk mode can opt back into the legacy blocking confirmation without weakening any source
+   * or CFG validation gate.
+   */
+  readonly confirmReversibleEdits?: boolean | undefined;
   readonly onCommitted: (message: string) => void;
 }
 
@@ -67,6 +73,9 @@ export class FlowSourceCommitError extends Error {
 
 export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSourceEditor {
   assertOptions(options);
+
+  const confirmReversibleEdit = (message: string): boolean =>
+    options.confirmReversibleEdits === true ? options.confirm(message) : true;
 
   const requireEditableSession = (node: FlowNode): ReadySession => {
     const current = options.getSession();
@@ -271,7 +280,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         );
         const patch = minimalReplacementPatch(current.imported.source, branchMove.source);
         if (
-          !options.confirm(
+          !confirmReversibleEdit(
             `这条分支连线会把目标表达式移动到该分支的首个执行位置。候选源码已通过重解析、无损往返和 CFG 边验证。\n\n位置 ${String(patch.range.from)}–${String(patch.range.to)}\n- ${current.imported.source.slice(patch.range.from, patch.range.to)}\n+ ${patch.newText}\n\n写入 main.c？`,
           )
         ) {
@@ -384,7 +393,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         )
         .join("\n\n");
       if (
-        !options.confirm(
+        !confirmReversibleEdit(
           `这条连线会交换两个相邻 C 语句。候选源码已通过重解析、无损往返和 CFG 边验证。\n\n${preview}\n\n写入 main.c？`,
         )
       ) {
@@ -451,7 +460,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
           throw new Error("补全插槽候选无法唯一映射到新分支节点");
         }
         if (
-          !options.confirm(
+          !confirmReversibleEdit(
             `把“${intent.presetId ?? "积木"}”写入补全插槽。候选源码已通过重解析、无损往返和完整 CFG 验证。\n\n继续？`,
           )
         ) {
@@ -476,7 +485,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         )
         .join("\n\n");
       if (
-        !options.confirm(
+        !confirmReversibleEdit(
           `将草稿接入 main.c。系统会在写入前重解析并验证 CFG。\n\n${preview}\n\n继续？`,
         )
       ) {

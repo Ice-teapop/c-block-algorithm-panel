@@ -166,7 +166,7 @@ test("previews insert and delete, respects cancel, and moves attached comments w
   await expectEditorSource(inserted);
 
   await selectStatement("expression_statement", "alpha();");
-  await structureOperation("delete").click();
+  await (await visibleDeleteOperation()).click();
   await confirmVisibleDiff();
   const deleted = ["int value(void) {", "  prepare();", "  beta();", "  return 0;", "}", ""].join(
     "\n",
@@ -194,17 +194,18 @@ test("turns deleted inline required bodies into semicolons and disables unsafe s
   await expect(structureOperation("insert-after")).toBeDisabled();
   await expect(structureOperation("move-previous")).toBeDisabled();
   await expect(structureOperation("move-next")).toBeDisabled();
-  await expect(structureOperation("delete")).toBeEnabled();
+  const deleteOperation = await visibleDeleteOperation();
+  await expect(deleteOperation).toBeEnabled();
   await expect(page.locator(".structure-edit-panel__hint")).toContainText("只允许安全删除");
 
-  await structureOperation("delete").click();
+  await deleteOperation.click();
   await confirmVisibleDiff();
   const withoutUpdate = source.replace("update(); // attached tail", ";");
   await expectEditorSource(withoutUpdate);
 
   await selectStatement("expression_statement", "first();");
   await expect(structureOperation("insert-before")).toBeDisabled();
-  await structureOperation("delete").click();
+  await (await visibleDeleteOperation()).click();
   await confirmVisibleDiff();
   await expectEditorSource(withoutUpdate.replace("first();", ";"));
   expect(await editorText()).toContain("if (ready) ; else second();");
@@ -269,9 +270,9 @@ test("moves adjacent statements with buttons and supports a real drag while reje
     draggableStatement("expression_statement", "b();"),
   );
   await expect(confirmationDialog()).toBeHidden();
-  await expect(page.locator('#import-status[data-state="error"]')).toContainText(
-    /NOT_ADJACENT_SIBLINGS|相邻/u,
-  );
+  const rejectedMoveNotice = page.locator('#import-status[data-state="error"]');
+  await expect(rejectedMoveNotice).toBeVisible();
+  await expect(rejectedMoveNotice).toContainText(/NOT_ADJACENT_SIBLINGS|相邻/u);
   expect(await editorText()).toBe(beforeRejectedDrop);
 
   await showDock("工作区");
@@ -280,9 +281,9 @@ test("moves adjacent statements with buttons and supports a real drag while reje
     draggableStatement("expression_statement", "nested();"),
   );
   await expect(confirmationDialog()).toBeHidden();
-  await expect(page.locator('#import-status[data-state="error"]')).toContainText(
-    /NOT_ADJACENT_SIBLINGS|同一父级|相邻/u,
-  );
+  const crossScopeNotice = page.locator('#import-status[data-state="error"]');
+  await expect(crossScopeNotice).toBeVisible();
+  await expect(crossScopeNotice).toContainText(/NOT_ADJACENT_SIBLINGS|同一父级|相邻/u);
   expect(await editorText()).toBe(beforeRejectedDrop);
 });
 
@@ -375,7 +376,7 @@ test("compiles the current CodeMirror source while projection sync is still pend
   await expect(projectionStatus()).toHaveAttribute("data-state", "pending");
   expect(await editorText()).toBe(normalizedEditorSource(current));
   await showDock("运行");
-  await page.getByRole("button", { name: "编译并运行" }).click();
+  await page.locator("#trace-primary-action").click();
 
   await expect(runPanel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
   expect(await page.locator('[data-run-field="stdout"]').textContent()).toBe("7\n");
@@ -409,6 +410,16 @@ function projectionStatus(): Locator {
 
 function structureOperation(operation: string): Locator {
   return page.locator(`.structure-edit-panel [data-operation="${operation}"]`);
+}
+
+async function visibleDeleteOperation(): Promise<Locator> {
+  const disclosure = page.locator(".structure-edit-panel__more-actions");
+  if (!(await disclosure.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await disclosure.locator(":scope > summary").click();
+  }
+  const operation = structureOperation("delete");
+  await expect(operation).toBeVisible();
+  return operation;
 }
 
 function confirmationDialog(): Locator {

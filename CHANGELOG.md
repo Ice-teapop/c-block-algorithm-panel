@@ -9,6 +9,48 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+## [0.1.1-preview.1] - 2026-07-22
+
+### Added
+
+- Added a standalone FOA tutorial module with a validated 120-course catalog
+  and synchronized Library knowledge entries.
+- Added course-specific semantic scenes for values, arrays, branches, stacks,
+  pointers, matrices and transition exercises, with interactive inputs and
+  learner actions where appropriate.
+- Added stable teaching timelines with play, pause, step, seek, rate control,
+  reduced-motion behavior and synchronized source highlighting.
+- Added explicit runtime-evidence contracts so real Trace facts, structural
+  matching and teaching simulation remain distinguishable.
+
+### Changed
+
+- Split the tutorial catalog, runtime models, semantic scenes and styles into
+  smaller modules to keep the expanded curriculum maintainable.
+- Reduced tutorial chrome, borders and unrelated workbench controls while a
+  course is active, and made meaningful regions independently scrollable.
+- Reworked responsive course layouts for smaller windows and display scaling.
+- Updated the public download, architecture and testing documentation for the
+  new cross-platform preview.
+
+### Fixed
+
+- Fixed recurring tutorial text overlap, clipped labels and misplaced flow
+  arrows across the audited lesson groups.
+- Fixed unstable semantic objects that jumped after selection or timeline
+  changes, and kept animation state synchronized with the active source line.
+- Fixed several late-course layouts that worked full-screen but collided in
+  smaller windows.
+
+### Known issues
+
+- The expanded tutorial surface remains a testing preview. Individual courses
+  may still have interaction, animation, responsive layout, localization or
+  result defects. Reports should include the course number, operating system,
+  display scale, reproduction steps and a screenshot.
+- Teaching models do not claim arbitrary runtime-variable sampling; the real
+  Trace boundary remains limited to verified executed lines and branches.
+
 ## [0.0.3-preview.1] - 2026-07-17
 
 ### Changed

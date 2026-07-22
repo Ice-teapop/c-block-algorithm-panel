@@ -1,0 +1,456 @@
+/* Section: Lesson 33 signature-contract scene. */
+.foa-runtime-scene[data-specialized="signature-contract"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.foa-runtime-scene[data-specialized="signature-contract"] > .foa-semantic-scene__evidence {
+  display: none;
+}
+
+.foa-runtime-scene__memory[data-specialized="signature-contract"] {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The contract canvas replaces the generic four-node rail for this specialized lesson. */
+.foa-runtime-scene__mechanism[data-specialized="signature-contract"] > .foa-runtime-scene__nodes {
+  display: none;
+}
+
+.foa-signature-contract {
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.foa-signature-contract__header {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+
+.foa-signature-contract__title,
+.foa-signature-contract__instruction,
+.foa-signature-contract__step {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.foa-signature-contract__title {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.foa-signature-contract__title[data-status="valid"] {
+  color: var(--success);
+}
+
+.foa-signature-contract__instruction {
+  color: var(--muted);
+}
+
+.foa-signature-contract__step {
+  color: var(--accent);
+  text-align: right;
+}
+
+.foa-signature-contract__canvas {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 206px;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  grid-template-rows: auto;
+  gap: clamp(54px, 6cqw, 88px);
+  align-items: center;
+  padding: 8px 28px 12px;
+  overflow: clip;
+  isolation: isolate;
+}
+
+.foa-signature-contract__station {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 11px 14px 12px;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  background: var(--surface);
+  transition:
+    border-color 160ms ease,
+    opacity 160ms ease,
+    background-color 160ms ease;
+}
+
+.foa-signature-contract__station[data-station-id="prototype"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.foa-signature-contract__station[data-station-id="call"] {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.foa-signature-contract__station[data-station-id="definition"] {
+  width: auto;
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: stretch;
+}
+
+.foa-signature-contract__station[data-state="current"] {
+  border-bottom-color: var(--accent);
+}
+
+.foa-signature-contract__station[data-state="verified"] {
+  border-bottom-color: var(--success);
+}
+
+.foa-signature-contract__station[data-state="pending"] {
+  border-color: var(--line);
+  background: var(--surface-soft);
+}
+
+.foa-signature-contract__station-name {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.foa-signature-contract__signature,
+.foa-signature-contract__field-value {
+  min-width: 0;
+  color: var(--ink);
+  font:
+    600 13px/1.35 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+.foa-signature-contract__field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(74px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  border-top: 1px solid var(--line);
+  transition:
+    opacity 150ms ease,
+    background-color 150ms ease;
+}
+
+.foa-signature-contract__field[data-state="active"] {
+  background: var(--accent-soft);
+}
+
+.foa-signature-contract__field:is([data-state="idle"], [data-state="done"])
+  > :is(.foa-signature-contract__field-label, .foa-signature-contract__field-value) {
+  visibility: hidden;
+}
+
+.foa-signature-contract__field[data-state="idle"] .foa-signature-contract__port {
+  visibility: hidden;
+}
+
+.foa-signature-contract__field-label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.foa-signature-contract__routes,
+.foa-signature-contract__travel-layer {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.foa-signature-contract__route,
+.foa-signature-contract__drag-route {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-linecap: round;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.foa-signature-contract__route[data-state="pending"] {
+  opacity: 0;
+  stroke-dasharray: 4 6;
+}
+
+.foa-signature-contract__route[data-state="active"],
+.foa-signature-contract__route[data-state="preview"] {
+  opacity: 1;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.foa-signature-contract__route[data-state="preview"] {
+  opacity: 0.66;
+  stroke-dasharray: 5 5;
+}
+
+.foa-signature-contract__route[data-state="done"] {
+  opacity: 0.55;
+  stroke: var(--success);
+  stroke-width: 1.25;
+}
+
+.foa-signature-contract__drag-route {
+  opacity: 0;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.foa-signature-contract__drag-route[data-active="true"] {
+  opacity: 1;
+}
+
+.foa-signature-contract__port {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: default;
+}
+
+.foa-signature-contract__port::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  content: "";
+  transform: translate(-50%, -50%) scale(0.64);
+  transition:
+    transform 100ms ease,
+    border-color 100ms ease,
+    background-color 100ms ease;
+}
+
+.foa-signature-contract__port--source {
+  right: -21px;
+}
+
+.foa-signature-contract__port--target {
+  left: -21px;
+}
+
+.foa-signature-contract__port[data-endpoint-id="definition-result"] {
+  right: auto;
+  left: -21px;
+}
+
+.foa-signature-contract__port[data-endpoint-id="call-result"] {
+  right: -21px;
+  left: auto;
+}
+
+.foa-signature-contract__port[data-compatible="true"] {
+  cursor: crosshair;
+}
+
+.foa-signature-contract__port[data-compatible="true"]::before,
+.foa-signature-contract__port[data-target-compatible="true"]::before {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translate(-50%, -50%) scale(0.86);
+}
+
+.foa-signature-contract__port[data-pressed="true"]::before {
+  background: var(--accent);
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.foa-signature-contract__port:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.foa-signature-contract__travel-layer {
+  z-index: 3;
+}
+
+.foa-signature-contract__travel-token {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 26px;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: var(--surface);
+  font:
+    650 12px/1.2 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  text-align: center;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.foa-signature-contract[data-reduced-motion="true"] .foa-signature-contract__travel-token {
+  display: none;
+}
+
+@container tutorial-stage (max-width: 680px) {
+  .foa-signature-contract__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .foa-signature-contract__instruction {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .foa-signature-contract__canvas {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    padding-inline: 20px;
+  }
+}
+
+@container tutorial-stage (max-width: 520px) {
+  .foa-signature-contract__canvas {
+    min-height: 430px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(3, auto);
+    gap: 44px;
+    padding-inline: 30px;
+  }
+
+  .foa-signature-contract__station[data-station-id] {
+    width: 100%;
+    max-width: none;
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .foa-signature-contract__station[data-station-id="prototype"] {
+    grid-row: 1;
+  }
+
+  .foa-signature-contract__station[data-station-id="call"] {
+    grid-row: 2;
+  }
+
+  .foa-signature-contract__station[data-station-id="definition"] {
+    grid-row: 3;
+  }
+}
+
+.foa-runtime-scene[data-reduced-motion="true"] .foa-runtime-scene__moving-token {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .foa-semantic-scene.foa-runtime-scene[data-scene-kind] .foa-runtime-scene__mechanism {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "header"
+      "frame"
+      "values"
+      "relation"
+      "special"
+      "history"
+      "action"
+      "nodes";
+    grid-template-rows: repeat(8, auto);
+    gap: 12px;
+    padding: 16px 18px;
+  }
+
+  .foa-runtime-scene__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .foa-runtime-scene__primary-action {
+    text-align: left;
+  }
+
+  .foa-runtime-scene__history {
+    padding: 10px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .foa-runtime-scene__stack,
+  .foa-runtime-scene__memory {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .foa-runtime-scene__observation-track {
+    grid-template-columns: repeat(2, minmax(112px, 1fr));
+  }
+
+  .foa-runtime-scene__stack-controls,
+  .foa-runtime-scene__memory-controls {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .foa-runtime-scene__nodes {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .foa-semantic-scene.foa-runtime-scene[data-scene-kind] .foa-runtime-scene__mechanism {
+    min-height: 0;
+    padding: 14px 12px;
+  }
+
+  .foa-runtime-scene__nodes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foa-runtime-scene__observation-track {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foa-runtime-scene__branch {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .foa-runtime-scene__branch > strong {
+    grid-column: 1 / -1;
+  }
+}

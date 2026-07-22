@@ -431,6 +431,87 @@ export const ENGLISH_LIBRARY_ENTRY_LOCALIZATIONS: Readonly<
       ],
     },
   }),
+  "tutorial.insertion-sort-lab": entry({
+    title: "Insertion sort lab",
+    summary:
+      "Operate the textbook adjacent-swap version first, then contrast key-and-shift and benchmark explicit input distributions.",
+    details: [
+      "The textbook path moves the current value left through adjacent swaps until the sorted prefix is restored. Each comparison and swap stays visible.",
+      "The key-and-shift implementation is an optimization contrast after the textbook path: preserve the current value, shift larger predecessors, then write the key into the hole.",
+      "Trace proves which loop and branch paths this run took; it does not display every array value. Verify the array through real output and observe growth with a multi-size Benchmark.",
+    ],
+    aliases: ["insertion sort", "insertion sorting", "adjacent swap", "sorted prefix"],
+    keywords: ["swap", "shift", "key", "reverse order", "duplicates", "Benchmark"],
+    example: { caption: "Textbook adjacent-swap insertion sort" },
+    complexity:
+      "Insertion sort takes O(n^2) average and worst-case time, O(n) best-case time for already sorted input, and O(1) extra space.",
+    pitfalls: [
+      "Omitting either side of a textbook swap duplicates and loses a value; omitting the optimized key write-back also breaks the permutation.",
+    ],
+    featureLinkLabel: "Open source panel",
+    tutorial: {
+      learningGoals: [
+        "Connect the sorted-prefix invariant to each textbook adjacent comparison and swap",
+        "Distinguish the textbook main path from the key-and-shift optimization contrast",
+        "Verify sorted output with normal, reverse-order, and duplicate-value inputs",
+        "Distinguish evidence from a real path, operation growth, and wall-clock time",
+      ],
+      steps: {
+        "compare-insertion-block": step(
+          "Swap first, then inspect the optimization",
+          "Run the textbook adjacent-swap source and watch the current value move left one slot at a time. Then search presets for ‘Shift larger elements’ and contrast key preservation, right shifts, and final write-back.",
+          "You can identify both sides of each textbook swap and explain why the optimization must preserve key first.",
+          ["Textbook adjacent-swap main path", "Optimization contrast · key and shift"],
+          "Open preset blocks",
+        ),
+        "run-input-families": step(
+          "Run three input families",
+          "Write the expected result first, then run normal, completely reverse-order, and duplicate-value inputs. Check normal termination and the complete ascending output every time.",
+          "All three runs exit normally and each real output matches its expected output character for character.",
+          [
+            {
+              caption: "Normal case",
+              code: "stdin:\n5\n5 2 4 6 1\nexpected stdout:\n1 2 4 5 6\n",
+            },
+            {
+              caption: "Reverse-order case",
+              code: "stdin:\n5\n5 4 3 2 1\nexpected stdout:\n1 2 3 4 5\n",
+            },
+            {
+              caption: "Duplicate-value case",
+              code: "stdin:\n6\n3 1 3 2 1 2\nexpected stdout:\n1 1 2 2 3 3\n",
+            },
+          ],
+          "Open run panel",
+        ),
+        "trace-reverse-path": step(
+          "Trace the reverse-order path",
+          "Start a real Trace with the reverse-order input and inspect the inner while loop's execution and exit paths. Do not interpret path highlighting as sampled array values.",
+          "The Trace maps to the current source and traverses the shift loop; your conclusion describes only the actual path and does not claim that every intermediate array state was observed.",
+          ["Trace input"],
+          "Start real Trace",
+        ),
+        "benchmark-insertion-growth": step(
+          "Compare growth across sizes",
+          "Run the ‘Insertion sort · already sorted’, ‘reverse-order’, and ‘duplicate-value’ scenarios at sizes 8, 32, and 128 at least three times each. Keep input distributions in separate cohorts, verify output, then read operation growth and wall-clock time separately.",
+          "All three size results use the same source and scenario; the interpretation does not present one timing or one curve as proof of complexity.",
+          [
+            {
+              caption: "Benchmark settings",
+              code: "scenarios: Insertion sort · already sorted / reverse-order / duplicate-value\nsizes: 8, 32, 128\nrepetitions: 3",
+            },
+          ],
+          "Open Analysis",
+        ),
+      },
+      completionChecks: [
+        "I can use adjacent swaps to explain why values[0..i) is restored after every pass.",
+        "I can explain why key-and-shift is an optimization contrast, not a different sorting claim.",
+        "Normal, reverse-order, and duplicate-value inputs all produce complete ascending output.",
+        "I can distinguish what a Trace path, operation growth, and measured time each establish.",
+      ],
+    },
+  }),
 });
 
 function entry(value: LibraryEntryLocalization): LibraryEntryLocalization {

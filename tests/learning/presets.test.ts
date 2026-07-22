@@ -66,10 +66,14 @@ describe("versioned built-in preset library", () => {
         expect(preset.source).toBeNull();
         expect(preset.fragmentKind).toBeNull();
         expect(preset.placement.scope).toBe("flow-canvas");
+        expect(preset.placement.acceptedSyntaxSlots).toEqual([]);
+        expect(preset.placement.requiredAnyAncestorCapabilities).toEqual([]);
+        expect(preset.placement.providedSyntaxSlots).toEqual([]);
       } else {
         expect(preset.source.trim()).not.toBe("");
         expect(["statement", "control"]).toContain(preset.fragmentKind);
         expect(preset.placement.scope).toBe("function-body");
+        expect(preset.placement.acceptedSyntaxSlots.length).toBeGreaterThan(0);
       }
     }
     expect(BUILTIN_PRESET_BLOCKS.some((preset) => preset.alternatives.length > 0)).toBe(true);
@@ -100,6 +104,35 @@ describe("versioned built-in preset library", () => {
     expect(
       sequential.ports.filter((port) => port.direction === "output" && port.channel === "control"),
     ).toHaveLength(1);
+  });
+
+  it("models structural C slots before source and CFG validation", () => {
+    const byId = new Map(BUILTIN_PRESET_BLOCKS.map((preset) => [preset.id, preset]));
+    expect(byId.get("builtin.control.break")?.placement.requiredAnyAncestorCapabilities).toEqual([
+      "loop",
+      "switch",
+    ]);
+    expect(byId.get("builtin.control.continue")?.placement.requiredAnyAncestorCapabilities).toEqual(
+      ["loop"],
+    );
+    expect(
+      byId
+        .get("builtin.control.if")
+        ?.placement.providedSyntaxSlots.map(({ branch, kind }) => [branch, kind]),
+    ).toEqual([["true", "compound-body"]]);
+    expect(
+      byId
+        .get("builtin.control.if-else")
+        ?.placement.providedSyntaxSlots.map(({ branch, kind }) => [branch, kind]),
+    ).toEqual([
+      ["true", "compound-body"],
+      ["false", "compound-body"],
+    ]);
+    expect(
+      byId
+        .get("builtin.control.for")
+        ?.placement.providedSyntaxSlots.map(({ branch, kind }) => [branch, kind]),
+    ).toEqual([["body", "loop-body"]]);
   });
 
   it("parses every source-backed preset through the existing single-fragment insertion gate", () => {

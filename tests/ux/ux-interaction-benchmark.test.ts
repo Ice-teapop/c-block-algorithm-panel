@@ -79,7 +79,8 @@ describe("UX interaction benchmark v1", () => {
   it("meets the one-activation next-problem budget with F8", () => {
     expect(runtimeSource).toContain('event.key !== "F8"');
     expect(runtimeSource).toContain('event.shiftKey ? "previous" : "next"');
-    expect(runtimeSource).toContain('button.setAttribute("aria-keyshortcuts", "F8 Shift+F8")');
+    expect(runtimeSource).toContain("revealPrimaryProblem");
+    expect(runtimeSource).not.toContain('button.setAttribute("aria-keyshortcuts", "F8 Shift+F8")');
     expectGate("next-problem-activations", 1);
   });
 

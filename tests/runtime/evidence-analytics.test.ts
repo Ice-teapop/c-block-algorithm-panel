@@ -67,7 +67,7 @@ describe("run-history evidence analytics", () => {
         peakRssBytes: { sampleCount: 1, median: 1_600 },
       },
     ]);
-    expect(result.growth.status).toBe("insufficient");
+    expect(result.growth.status).toBe("unconfirmed");
     expect(result.evidence).toContain("同源码、同情景、同工具链");
     expect(JSON.stringify(history)).toBe(before);
     expectDeepFrozen(result);
@@ -160,7 +160,22 @@ describe("run-history evidence analytics", () => {
   });
 
   it("publishes defaults only for known built-in scenario ids", () => {
-    expect(defaultComplexityReference("scenario.sorting.integers")).toMatchObject({
+    expect(defaultComplexityReference("scenario.sorting.integers")).toBeNull();
+    expect(defaultComplexityReference("scenario.sorting.insertion.sorted")).toMatchObject({
+      curve: "linear",
+      confirmed: true,
+    });
+    expect(defaultComplexityReference("scenario.sorting.insertion.reverse")).toMatchObject({
+      curve: "quadratic",
+      confirmed: true,
+    });
+    expect(defaultComplexityReference("scenario.sorting.quick")).toMatchObject({
+      curve: "n-log-n",
+      label: expect.stringContaining("平均"),
+      confirmed: true,
+    });
+    expect(defaultComplexityReference("scenario.sorting.quick.sorted")).toBeNull();
+    expect(defaultComplexityReference("scenario.sorting.merge.reverse")).toMatchObject({
       curve: "n-log-n",
       confirmed: true,
     });

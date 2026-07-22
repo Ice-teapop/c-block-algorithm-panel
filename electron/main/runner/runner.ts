@@ -73,6 +73,7 @@ import {
   type SupervisionLimits,
 } from "./supervisor.js";
 import { instrumentTraceSource } from "./trace-instrumentation.js";
+import type { ResolvedTraceProbeDefinition } from "./trace-observation-profiles.js";
 import {
   TraceProtocolParser,
   TraceSessionRegistry,
@@ -397,12 +398,25 @@ export class Runner {
         validated.sourceFingerprint,
         validated.sourceName,
         protocolNonce,
+        validated.observationProfile,
       );
       if (!instrumentation.ok) {
         return traceUnsupportedFailure(instrumentation.reason);
       }
       const sessionId = this.#traceIdGenerator();
-      const session = this.#traceSessions.create(sessionId, validated.sourceFingerprint);
+      const inputFingerprint = fingerprintSource(validated.stdin);
+      const observationProfileId = validated.observationProfile?.id ?? null;
+      const observationAuthorizationDigest =
+        validated.observationProfile?.authorizationDigest ?? null;
+      const session = this.#traceSessions.create(
+        sessionId,
+        Object.freeze({
+          sourceFingerprint: validated.sourceFingerprint,
+          inputFingerprint,
+          observationProfileId,
+          observationAuthorizationDigest,
+        }),
+      );
       const backgroundRelease = releaseTask;
       releaseTask = undefined;
       void this.#executeTraceSession(
@@ -411,12 +425,16 @@ export class Runner {
         instrumentation.value.source,
         instrumentation.value.protocolNonce,
         instrumentation.value.instrumentedLines,
+        instrumentation.value.probeDefinitions,
         strategy,
       ).finally(backgroundRelease);
       return Object.freeze({
         ok: true,
         sessionId,
         sourceFingerprint: validated.sourceFingerprint,
+        inputFingerprint,
+        observationProfileId,
+        observationAuthorizationDigest,
         status: "preparing",
       });
     } catch (error) {
@@ -575,6 +593,7 @@ export class Runner {
     shadowSource: string,
     protocolNonce: string,
     instrumentedLines: readonly number[],
+    probeDefinitions: readonly ResolvedTraceProbeDefinition[],
     strategy: ExecutionStrategy,
   ): Promise<void> {
     let artifactId: string | undefined;
@@ -599,6 +618,7 @@ export class Runner {
         startedAtMs,
         clock: this.#clock,
         allowedLines: new Set(instrumentedLines),
+        allowedProbes: probeDefinitions,
         onEvent: (event) => {
           const accepted = session.append(event);
           if (!accepted) this.#cancelActiveProcesses();
@@ -643,6 +663,7 @@ export class Runner {
         ),
         executedNodeCount: session.uniqueLineCount,
         operationCount: session.eventCount,
+        stdout: Uint8Array.from(runResult.stdout),
       });
       session.complete(evidence);
     } catch (error) {
@@ -1624,6 +1645,7 @@ function diagnoseRequestSummary(request: ValidatedDiagnoseRequest): TrustedReque
 
 function traceRequestSummary(request: ValidatedTraceRequest): TrustedRequestSummary {
   const requestDigest = fingerprintTraceRequest(request);
+  const profile = request.observationProfile;
   return Object.freeze({
     operation: "trace",
     requestDigest,
@@ -1635,6 +1657,8 @@ function traceRequestSummary(request: ValidatedTraceRequest): TrustedRequestSumm
       `参数：${JSON.stringify(request.args)}`,
       `标准输入：${Buffer.byteLength(request.stdin, "utf8")} UTF-8 字节`,
       `fixtures：${String(request.fixtures.length)} 个`,
+      `观测 profile：${profile?.id ?? "无"}`,
+      `观测 probes：${profile?.probes.map((probe) => probe.probeId).join(", ") ?? "无"}`,
       `请求 SHA-256：${requestDigest}`,
     ]),
   });
@@ -1698,6 +1722,11 @@ function fingerprintTraceRequest(request: ValidatedTraceRequest): string {
     updateFingerprint(hash, fixture.path);
     updateFingerprint(hash, fixture.contents);
   }
+  const profile = request.observationProfile;
+  updateFingerprint(hash, profile?.id ?? "no-observation-profile");
+  updateFingerprint(hash, profile?.authorizationDigest ?? "no-observation-probes");
+  updateFingerprint(hash, String(profile?.probes.length ?? 0));
+  for (const probe of profile?.probes ?? []) updateFingerprint(hash, probe.probeId);
   return hash.digest("hex");
 }
 

@@ -1,0 +1,174 @@
+/* Section: Application shell and shared controls. */
+.workbench-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: 46px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  color: var(--ink);
+  background: var(--canvas);
+}
+
+.startup-loader {
+  position: absolute;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
+  color: #eef2f6;
+  background: #0a0c0e;
+  isolation: isolate;
+  transition: opacity 360ms ease;
+}
+
+.startup-loader__background {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(6, 8, 10, 0.22), rgba(6, 8, 10, 0.86)),
+    url("/startup-block-system.png") center / cover no-repeat,
+    #0a0c0e;
+}
+
+.startup-loader__background::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(5, 7, 9, 0.72), transparent 54%, rgba(5, 7, 9, 0.38));
+  content: "";
+}
+
+.startup-loader__surface {
+  display: grid;
+  width: min(520px, calc(100vw - 48px));
+  gap: 10px;
+  margin-bottom: clamp(42px, 9vh, 92px);
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(151, 164, 178, 0.42);
+  border-left: 3px solid #668fc3;
+  background: rgba(12, 15, 18, 0.9);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+}
+
+.startup-loader__status {
+  color: #d7dde5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.startup-loader__progress {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #272d33;
+  appearance: none;
+}
+
+.startup-loader__progress::-webkit-progress-bar {
+  background: #272d33;
+}
+
+.startup-loader__progress::-webkit-progress-value {
+  background: #668fc3;
+  transition: width 240ms linear;
+}
+
+.startup-loader[data-state="ready"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.startup-loader[data-state="error"] .startup-loader__surface {
+  border-left-color: #d46f6f;
+}
+
+.startup-loader[data-state="error"] .startup-loader__progress::-webkit-progress-value {
+  background: #d46f6f;
+}
+
+.app-bar {
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 240px) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+h2 {
+  margin-bottom: 0;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.025em;
+}
+
+.document-identity {
+  justify-self: center;
+  min-width: 0;
+  max-width: 30rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.button,
+.icon-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  border-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  transition: none;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.button--primary {
+  border: 1px solid var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.button--primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.button--quiet {
+  border: 1px solid var(--line-strong);
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+}
+
+.button--quiet:hover:not(:disabled) {
+  border-color: var(--muted-subtle);
+  color: var(--ink);
+  background: var(--surface-hover);
+}

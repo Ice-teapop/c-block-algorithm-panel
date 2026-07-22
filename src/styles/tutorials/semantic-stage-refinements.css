@@ -1,0 +1,393 @@
+/* Section: FOA semantic-stage guidance, feedback, and composition. */
+.foa-semantic-stage__task {
+  grid-template-rows: 64px minmax(0, 1fr);
+}
+
+.foa-semantic-stage__primary {
+  grid-template-rows:
+    auto minmax(170px, 1fr) auto 6px
+    minmax(150px, var(--foa-source-height, 160px));
+}
+
+.library-task-stage__progress li {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+  padding: 6px 10px;
+}
+
+.foa-semantic-stage__timeline-button {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.foa-semantic-stage__timeline-button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foa-semantic-stage__timeline-button:focus-visible {
+  outline: 2px solid var(--accent, #275e9f);
+  outline-offset: 2px;
+}
+
+.foa-semantic-stage__timeline-status {
+  color: var(--muted, #68717c);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.library-task-stage__progress li[data-state="preview"] {
+  color: var(--accent, #275e9f);
+  background: var(--accent-soft, #eef5fc);
+  box-shadow: inset 0 -2px 0 var(--accent, #275e9f);
+}
+
+.foa-semantic-stage__guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line, #d9dde2);
+}
+
+.foa-semantic-stage__guide-row {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+  padding: 9px 12px;
+  border-right: 1px solid var(--line, #d9dde2);
+}
+
+.foa-semantic-stage__guide-row:last-child {
+  border-right: 0;
+}
+
+.foa-semantic-stage__guide-row > span {
+  color: var(--muted, #68717c);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.foa-semantic-stage__guide-row > strong,
+.foa-semantic-stage__guide-row > p,
+.foa-semantic-stage__guide-row > code {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.foa-semantic-stage__guide-row > code {
+  color: var(--code-ink, #20252b);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.foa-semantic-stage__preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 7px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--accent, #275e9f);
+  color: var(--muted, #68717c);
+  background: var(--accent-soft, #eef5fc);
+  font-size: 10px;
+}
+
+.foa-semantic-stage__preview-banner[hidden] {
+  display: none;
+}
+
+.foa-semantic-stage__preview-banner .button {
+  flex: none;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  color: var(--accent, #275e9f);
+  background: transparent;
+}
+
+.foa-semantic-stage__source-splitter {
+  position: relative;
+  z-index: 2;
+  min-height: 6px;
+  border-top: 1px solid var(--line, #c9ced4);
+  border-bottom: 1px solid var(--line, #c9ced4);
+  background: var(--surface-soft, #f6f7f8);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.foa-semantic-stage__source-splitter:hover,
+.foa-semantic-stage__source-splitter:focus-visible {
+  border-color: var(--accent, #275e9f);
+  outline: 0;
+}
+
+.foa-semantic-stage .teaching-source-view {
+  min-height: 150px;
+  border-top: 0;
+}
+
+.foa-block-stage__source-header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line, #e1e4e8);
+}
+
+.foa-block-stage__source-summary {
+  color: var(--muted, #68717c);
+  font-size: 10px;
+}
+
+@container tutorials-host (max-width: 760px) {
+  .foa-semantic-stage__task {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .library-task-stage__progress {
+    overflow-x: auto;
+    grid-auto-columns: minmax(150px, 1fr);
+    grid-template-columns: none !important;
+    grid-auto-flow: column;
+  }
+
+  .foa-semantic-stage__guide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foa-semantic-stage__guide-row {
+    border-right: 0;
+    border-bottom: 1px solid var(--line, #d9dde2);
+  }
+
+  .foa-semantic-stage__guide-row:last-child {
+    border-bottom: 0;
+  }
+}
+
+.foa-task-lesson__interaction {
+  align-content: start;
+  gap: 7px;
+  padding: 0 0 18px;
+  border-bottom: 0;
+}
+
+.foa-task-lesson__stage .library-task-stage__main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.foa-task-lesson__stage .library-task-stage__prompt {
+  display: block;
+  min-height: 38px;
+  padding: 9px 14px;
+}
+
+.foa-task-lesson__board {
+  grid-template-rows: auto minmax(280px, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border-right: 0;
+}
+
+.foa-task-lesson__source {
+  min-height: 280px;
+}
+
+.foa-task-lesson__interaction > .button,
+.foa-task-lesson__blocks > .button,
+.foa-task-lesson__composition .button {
+  justify-content: flex-start;
+  min-height: 32px;
+  border: 0;
+  border-bottom: 1px solid #d9dde2;
+  text-align: left;
+}
+
+.foa-task-lesson__blocks {
+  display: grid;
+  gap: 1px;
+}
+
+.foa-task-lesson__composition {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foa-task-lesson__composition li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.foa-task-lesson__composition li > span {
+  padding: 8px 6px;
+  font-size: 10px;
+}
+
+@media (max-width: 980px) {
+  .library-task-stage__header {
+    grid-template-columns: 150px minmax(360px, 1fr) auto;
+  }
+
+  .library-task-stage__progress li {
+    padding: 0 7px;
+    font-size: 8px;
+  }
+
+  .library-task-stage__main {
+    grid-template-columns: minmax(430px, 1fr) 230px;
+  }
+
+  .library-task-stage__prompt {
+    grid-template-columns: 170px 1fr;
+  }
+
+  .library-task-stage__prompt .library-task-lesson__boundary {
+    display: none;
+  }
+
+  .library-task-stage__controls {
+    grid-template-columns: minmax(360px, 1fr) auto;
+  }
+
+  .library-task-stage__recovery {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .library-task-lesson--v2 .library-task-lesson__intro {
+    padding: 28px 22px;
+    gap: 28px;
+  }
+
+  .library-task-stage {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .library-task-stage__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 48px 36px;
+  }
+
+  .library-task-stage__identity {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .library-task-stage__header > .button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .library-task-stage__progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(5, minmax(112px, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid #e1e4e8;
+  }
+
+  .library-task-stage__progress li {
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+
+  .library-task-stage__main {
+    display: block;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .library-task-stage__prompt {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .library-task-stage__board {
+    min-height: 360px;
+    padding: 24px 20px 16px;
+    overflow-x: auto;
+    overflow-y: visible;
+    border-right: 0;
+    border-bottom: 1px solid #c9ced4;
+  }
+
+  .library-task-stage__board-grid {
+    max-width: none;
+  }
+
+  .library-task-stage__side {
+    overflow: visible;
+    border-bottom: 1px solid #c9ced4;
+  }
+
+  .library-task-stage__reflection {
+    min-height: auto;
+    padding: 28px 22px 36px;
+    overflow: visible;
+  }
+
+  .library-task-stage__controls {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 154px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .library-task-stage__transport,
+  .library-task-stage__speed,
+  .library-task-stage__recovery {
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid #e1e4e8;
+  }
+
+  .library-task-stage__transport label {
+    min-width: 180px;
+  }
+
+  .library-task-stage__recovery {
+    display: flex;
+    border-bottom: 0;
+  }
+
+  .library-task-lesson__completion {
+    padding: 28px 22px 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-task-stage__token {
+    scroll-behavior: auto;
+    transition: none !important;
+  }
+}

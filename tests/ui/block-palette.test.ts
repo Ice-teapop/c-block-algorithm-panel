@@ -110,7 +110,7 @@ describe("block palette trust and accessibility contract", () => {
     );
     expect(source).toContain("button[data-template-action='insert']");
     expect(source).toContain("label.textContent = presentation.label");
-    expect(source).toContain("category.textContent = `${copy.dragPrefix}");
+    expect(source).toContain("category.textContent = `${presetRoleLabel");
     expect(source).not.toContain("innerHTML");
   });
 
@@ -158,7 +158,7 @@ describe("block palette trust and accessibility contract", () => {
     expect(flatPaletteText(root)).toContain("我的 Max Block");
     expect(flatPaletteText(root)).toContain("maximum = value;");
     expect(flatPaletteText(root)).toContain("用户自己的说明");
-    expect(flatPaletteText(root)).toContain("Drag · Custom");
+    expect(flatPaletteText(root)).toContain("Code Block · C statement slot");
     expect(flatPaletteText(root)).toContain("Insert at Selection");
 
     palette.destroy();

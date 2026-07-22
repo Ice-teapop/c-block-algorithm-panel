@@ -46,11 +46,11 @@ export const PLATFORM_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     "本地自动保存",
     "打开工作区条目后，源码会在停止输入片刻后自动保存到 Documents 的专属目录。",
     [
-      "底部状态栏会显示正在保存、已保存或存在冲突。发生冲突时应用会停止覆盖，并要求你先重新载入磁盘版本。",
+      "保存过程在后台完成，不再常驻占用底栏。若检测到磁盘冲突，应用会停止覆盖，顶部源码操作区会出现“重新载入磁盘版本”。",
       "自动保存用于防止意外丢稿，不等于版本历史。重要项目仍建议使用 Git 或另行备份。",
     ],
     {
-      featureLink: link("查看保存状态", "build", "local-save"),
+      featureLink: link("定位源码操作", "build", "local-save"),
       related: ["recovery.disk-conflict", "manual.source-authority"],
     },
   ),

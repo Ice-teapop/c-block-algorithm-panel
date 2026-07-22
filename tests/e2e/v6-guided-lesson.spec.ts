@@ -18,6 +18,7 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "c-block-v6-lesson-e2e-"));
+  const developmentServerPort = process.env.PANEL_E2E_PORT ?? "5173";
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
@@ -30,6 +31,7 @@ test.beforeAll(async () => {
       ...inheritedEnvironment,
       PANEL_RUNNER_MODE: "trusted-only",
       PANEL_WORKSPACE_ROOT: workspaceRoot,
+      VITE_DEV_SERVER_URL: `http://127.0.0.1:${developmentServerPort}/`,
     },
   });
   page = await application.firstWindow();
@@ -55,28 +57,21 @@ test.afterAll(async () => {
   await rm(workspaceRoot, { recursive: true, force: true });
 });
 
-test("remembers direct entry without creating a tutorial workspace", async () => {
-  const start = page.getByRole("region", { name: "首次使用" });
-  await expect(start).toBeVisible();
-  await start.getByRole("button", { name: "直接进入工作台" }).click();
-  await expect(page.locator("#build-panel")).toBeVisible();
+test("keeps the Dashboard free of the removed first-run tutorial prompt", async () => {
+  await expect(page.getByRole("region", { name: "首次使用" })).toHaveCount(0);
+  await expect(page.locator("#tutorials-tab")).toBeVisible();
   await expect(page.locator(".onboarding-tour")).toHaveCount(0);
-  expect(
-    await page.evaluate(() =>
-      globalThis.localStorage.getItem("c-block-algorithm-panel:first-run-v6"),
-    ),
-  ).toBe("direct");
   expect(await readdir(join(workspaceRoot, "Sandboxes"))).toEqual([]);
 });
 
-test("atomically creates the first lesson and mounts the evidence task rail", async () => {
-  await page.evaluate(() =>
-    globalThis.localStorage.removeItem("c-block-algorithm-panel:first-run-v6"),
-  );
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("#startup-loader")).toBeHidden();
-  const start = page.getByRole("region", { name: "首次使用" });
-  await start.getByRole("button", { name: "开始第一课 · 扫描求最大值" }).click();
+test("starts the guided first lesson from the explicit Library help entry", async () => {
+  await page.locator('[data-menu-root-trigger="library"]').click();
+  await expect(page.locator("#software-library-panel")).toBeVisible();
+  await page.getByRole("button", { name: "帮助", exact: true }).click();
+  await expect(
+    page.locator("[data-library-branch-id='manual'][aria-current='true']"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "开始第一课", exact: true }).click();
 
   await expect(page.locator("#build-panel")).toBeVisible();
   await expect(page.getByRole("complementary", { name: /第一课/u })).toBeVisible();

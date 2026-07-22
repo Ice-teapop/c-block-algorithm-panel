@@ -12,6 +12,23 @@ export type PresetPortDirection = "input" | "output";
 export type PresetPortChannel = "control" | "data";
 export type PresetPortCardinality = "one" | "many";
 export type PresetPlacementScope = "function-body" | "flow-canvas";
+/**
+ * Structural C locations exposed by the projected block tree. These are UX hints only:
+ * the parser, exact source diff and CFG gate remain authoritative for every insertion.
+ */
+export type PresetSyntaxSlotKind = "function-body" | "compound-body" | "loop-body" | "switch-case";
+
+/** Enclosing control constructs that make context-sensitive statements legal. */
+export type PresetSyntaxAncestorCapability = "loop" | "switch";
+
+export interface PresetProvidedSyntaxSlot {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: PresetSyntaxSlotKind;
+  readonly cardinality: PresetPortCardinality;
+  /** Stable semantic branch such as true, false, body, case-0 or default. */
+  readonly branch?: string;
+}
 
 export interface LearningStageDefinition {
   readonly id: string;
@@ -50,6 +67,16 @@ export interface PresetPlacementCondition {
   readonly allowedParentNodeTypes: readonly string[];
   readonly requiresHeaders: readonly string[];
   readonly requiresSymbols: readonly string[];
+  /** Candidate structural slots shown before the source/CFG validation gate runs. */
+  readonly acceptedSyntaxSlots: readonly PresetSyntaxSlotKind[];
+  /**
+   * When non-empty, at least one capability must exist in the slot's ancestor chain.
+   * This models statements such as break and continue without conflating them with the
+   * immediate compound-body slot.
+   */
+  readonly requiredAnyAncestorCapabilities: readonly PresetSyntaxAncestorCapability[];
+  /** Child slots contributed by a structural preset such as if, loop or switch. */
+  readonly providedSyntaxSlots: readonly PresetProvidedSyntaxSlot[];
 }
 
 export interface PresetBlockExplanation {

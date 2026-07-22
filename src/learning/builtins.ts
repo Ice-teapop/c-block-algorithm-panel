@@ -6,7 +6,10 @@ import type {
   PresetBlockKind,
   PresetBlockScenario,
   PresetPortDefinition,
+  PresetProvidedSyntaxSlot,
   PresetSourceBlockDefinition,
+  PresetSyntaxAncestorCapability,
+  PresetSyntaxSlotKind,
   PresetVirtualBlockDefinition,
 } from "./contracts.js";
 
@@ -116,7 +119,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "条件非零时执行一个动作。",
     "control",
     "control",
-    { branches: ["true", "false"], requiresSymbols: ["condition", "action"] },
+    {
+      branches: ["true", "false"],
+      providedSyntaxBranches: ["true"],
+      requiresSymbols: ["condition", "action"],
+    },
   ),
   sourcePreset(
     "builtin.control.if-else",
@@ -127,7 +134,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "按条件在两个动作中选择一个。",
     "control",
     "control",
-    { branches: ["true", "false"], requiresSymbols: ["condition", "when_true", "when_false"] },
+    {
+      branches: ["true", "false"],
+      providedSyntaxBranches: ["true", "false"],
+      requiresSymbols: ["condition", "when_true", "when_false"],
+    },
   ),
   sourcePreset(
     "builtin.control.switch",
@@ -138,7 +149,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "按一个整数或枚举值选择 case，并保留 default 路径。",
     "control",
     "control",
-    { branches: ["case-0", "default"], requiresSymbols: ["choice", "first", "fallback"] },
+    {
+      branches: ["case-0", "default"],
+      providedSyntaxBranches: ["case-0", "default"],
+      requiresSymbols: ["choice", "first", "fallback"],
+    },
   ),
   sourcePreset(
     "builtin.control.for",
@@ -149,7 +164,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "从零开始按固定步长重复执行。",
     "control",
     "control",
-    { branches: ["body", "exit"], requiresSymbols: ["limit", "action"] },
+    {
+      branches: ["body", "exit"],
+      providedSyntaxBranches: ["body"],
+      requiresSymbols: ["limit", "action"],
+    },
   ),
   sourcePreset(
     "builtin.control.while",
@@ -162,6 +181,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "control",
     {
       branches: ["body", "exit"],
+      providedSyntaxBranches: ["body"],
       requiresSymbols: ["condition", "action"],
       alternatives: [alternative("0.9.0", "先执行一次", "do {\n  action();\n} while (condition);")],
     },
@@ -175,7 +195,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "先执行一次循环体，再检查继续条件。",
     "control",
     "control",
-    { branches: ["body", "exit"], requiresSymbols: ["condition", "action"] },
+    {
+      branches: ["body", "exit"],
+      providedSyntaxBranches: ["body"],
+      requiresSymbols: ["condition", "action"],
+    },
   ),
   sourcePreset(
     "builtin.control.break",
@@ -186,6 +210,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "立即离开最内层循环或 switch。",
     "statement",
     "control",
+    { requiredAnyAncestorCapabilities: ["loop", "switch"] },
   ),
   sourcePreset(
     "builtin.control.continue",
@@ -196,6 +221,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "跳过本轮剩余语句并进入下一次循环判断。",
     "statement",
     "control",
+    { requiredAnyAncestorCapabilities: ["loop"] },
   ),
 
   sourcePreset(
@@ -470,7 +496,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "按索引给数组的有效区间赋初值。",
     "control",
     "module",
-    { branches: ["body", "exit"], requiresSymbols: ["length", "values", "initial"] },
+    {
+      branches: ["body", "exit"],
+      providedSyntaxBranches: ["body"],
+      requiresSymbols: ["length", "values", "initial"],
+    },
   ),
   sourcePreset(
     "builtin.strings.declare",
@@ -583,7 +613,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "在解引用前处理没有目标的路径。",
     "control",
     "control",
-    { branches: ["null", "valid"], requiresSymbols: ["pointer", "handle_error"] },
+    {
+      branches: ["null", "valid"],
+      providedSyntaxBranches: ["null"],
+      requiresSymbols: ["pointer", "handle_error"],
+    },
   ),
   sourcePreset(
     "builtin.memory.malloc",
@@ -677,6 +711,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "module",
     {
       branches: ["removed", "unchanged"],
+      providedSyntaxBranches: ["removed"],
       requiresHeaders: ["stdlib.h"],
       requiresSymbols: ["node", "removed"],
     },
@@ -758,6 +793,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "module",
     {
       branches: ["edge", "exit"],
+      providedSyntaxBranches: ["edge"],
       requiresSymbols: ["head", "node", "next", "visit", "to"],
     },
   ),
@@ -771,7 +807,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "发现目标后记录位置并停止当前循环。",
     "control",
     "control",
-    { branches: ["match", "continue"], requiresSymbols: ["values", "i", "target", "found"] },
+    {
+      branches: ["match", "continue"],
+      providedSyntaxBranches: ["match"],
+      requiresSymbols: ["values", "i", "target", "found"],
+    },
   ),
   sourcePreset(
     "builtin.search.update-maximum",
@@ -782,7 +822,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "只在新值更大时更新当前最大值，适合一次线性扫描。",
     "control",
     "module",
-    { branches: ["update", "keep"], requiresSymbols: ["value", "maximum"] },
+    {
+      branches: ["update", "keep"],
+      providedSyntaxBranches: ["update"],
+      requiresSymbols: ["value", "maximum"],
+    },
   ),
   sourcePreset(
     "builtin.search.linear-loop",
@@ -793,7 +837,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "从头到尾检查元素，命中后记录索引并停止。",
     "control",
     "module",
-    { branches: ["scan", "exit"], requiresSymbols: ["length", "values", "target", "found"] },
+    {
+      branches: ["scan", "exit"],
+      providedSyntaxBranches: ["scan"],
+      requiresSymbols: ["length", "values", "target", "found"],
+    },
   ),
   sourcePreset(
     "builtin.search.binary-step",
@@ -806,6 +854,7 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "module",
     {
       branches: ["right-half", "left-half"],
+      providedSyntaxBranches: ["right-half", "left-half"],
       requiresSymbols: ["values", "middle", "target", "left", "right"],
     },
   ),
@@ -818,7 +867,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "比较并交换一对逆序的相邻元素。",
     "control",
     "module",
-    { branches: ["swap", "keep"], requiresSymbols: ["values", "j"] },
+    {
+      branches: ["swap", "keep"],
+      providedSyntaxBranches: ["swap"],
+      requiresSymbols: ["values", "j"],
+    },
   ),
   sourcePreset(
     "builtin.sort.select-minimum",
@@ -829,7 +882,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "扫描未排序区间时维护当前最小元素索引。",
     "control",
     "module",
-    { branches: ["update", "keep"], requiresSymbols: ["values", "j", "min_index"] },
+    {
+      branches: ["update", "keep"],
+      providedSyntaxBranches: ["update"],
+      requiresSymbols: ["values", "j", "min_index"],
+    },
   ),
   sourcePreset(
     "builtin.sort.insertion-shift",
@@ -840,7 +897,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "为插入元素腾出位置，并保持已排序前缀。",
     "control",
     "module",
-    { branches: ["shift", "insert"], requiresSymbols: ["j", "values", "key"] },
+    {
+      branches: ["shift", "insert"],
+      providedSyntaxBranches: ["shift"],
+      requiresSymbols: ["j", "values", "key"],
+    },
   ),
   sourcePreset(
     "builtin.recursion.reduce",
@@ -862,7 +923,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "根据当前状态移动一个边界指针。",
     "control",
     "module",
-    { branches: ["move-left", "move-right"], requiresSymbols: ["sum", "target", "left", "right"] },
+    {
+      branches: ["move-left", "move-right"],
+      providedSyntaxBranches: ["move-left", "move-right"],
+      requiresSymbols: ["sum", "target", "left", "right"],
+    },
   ),
   sourcePreset(
     "builtin.algorithms.sliding-window",
@@ -951,7 +1016,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "记录实际值与预期值不一致的案例。",
     "control",
     "module",
-    { branches: ["failed", "passed"], requiresSymbols: ["actual", "expected", "failures"] },
+    {
+      branches: ["failed", "passed"],
+      providedSyntaxBranches: ["failed"],
+      requiresSymbols: ["actual", "expected", "failures"],
+    },
   ),
   sourcePreset(
     "builtin.analysis.benchmark-loop",
@@ -962,7 +1031,11 @@ const SOURCE_PRESETS: readonly PresetSourceBlockDefinition[] = Object.freeze([
     "重复同一案例，为中位数统计收集多次运行。",
     "control",
     "module",
-    { branches: ["sample", "complete"], requiresSymbols: ["repetitions", "run_case"] },
+    {
+      branches: ["sample", "complete"],
+      providedSyntaxBranches: ["sample"],
+      requiresSymbols: ["repetitions", "run_case"],
+    },
   ),
 ]);
 
@@ -979,9 +1052,12 @@ export const BUILTIN_LEARNING_TEMPLATES: readonly PresetSourceBlockDefinition[] 
 
 interface SourcePresetOptions {
   readonly branches?: readonly string[];
+  readonly providedSyntaxBranches?: readonly string[];
   readonly requiresHeaders?: readonly string[];
   readonly requiresSymbols?: readonly string[];
   readonly alternatives?: readonly PresetAlternativeVersion[];
+  readonly acceptedSyntaxSlots?: readonly PresetSyntaxSlotKind[];
+  readonly requiredAnyAncestorCapabilities?: readonly PresetSyntaxAncestorCapability[];
 }
 
 function stage(
@@ -1030,11 +1106,22 @@ function sourcePreset(
       allowedParentNodeTypes: Object.freeze(["compound_statement"]),
       requiresHeaders: freezeText(options.requiresHeaders),
       requiresSymbols: freezeText(options.requiresSymbols),
+      acceptedSyntaxSlots: Object.freeze([
+        ...(options.acceptedSyntaxSlots ?? defaultSourceSyntaxSlots()),
+      ]),
+      requiredAnyAncestorCapabilities: Object.freeze([
+        ...(options.requiredAnyAncestorCapabilities ?? []),
+      ]),
+      providedSyntaxSlots: providedSyntaxSlots(options.providedSyntaxBranches),
     }),
     explanation: explanation(description),
     scenarios: Object.freeze([scenario(id, description)]),
     alternatives: Object.freeze([...(options.alternatives ?? [])]),
   });
+}
+
+function defaultSourceSyntaxSlots(): readonly PresetSyntaxSlotKind[] {
+  return Object.freeze(["function-body", "compound-body", "loop-body", "switch-case"]);
 }
 
 function virtualPreset(
@@ -1061,6 +1148,9 @@ function virtualPreset(
       allowedParentNodeTypes: Object.freeze([]),
       requiresHeaders: Object.freeze([]),
       requiresSymbols: Object.freeze([]),
+      acceptedSyntaxSlots: Object.freeze([]),
+      requiredAnyAncestorCapabilities: Object.freeze([]),
+      providedSyntaxSlots: Object.freeze([]),
     }),
     explanation: explanation(description),
     scenarios: Object.freeze([scenario(id, description)]),
@@ -1074,6 +1164,34 @@ function sourcePorts(branches: readonly string[] | undefined): readonly PresetPo
       ? [controlPort("control.next", "下一步", "output", "one")]
       : branches.map((branch) => controlPort(`control.${branch}`, branch, "output", "one", branch));
   return Object.freeze([controlPort("control.in", "进入", "input", "one"), ...outputs]);
+}
+
+function providedSyntaxSlots(
+  branches: readonly string[] | undefined,
+): readonly PresetProvidedSyntaxSlot[] {
+  if (branches === undefined) return Object.freeze([]);
+  return Object.freeze(
+    branches.flatMap((branch): readonly PresetProvidedSyntaxSlot[] => {
+      const kind: PresetSyntaxSlotKind | null =
+        branch === "body"
+          ? "loop-body"
+          : branch === "true" || branch === "false"
+            ? "compound-body"
+            : branch.startsWith("case-") || branch === "default"
+              ? "switch-case"
+              : null;
+      if (kind === null) return [];
+      return [
+        Object.freeze({
+          id: `syntax.${branch}`,
+          label: branch,
+          kind,
+          cardinality: "many" as const,
+          branch,
+        }),
+      ];
+    }),
+  );
 }
 
 function controlPort(

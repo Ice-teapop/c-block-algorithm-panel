@@ -127,6 +127,7 @@ export const LANGUAGE_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
     [
       "证明终止时指出度量如何严格减小。深度接近输入规模的递归可能耗尽栈，应考虑迭代或显式栈。",
       "递归时间取决于分支数量和重复子问题。记忆化可以避免重复，但会增加存储。",
+      "阅读递归运行状态时分开看下潜与回卷：factorial(5) 先建立 5→4→3→2→1 的栈帧，再按 1→2→6→24→120 返回。",
     ],
     {
       aliases: ["recursion", "base case", "call stack"],

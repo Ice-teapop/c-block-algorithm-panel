@@ -1,0 +1,478 @@
+/* Section: Library search, index, articles, and tutorial launchers. */
+.software-library-view {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 58px minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.software-library__searchbar {
+  display: grid;
+  grid-template-columns: auto auto minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.software-library__identity {
+  display: grid;
+  gap: 2px;
+}
+
+.software-library__identity strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.software-library__identity span,
+.software-library__result-count {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.software-library__result-count {
+  justify-self: end;
+}
+
+.software-library__body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(250px, 310px) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.software-library__index {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.software-library__filters {
+  display: flex;
+  min-width: max-content;
+  align-items: stretch;
+  gap: 12px;
+  align-self: stretch;
+}
+
+.software-library__filter {
+  position: relative;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.software-library__filter::after {
+  position: absolute;
+  right: 0;
+  bottom: 11px;
+  left: 0;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+}
+
+.software-library__filter:hover::after {
+  opacity: 0.35;
+}
+
+.software-library__filter.is-selected {
+  color: var(--ink);
+}
+
+.software-library__filter.is-selected::after {
+  height: 2px;
+  opacity: 1;
+}
+
+.software-library__filter:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.software-library__search {
+  width: 100%;
+  height: 34px;
+  margin: 0;
+  padding: 3px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 12px;
+}
+
+.software-library__list {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.software-library__branches {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.software-library__results {
+  padding-bottom: 20px;
+}
+
+.software-library__result-group > h2 {
+  margin: 0;
+  padding: 10px 8px 6px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--muted-subtle);
+  font-size: 8px;
+  font-weight: 680;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.software-library__feature {
+  display: grid;
+  width: 100%;
+  min-height: 36px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 0;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.software-library__results .software-library__feature {
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.software-library__feature small {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-library__feature mark {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.software-library__feature > span {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.software-library__feature strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-library__feature:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.software-library__feature.is-selected {
+  color: var(--ink);
+  background: var(--surface-hover);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+
+.software-library__detail {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  grid-template-rows: 48px auto auto;
+  overflow: auto;
+}
+
+.software-library__detail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.software-library__detail h2 {
+  font-size: 12px;
+}
+
+.software-library__feature-status {
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.software-library__feature-status[data-status="available"] {
+  border-color: color-mix(in srgb, var(--success) 55%, var(--line));
+  color: var(--success);
+}
+
+.software-library__feature-status[data-status="foundation"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--line));
+  color: var(--warning);
+}
+
+.software-library__detail dl {
+  margin: 0;
+}
+
+.software-library__detail dl > div {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.software-library__detail dt {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.software-library__detail dd {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.software-library__detail > footer {
+  display: flex;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.software-library__article-body {
+  width: min(100%, 860px);
+  padding: 20px 24px 36px;
+}
+
+.software-library__article-body > h3,
+.software-library__article-body section > h3 {
+  margin: 20px 0 7px;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.software-library__article-body > h3:first-child {
+  margin-top: 0;
+}
+
+.software-library__article-body p,
+.software-library__article-body li {
+  max-width: 76ch;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.software-library__article-body pre {
+  max-width: 100%;
+  margin: 7px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-size: 10px;
+}
+
+.software-library__article-body nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.software-library__article-body nav .button,
+.software-library__terms {
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+}
+
+.software-library__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.software-library__tutorial {
+  width: min(100%, 960px);
+  counter-reset: tutorial-step;
+}
+
+.software-library__tutorial > p:first-child {
+  margin-top: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.software-library__tutorial > section {
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.software-library__tutorial > section > h3 {
+  margin-top: 0;
+}
+
+.software-library__tutorial > section > ol,
+.software-library__tutorial > section > ul {
+  margin: 0;
+  padding: 0;
+}
+
+.software-library__tutorial > section > ul {
+  padding-left: 18px;
+}
+
+.software-library__tutorial-step {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding: 14px 0 16px 44px;
+  border-bottom: 1px solid var(--line);
+  counter-increment: tutorial-step;
+  list-style: none;
+}
+
+.software-library__tutorial-step::before {
+  position: absolute;
+  top: 14px;
+  left: 0;
+  color: var(--muted-subtle);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  content: counter(tutorial-step, decimal-leading-zero);
+}
+
+.software-library__tutorial-step h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.software-library__tutorial-step > p {
+  margin: 0;
+}
+
+.software-library__tutorial-artifact {
+  display: grid;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.software-library__tutorial-artifact > p {
+  margin: 0;
+  color: var(--muted-subtle);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.software-library__tutorial-artifact pre {
+  max-height: 280px;
+  margin: 0;
+  border-right: 0;
+  border-left: 0;
+  background: var(--input-surface);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.software-library__tutorial-check {
+  padding: 7px 0 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-secondary) !important;
+  font-size: 9px !important;
+}
+
+.software-library__tutorial-step > .button {
+  width: max-content;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--ink-secondary);
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: transparent;
+  font-size: 9px;
+}
+
+.software-library__tutorial-step > .button:hover {
+  color: var(--ink);
+}
+
+.software-library-view[data-task-lesson-phase="task"],
+.software-library-view[data-task-lesson-phase="completed"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.software-library-view[data-task-lesson-phase="intro"] .software-library__detail {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.software-library-view[data-task-lesson-phase="task"] .software-library__searchbar,
+.software-library-view[data-task-lesson-phase="completed"] .software-library__searchbar,
+.software-library-view[data-task-lesson-phase="task"] .software-library__index,
+.software-library-view[data-task-lesson-phase="completed"] .software-library__index {
+  display: none;
+}
+
+.software-library-view[data-task-lesson-phase="task"] .software-library__body,
+.software-library-view[data-task-lesson-phase="completed"] .software-library__body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.software-library-view[data-task-lesson-phase="task"] .software-library__detail,
+.software-library-view[data-task-lesson-phase="completed"] .software-library__detail {
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}

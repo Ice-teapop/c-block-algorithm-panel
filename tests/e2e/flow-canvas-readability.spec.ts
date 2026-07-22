@@ -8,6 +8,7 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -15,6 +16,7 @@ let workspaceRoot = "";
 
 test.beforeAll(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "algolatch-canvas-readability-e2e-"));
+  const developmentServerPort = process.env.PANEL_E2E_PORT ?? "5173";
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
@@ -27,23 +29,59 @@ test.beforeAll(async () => {
       ...inheritedEnvironment,
       PANEL_RUNNER_MODE: "trusted-only",
       PANEL_WORKSPACE_ROOT: workspaceRoot,
+      VITE_DEV_SERVER_URL: `http://127.0.0.1:${developmentServerPort}/`,
     },
   });
   page = await application.firstWindow();
+  await page.addInitScript(() => {
+    const state = globalThis as typeof globalThis & {
+      __canvasCspViolations?: Array<{
+        readonly blockedUri: string;
+        readonly directive: string;
+      }>;
+    };
+    state.__canvasCspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      state.__canvasCspViolations?.push({
+        blockedUri: event.blockedURI,
+        directive: event.effectiveDirective,
+      });
+    });
+  });
   await page.evaluate(() => {
     globalThis.localStorage.clear();
     globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
-  const start = page.getByRole("region", { name: "首次使用" });
-  await start.getByRole("button", { name: "开始第一课 · 扫描求最大值" }).click();
+
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "新建工作区条目" });
+  await create.getByRole("combobox", { name: "条目类型" }).selectOption("project");
+  await create.getByRole("textbox", { name: "条目名称" }).fill("画布可读性实机检查");
+  await create.getByRole("button", { name: "创建并打开" }).click();
+
+  const content = page.locator(".cm-content");
+  await content.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(FIRST_ALGORITHM_SOURCE);
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
   await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
 });
 
 test.afterAll(async () => {
   await application?.close();
   await rm(workspaceRoot, { recursive: true, force: true });
+});
+
+test("keeps project creation and real source input CSP-clean", async () => {
+  const violations = await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __canvasCspViolations?: readonly unknown[];
+    };
+    return state.__canvasCspViolations ?? [];
+  });
+  expect(violations).toEqual([]);
 });
 
 test("keeps the first-algorithm projection readable without changing its CFG", async () => {
@@ -289,37 +327,35 @@ test("uses Tab for C indentation and keeps keyboard focus in the source editor",
 
 test("collapses the overview inside a short canvas instead of covering the toolbar", async () => {
   const geometry = await page.evaluate(async () => {
-    const canvas = document.querySelector<HTMLElement>(".flow-canvas");
-    const minimap = document.querySelector<HTMLElement>(".flow-minimap");
-    const map = document.querySelector<SVGElement>(".flow-minimap__map");
-    if (canvas === null || minimap === null || map === null) {
+    const liveMinimap = document.querySelector<HTMLElement>(".flow-minimap");
+    if (liveMinimap === null) {
       throw new Error("Canvas overview fixture is incomplete");
     }
-    const originalStyle = {
-      alignSelf: canvas.style.alignSelf,
-      height: canvas.style.height,
-      maxHeight: canvas.style.maxHeight,
-    };
-    canvas.style.height = "150px";
-    canvas.style.maxHeight = "150px";
-    canvas.style.alignSelf = "start";
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const canvasBounds = canvas.getBoundingClientRect();
-    const minimapBounds = minimap.getBoundingClientRect();
-    const geometry = {
-      canvasTop: canvasBounds.top,
-      canvasBottom: canvasBounds.bottom,
-      minimapTop: minimapBounds.top,
-      minimapBottom: minimapBounds.bottom,
-      mapDisplay: getComputedStyle(map).display,
-    };
-    canvas.style.height = originalStyle.height;
-    canvas.style.maxHeight = originalStyle.maxHeight;
-    canvas.style.alignSelf = originalStyle.alignSelf;
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
-    return geometry;
+    const fixture = document.createElement("div");
+    fixture.className = "flow-canvas-host";
+    fixture.style.cssText =
+      "position:fixed;left:-1000px;top:0;width:400px;height:150px;max-height:150px";
+    const minimap = liveMinimap.cloneNode(true) as HTMLElement;
+    fixture.append(minimap);
+    document.body.append(fixture);
+    try {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      const map = minimap.querySelector<SVGElement>(".flow-minimap__map");
+      if (map === null) throw new Error("Canvas overview map is missing");
+      const canvasBounds = fixture.getBoundingClientRect();
+      const minimapBounds = minimap.getBoundingClientRect();
+      return {
+        canvasTop: canvasBounds.top,
+        canvasBottom: canvasBounds.bottom,
+        minimapTop: minimapBounds.top,
+        minimapBottom: minimapBounds.bottom,
+        mapDisplay: getComputedStyle(map).display,
+      };
+    } finally {
+      fixture.remove();
+    }
   });
 
   expect(geometry.mapDisplay).toBe("none");
@@ -329,18 +365,15 @@ test("collapses the overview inside a short canvas instead of covering the toolb
 
 test("keeps the overview pinned to the canvas bottom-right through pan and zoom", async () => {
   const positions = await page.evaluate(async () => {
+    const host = document.querySelector<HTMLElement>(".flow-canvas-host");
     const canvas = document.querySelector<HTMLElement>(".flow-canvas");
     const minimap = document.querySelector<HTMLElement>(".flow-minimap");
-    if (canvas === null || minimap === null) {
+    if (host === null || canvas === null || minimap === null) {
       throw new Error("Canvas overview fixture is incomplete");
     }
 
-    canvas.style.height = "";
-    canvas.style.maxHeight = "";
-    canvas.style.alignSelf = "";
-
     const measure = () => {
-      const canvasBounds = canvas.getBoundingClientRect();
+      const canvasBounds = host.getBoundingClientRect();
       const minimapBounds = minimap.getBoundingClientRect();
       return {
         right: canvasBounds.right - minimapBounds.right,

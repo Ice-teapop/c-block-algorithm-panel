@@ -30,6 +30,7 @@ describe("M6 workbench shell behavior", () => {
     expect(app.innerHTML).not.toContain("app-title");
     expect(app.innerHTML).not.toMatch(/[⌂◇]/u);
     expect(app.innerHTML).toContain(">项目</button>");
+    expect(app.innerHTML).toContain(">教程</button>");
     expect(app.innerHTML).toContain(">工作区</button>");
     expect(app.innerHTML).toContain(">打开 AI 助手</button>");
     expect(app.innerHTML).toContain('id="ai-assistant-button" class="runtime-ai-action"');
@@ -49,13 +50,17 @@ describe("M6 workbench shell behavior", () => {
     expect(roots[2]?.getAttribute("aria-haspopup")).toBeUndefined();
     expect(shell.currentPage).toBe("dashboard");
     expect(pagePanel("dashboard").hidden).toBe(false);
+    expect(pagePanel("tutorials").hidden).toBe(true);
     expect(pagePanel("build").hidden).toBe(true);
     expect(pagePanel("block-library").hidden).toBe(true);
     expect(shell.blockPalette.id).toBe("block-palette");
     expect(shell.flowCanvas.id).toBe("flow-canvas");
     expect(shell.tracePrimaryButton.id).toBe("trace-primary-action");
+    expect(shell.traceObserveButton.id).toBe("trace-observe-action");
+    expect(shell.analysisPrimaryButton.id).toBe("analysis-primary-action");
     expect(shell.getPageHost("block-library").id).toBe("block-library-host");
     expect(shell.getPageHost("software-library").id).toBe("software-library-host");
+    expect(shell.getPageHost("tutorials").id).toBe("tutorials-host");
     expect(shell.getInspectorHost("edit").id).toBe("edit-host");
   });
 
@@ -71,6 +76,11 @@ describe("M6 workbench shell behavior", () => {
     expect(shell.codePane).toBe(codePane);
     expect(codePane.removeNodeCount).toBe(0);
 
+    shell.showPage("tutorials");
+    expect(shell.currentPage).toBe("tutorials");
+    expect(pagePanel("tutorials").hidden).toBe(false);
+    expect(buildPanel.hidden).toBe(true);
+
     shell.showPage("build");
     expect(shell.currentPage).toBe("build");
     expect(pagePanel("build")).toBe(buildPanel);
@@ -81,6 +91,15 @@ describe("M6 workbench shell behavior", () => {
     expect(shell.currentPage).toBe("build");
     expect(app.require("edit-panel").hidden).toBe(false);
     expect(app.require("explanation-panel").hidden).toBe(true);
+  });
+
+  it("keeps Run, Observe and Analyze as separate stable controls", () => {
+    const shell = mount();
+
+    expect(shell.traceObserveButton).not.toBe(shell.tracePrimaryButton);
+    expect(shell.analysisPrimaryButton).not.toBe(shell.tracePrimaryButton);
+    shell.analysisPrimaryButton.click();
+    expect(shell.currentPage).toBe("analysis");
   });
 
   it("routes command actions through the same settings and layout path as the Dock", () => {
@@ -96,6 +115,30 @@ describe("M6 workbench shell behavior", () => {
     shell.focusPanel("presets");
     expect(app.require("presets-pane").hidden).toBe(false);
     expect(() => shell.executeMenuAction("settings", "missing")).toThrow(/未知工作台菜单/u);
+  });
+
+  it("activates the primary runtime view declared by each built-in layout", () => {
+    const shell = mount();
+
+    shell.applyLayoutPreset("build");
+    expect(app.require("bottom-pane").dataset.activeRuntimeView).toBe("run");
+    expect(app.require("run-tab").getAttribute("aria-selected")).toBe("true");
+    expect(app.require("run-panel").hidden).toBe(false);
+    expect(app.require("mentor-panel").hidden).toBe(true);
+
+    shell.applyLayoutPreset("debug");
+    expect(app.require("bottom-pane").dataset.activeRuntimeView).toBe("run");
+    expect(app.require("run-panel").hidden).toBe(false);
+
+    shell.applyLayoutPreset("analyze");
+    expect(app.require("bottom-pane").dataset.activeRuntimeView).toBe("metrics");
+    expect(app.require("metrics-tab").getAttribute("aria-selected")).toBe("true");
+    expect(app.require("metrics-panel").hidden).toBe(false);
+
+    shell.applyLayoutPreset("learn");
+    expect(app.require("bottom-pane").dataset.activeRuntimeView).toBe("mentor");
+    expect(app.require("mentor-tab").getAttribute("aria-selected")).toBe("true");
+    expect(app.require("mentor-panel").hidden).toBe(false);
   });
 
   it("shows live version and public project metadata in the localized About view", () => {
@@ -134,6 +177,34 @@ describe("M6 workbench shell behavior", () => {
     expect(pagePanel("build").hidden).toBe(true);
     expect((shell.shell as unknown as FakeElement).dataset.layoutPreset).toBe("minimal");
     expect(app.require("presets-pane").hidden).toBe(true);
+  });
+
+  it("keeps late lessons inside a focused but resizable real workbench", () => {
+    const shell = mount();
+    const exited = vi.fn(() => shell.showPage("tutorials"));
+    shell.setWorkspaceLessonFocus({
+      lessonId: "tutorial.foa.c10.l106",
+      title: { zh: "课程 106 · 独立实现", en: "Lesson 106 · Independent implementation" },
+      instruction: { zh: "完成代码并运行三组案例。", en: "Complete the code and run three cases." },
+      onExit: exited,
+    });
+
+    expect(shell.currentPage).toBe("build");
+    expect(app.require("workspace-lesson-strip").hidden).toBe(false);
+    expect(app.require("workspace-lesson-title").textContent).toContain("课程 106");
+    expect(app.require("block-palette").inert).toBe(true);
+    expect(app.require("workspace-lesson-presets-mask").hidden).toBe(false);
+    expect(app.require("dashboard-tab").disabled).toBe(true);
+    expect(app.require("mentor-tab").disabled).toBe(true);
+    shell.showPage("dashboard");
+    expect(shell.currentPage).toBe("build");
+
+    app.require("workspace-lesson-exit").click();
+    expect(exited).toHaveBeenCalledOnce();
+    expect(shell.currentPage).toBe("tutorials");
+    expect(app.require("workspace-lesson-strip").hidden).toBe(true);
+    expect(app.require("block-palette").inert).toBe(false);
+    expect(app.require("dashboard-tab").disabled).toBe(false);
   });
 
   it("removes menu and view listeners during idempotent teardown", () => {
@@ -234,6 +305,7 @@ class FakeElement {
   tabIndex = 0;
   hidden = false;
   disabled = false;
+  inert = false;
   removeNodeCount = 0;
   private parent: FakeElement | null = null;
   private readonly attributes = new Map<string, string>();
@@ -271,6 +343,10 @@ class FakeElement {
 
   getAttribute(name: string): string | undefined {
     return this.attributes.get(name);
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
   }
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
@@ -394,9 +470,19 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const dashboard = element(document, "section", "dashboard-panel", "workbench-page");
   const dashboardHost = element(document, "div", "dashboard-host");
   dashboard.append(dashboardHost);
+  const tutorials = element(document, "section", "tutorials-panel", "workbench-page");
+  tutorials.dataset.workbenchPageId = "tutorials";
+  tutorials.append(element(document, "div", "tutorials-host"));
   const build = element(document, "section", "build-panel", "workbench-page");
   build.dataset.workbenchPageId = "build";
   const buildHost = element(document, "div", "build-host");
+  const lessonStrip = element(document, "aside", "workspace-lesson-strip");
+  lessonStrip.hidden = true;
+  lessonStrip.append(
+    element(document, "strong", "workspace-lesson-title"),
+    element(document, "span", "workspace-lesson-instruction"),
+    identified(document.createElement("button"), "workspace-lesson-exit"),
+  );
   const buildLayout = element(document, "div", "build-layout");
   const workArea = element(document, "div", "work-area");
   const primaryWorkspace = element(document, "div", "primary-workspace");
@@ -410,9 +496,16 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const codePanel = element(document, "section", "code-panel");
   const inspectorStack = element(document, "section", "inspector-stack");
   const palette = element(document, "div", "block-palette", "block-palette");
+  const lessonPresetsMask = element(document, "div", "workspace-lesson-presets-mask");
+  lessonPresetsMask.hidden = true;
   const tree = element(document, "div", "block-tree", "block-tree");
   const flowCanvas = element(document, "div", "flow-canvas", "flow-canvas-host");
   const tracePrimaryButton = identified(document.createElement("button"), "trace-primary-action");
+  const traceObserveButton = identified(document.createElement("button"), "trace-observe-action");
+  const analysisPrimaryButton = identified(
+    document.createElement("button"),
+    "analysis-primary-action",
+  );
   const manualRunInputHost = element(document, "div", "manual-run-input-host");
   const code = element(document, "div", "code-pane", "code-pane");
   const explanationPanel = element(document, "section", "explanation-panel");
@@ -435,10 +528,16 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const mentorPanel = element(document, "section", "mentor-panel");
   const mentorHost = element(document, "section", "mentor-hints-host");
   mentorPanel.append(mentorHost);
-  presetsPane.append(palette);
+  presetsPane.append(palette, lessonPresetsMask);
   outlinePane.append(tree);
   leftPane.append(presetsPane, outlinePane);
-  centerCanvasPane.append(tracePrimaryButton, manualRunInputHost, flowCanvas);
+  centerCanvasPane.append(
+    tracePrimaryButton,
+    traceObserveButton,
+    analysisPrimaryButton,
+    manualRunInputHost,
+    flowCanvas,
+  );
   bottomPane.append(runPanel, metricsPanel, diagnosticsPanel, mentorPanel);
   centerPane.append(centerCanvasPane);
   codePanel.append(code);
@@ -447,7 +546,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   primaryWorkspace.append(centerPane, rightPane);
   workArea.append(primaryWorkspace, bottomPane);
   buildLayout.append(leftPane, workArea);
-  buildHost.append(buildLayout);
+  buildHost.append(lessonStrip, buildLayout);
   build.append(buildHost);
   const analysis = element(document, "section", "analysis-panel", "workbench-page");
   analysis.append(element(document, "div", "analysis-host"));
@@ -463,7 +562,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   startupRoot.append(startupStatus, startupProgress);
   const dropOverlay = element(document, "div", "drop-overlay");
   const pasteError = element(document, "p", "paste-error");
-  pageStack.append(dashboard, build, analysis, blockLibrary, softwareLibrary);
+  pageStack.append(dashboard, tutorials, build, analysis, blockLibrary, softwareLibrary);
   const drawer = element(document, "aside", "workbench-drawer");
   const generalSettings = element(document, "section", "general-settings");
   const language = identified(document.createElement("select"), "interface-language");
@@ -493,6 +592,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   shell.append(
     startupRoot,
     identified(document.createElement("button"), "dashboard-tab"),
+    identified(document.createElement("button"), "tutorials-tab"),
     identified(document.createElement("button"), "build-tab"),
     identified(document.createElement("button"), "analysis-tab"),
     identified(document.createElement("button"), "ai-assistant-button"),

@@ -26,8 +26,16 @@ import {
 } from "../ui/block-palette.js";
 import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
 import { createSoftwareLibrary, type SoftwareLibrary } from "../ui/software-library.js";
+import {
+  createLibraryTutorialsModule,
+  type LibraryTutorialsModule,
+} from "../ui/library-tutorials-module.js";
+import { WORKBENCH_OPEN_TUTORIAL_EVENT, type TutorialsModule } from "../ui/tutorials-module.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import type { FlowCanvasCompatibleBlockSearchRequest } from "../ui/flow-canvas.js";
+import type { FoaLessonDefinition } from "../tutorials/foa-curriculum.js";
+import type { PanelApi } from "../shared/api.js";
+import type { RuntimeLearningObservation } from "./runtime-workspace-controller.js";
 import { searchLibrary } from "../library/index.js";
 import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
 import {
@@ -43,7 +51,9 @@ export interface LearningSurfaceOptions {
   readonly getAnalysis: () => CAnalysisSnapshot | null;
   readonly getAnalyzer: () => LearningTemplateAnalyzer | null;
   readonly storage?: LearningCatalogStorage | undefined;
+  readonly traceApi?: Pick<PanelApi, "startTrace" | "readTrace" | "cancelTrace"> | undefined;
   readonly onStartGuidedLesson: () => void;
+  readonly onOpenFoaWorkspace?: ((lesson: FoaLessonDefinition) => void) | undefined;
   readonly onError: (error: Error) => void;
 }
 
@@ -51,6 +61,7 @@ export interface LearningSurface {
   insert(intent: AssemblyInsertIntent): Promise<void>;
   resolvePreset(presetId: string): ResolvedLearningPreset | null;
   setSelectedInsertEnabled(enabled: boolean): void;
+  recordRuntimeObservation(observation: RuntimeLearningObservation): void;
   destroy(): void;
 }
 
@@ -76,7 +87,14 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
   let destroyed = false;
 
   const palette: BlockPalette = createBlockPalette(options.elements.blockPalette, catalog, {
-    onTemplateDragStart: (templateId) => options.blockTree.setTemplateDrag(templateId),
+    onTemplateDragStart: (templateId) => {
+      const preset = catalog.getPreset(templateId);
+      options.blockTree.setTemplateDrag(
+        templateId,
+        preset?.placement.acceptedSyntaxSlots ?? [],
+        preset?.placement.requiredAnyAncestorCapabilities ?? [],
+      );
+    },
     onTemplateDragEnd: () => options.blockTree.setTemplateDrag(null),
     onInsertSelected: (templateId) => {
       const target = options.blockTree.getSelectedEntry();
@@ -107,6 +125,16 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     options.elements.getPageHost("software-library"),
     {
       onOpenFeature(pageId, targetId) {
+        if (pageId === "tutorials") {
+          const EventConstructor = options.elements.shell.ownerDocument.defaultView?.CustomEvent;
+          if (EventConstructor === undefined) return;
+          options.elements.shell.dispatchEvent(
+            new EventConstructor(WORKBENCH_OPEN_TUTORIAL_EVENT, {
+              detail: Object.freeze({ lessonId: targetId }),
+            }),
+          );
+          return;
+        }
         if (targetId === "mentor-hints") options.elements.focusPanel("mentor");
         else options.elements.showPage(pageId);
         globalThis.requestAnimationFrame(() =>
@@ -114,6 +142,29 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
         );
       },
       onStartGuidedLesson: options.onStartGuidedLesson,
+      onOpenTutorialLesson(lessonId) {
+        const EventConstructor = options.elements.shell.ownerDocument.defaultView?.CustomEvent;
+        if (EventConstructor === undefined) return;
+        options.elements.shell.dispatchEvent(
+          new EventConstructor(WORKBENCH_OPEN_TUTORIAL_EVENT, {
+            detail: Object.freeze({ lessonId }),
+          }),
+        );
+      },
+    },
+  );
+  const tutorialsModule: LibraryTutorialsModule = createLibraryTutorialsModule(
+    options.elements.getPageHost("tutorials"),
+    {
+      onOpenLibraryEntry(entryId) {
+        options.elements.showPage("software-library");
+        softwareLibrary.selectEntry(entryId);
+      },
+      traceApi: options.traceApi,
+      onOpenFoaWorkspace: options.onOpenFoaWorkspace,
+      onCourseBlocked(message) {
+        options.onError(new Error(message));
+      },
     },
   );
   const onWorkbenchAction = (event: Event): void => {
@@ -135,6 +186,12 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     });
     options.elements.focusPanel("presets");
     palette.focusSearch();
+  };
+  const onOpenTutorial = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (!isRecord(detail) || typeof detail.lessonId !== "string") return;
+    options.elements.showPage("tutorials");
+    tutorialsModule.selectLesson(detail.lessonId);
   };
   const onQuickOpenCollect = (event: Event): void => {
     const detail = quickOpenCollectDetail(event);
@@ -220,6 +277,7 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
   );
   options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_COLLECT_EVENT, onQuickOpenCollect);
   options.elements.shell.addEventListener(WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT, onQuickOpenActivate);
+  options.elements.shell.addEventListener(WORKBENCH_OPEN_TUTORIAL_EVENT, onOpenTutorial);
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
       if (destroyed) return Promise.resolve();
@@ -228,6 +286,9 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     },
     setSelectedInsertEnabled(enabled: boolean): void {
       if (!destroyed) palette.setInsertEnabled(enabled);
+    },
+    recordRuntimeObservation(observation: RuntimeLearningObservation): void {
+      if (!destroyed) tutorialsModule.recordRuntimeObservation(observation);
     },
     resolvePreset(presetId: string) {
       if (destroyed) return null;
@@ -260,6 +321,8 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
         WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
         onQuickOpenActivate,
       );
+      options.elements.shell.removeEventListener(WORKBENCH_OPEN_TUTORIAL_EVENT, onOpenTutorial);
+      tutorialsModule.destroy();
       softwareLibrary.destroy();
       blockLibrary.destroy();
       palette.destroy();

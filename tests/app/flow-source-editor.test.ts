@@ -48,6 +48,7 @@ describe("flow source editor connection postconditions", () => {
     let session = analyzeSession(parser, source, revision);
     let projection = createFlowProjection(session.programAnalysis, session.analysis.document);
     const committed = vi.fn();
+    const confirm = vi.fn(() => false);
     const editor = createFlowSourceEditor({
       getSession: () => session,
       getProjection: () => projection,
@@ -64,7 +65,7 @@ describe("flow source editor connection postconditions", () => {
         session = analyzeSession(parser, imported.source, analysis.editTargets.revision, analysis);
         projection = createFlowProjection(session.programAnalysis, session.analysis.document);
       },
-      confirm: () => true,
+      confirm,
       onCommitted: committed,
     });
     const a = requiredNode(projection, "a++;");
@@ -90,6 +91,7 @@ describe("flow source editor connection postconditions", () => {
     });
 
     expect(editor.connectNodes(intent)).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
     expect(source.indexOf("b++;")).toBeLessThan(source.indexOf("a++;"));
     const nextA = requiredNode(projection, "a++;");
     const nextB = requiredNode(projection, "b++;");
@@ -100,6 +102,54 @@ describe("flow source editor connection postconditions", () => {
       ),
     ).toBe(true);
     expect(committed).toHaveBeenCalledOnce();
+  });
+
+  it("retains an injectable confirmation policy for hosts that explicitly require it", () => {
+    let source = SOURCE;
+    let revision = 1;
+    const session = analyzeSession(parser, source, revision);
+    const projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+    const confirm = vi.fn(() => false);
+    const applyPatches = vi.fn(() => true);
+    const editor = createFlowSourceEditor({
+      getSession: () => session,
+      getProjection: () => projection,
+      getParser: () => parser,
+      getProjectionMode: () => "synced",
+      getEditorSource: () => source,
+      applyPatches,
+      resetProjection: vi.fn(),
+      nextRevision: () => ++revision,
+      adopt: vi.fn(),
+      confirm,
+      confirmReversibleEdits: true,
+      onCommitted: vi.fn(),
+    });
+    const a = requiredNode(projection, "a++;");
+    const b = requiredNode(projection, "b++;");
+    const displaced = projection.edges.find(
+      (edge) => edge.from.nodeId === b.id && edge.kind === "next",
+    );
+    const output = b.ports.find((port) => port.direction === "output" && port.edgeKind === "next");
+    const input = a.ports.find((port) => port.direction === "input");
+    if (displaced === undefined || output === undefined || input === undefined) {
+      throw new Error("fixture 缺少可编辑端口");
+    }
+
+    expect(
+      editor.connectNodes({
+        sourceFingerprint: projection.sourceFingerprint,
+        fromNodeId: b.id,
+        fromPortId: output.id,
+        toNodeId: a.id,
+        toPortId: input.id,
+        kind: "next",
+        replaceEdgeId: displaced.id,
+      }),
+    ).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(applyPatches).not.toHaveBeenCalled();
+    expect(source).toBe(SOURCE);
   });
 
   it("rejects non-adjacent rewiring without changing main.c", () => {

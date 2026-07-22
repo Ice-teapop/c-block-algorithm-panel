@@ -9,6 +9,20 @@ import {
 } from "../../src/ui/scenario-panel.js";
 
 describe("scenario panel", () => {
+  it("uses the fixed workbench run control without rendering a duplicate scenario run button", async () => {
+    const fixture = fakeHost();
+    const panelCallbacks = callbacks();
+    const panel = createScenarioPanel(fixture.host, {
+      ...panelCallbacks,
+      primaryRunControl: "external",
+    });
+
+    expect(fixture.findByClass("scenario-panel__run-real")).toBeUndefined();
+    panel.selectScenario("scenario.searching.linear");
+    await panel.requestRealRun();
+    expect(panelCallbacks.onRealRun).toHaveBeenCalledOnce();
+  });
+
   it("updates static, case and completed status copy when locale changes", async () => {
     const fixture = fakeHost();
     const panel = createScenarioPanel(fixture.host, callbacks());
@@ -111,6 +125,35 @@ describe("scenario panel", () => {
     expect(panel.getSnapshot().size).toBe(12);
   });
 
+  it("does not invalidate run state when a lesson reapplies the same case and size", () => {
+    const onScenarioChange = vi.fn();
+    const panel = createScenarioPanel(fakeHost().host, {
+      ...callbacks(),
+      onScenarioChange,
+    });
+
+    panel.selectScenario("scenario.searching.maximum");
+    panel.setSize(5);
+    panel.setBranchTargets([
+      {
+        id: "ready",
+        label: "可验证分支",
+        structuralReachable: true,
+        validCase: true,
+      },
+    ]);
+    panel.selectTargetBranch("ready");
+    const before = panel.getSnapshot();
+    const changes = onScenarioChange.mock.calls.length;
+
+    panel.selectScenario("scenario.searching.maximum");
+    panel.setSize(5);
+
+    expect(onScenarioChange).toHaveBeenCalledTimes(changes);
+    expect(panel.getSnapshot().runCase).toBe(before.runCase);
+    expect(panel.getSnapshot().targetBranch).toEqual(before.targetBranch);
+  });
+
   it("keeps real execution and teaching simulation requests semantically isolated", async () => {
     const real: RealScenarioRunRequest[] = [];
     const simulated: TeachingSimulationRequest[] = [];
@@ -142,8 +185,8 @@ describe("scenario panel", () => {
     expect(real[0]).toMatchObject({
       mode: "real",
       targetBranch: { id: "if.true" },
-      traceValidation: "required",
-      historyPolicy: "record-after-trace-validation",
+      pathEvidence: "separate-observation",
+      historyPolicy: "record-after-successful-run",
     });
     expect(simulated).toHaveLength(1);
     expect(simulated[0]).toMatchObject({
@@ -152,7 +195,7 @@ describe("scenario panel", () => {
       historyPolicy: "never-record",
       performanceEvidence: "not-applicable",
     });
-    expect(simulated[0]).not.toHaveProperty("traceValidation");
+    expect(simulated[0]).not.toHaveProperty("pathEvidence");
   });
 
   it("disables unreachable or unbound branch targets with a reason", () => {

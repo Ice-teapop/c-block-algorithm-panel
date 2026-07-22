@@ -6,7 +6,12 @@ import { FIRST_MINIMUM_ALGORITHM_FINGERPRINT } from "../tutorials/first-lesson.j
 export function forwardRuntimeLearningObservation(
   lesson: GuidedLessonWorkspaceController | null,
   observation: RuntimeLearningObservation,
+  course?: Pick<
+    { recordRuntimeObservation(value: RuntimeLearningObservation): void },
+    "recordRuntimeObservation"
+  >,
 ): void {
+  course?.recordRuntimeObservation(observation);
   if (lesson === null) return;
   if (observation.type === "benchmark-completed") {
     const binding = lesson.binding(

@@ -12,8 +12,9 @@ import {
 export interface ScenarioWorkbenchControllerOptions {
   readonly host: HTMLElement;
   readonly provider?: ScenarioProvider | undefined;
+  readonly primaryRunControl?: "embedded" | "external";
   readonly onScenarioChange?: (() => void) | undefined;
-  /** The caller must run a real trace and reject an unmet target branch. */
+  /** A selected target branch must already have separate Observe evidence. */
   readonly onRealRunRequested: (request: RealScenarioRunRequest) => void | Promise<void>;
   /** Simulation is deliberately routed separately and must never enter run history. */
   readonly onTeachingSimulationRequested: (
@@ -50,6 +51,7 @@ export function createScenarioWorkbenchController(
 
   const panel = createScenarioPanel(options.host, {
     provider,
+    primaryRunControl: options.primaryRunControl ?? "embedded",
     ...(options.onScenarioChange === undefined
       ? {}
       : { onScenarioChange: options.onScenarioChange }),

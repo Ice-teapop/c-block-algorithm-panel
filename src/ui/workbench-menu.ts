@@ -202,7 +202,6 @@ export function createWorkbenchMenu(
   host.replaceChildren(navigation);
   let openRootId: WorkbenchMenuRootId | null = null;
   let destroyed = false;
-  const popupCloseTimers = new Map<WorkbenchMenuRootId, ReturnType<typeof setTimeout>>();
 
   const mountedFor = (rootId: WorkbenchMenuRootId): MountedMenu => {
     const match = mounted.find((entry) => entry.definition.id === rootId);
@@ -210,46 +209,18 @@ export function createWorkbenchMenu(
     return match;
   };
 
-  const cancelPopupClose = (menu: MountedMenu): void => {
-    const timer = popupCloseTimers.get(menu.definition.id);
-    if (timer !== undefined) clearTimeout(timer);
-    popupCloseTimers.delete(menu.definition.id);
-  };
-
-  const prefersReducedMotion = (): boolean =>
-    ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-
   const renderOpenState = (): void => {
     for (const menu of mounted) {
       const open = menu.definition.id === openRootId;
       menu.trigger.setAttribute("aria-expanded", String(open));
       menu.root.classList.toggle("is-open", open);
       if (open) {
-        cancelPopupClose(menu);
         menu.popup.hidden = false;
-        menu.popup.dataset.state = "opening";
+        menu.popup.dataset.state = "open";
         continue;
       }
-      if (menu.popup.hidden) {
-        menu.popup.dataset.state = "closed";
-        continue;
-      }
-      cancelPopupClose(menu);
-      menu.popup.dataset.state = "closing";
-      if (prefersReducedMotion()) {
-        menu.popup.hidden = true;
-        menu.popup.dataset.state = "closed";
-        continue;
-      }
-      popupCloseTimers.set(
-        menu.definition.id,
-        setTimeout(() => {
-          popupCloseTimers.delete(menu.definition.id);
-          if (destroyed || openRootId === menu.definition.id) return;
-          menu.popup.hidden = true;
-          menu.popup.dataset.state = "closed";
-        }, 90),
-      );
+      menu.popup.hidden = true;
+      menu.popup.dataset.state = "closed";
     }
   };
 
@@ -425,8 +396,6 @@ export function createWorkbenchMenu(
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      for (const timer of popupCloseTimers.values()) clearTimeout(timer);
-      popupCloseTimers.clear();
       navigation.removeEventListener("click", onNavigationClick);
       navigation.removeEventListener("keydown", onNavigationKeydown);
       ownerDocument.removeEventListener("pointerdown", onDocumentPointerDown);

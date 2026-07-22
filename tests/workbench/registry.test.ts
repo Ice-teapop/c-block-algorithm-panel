@@ -188,6 +188,7 @@ describe("WorkbenchModuleRegistry", () => {
       expect.objectContaining({ id: "explanation", groupId: "inspect", order: 10 }),
       expect.objectContaining({ id: "edit", groupId: "inspect", order: 20 }),
       expect.objectContaining({ id: "run", groupId: "execute", order: 10 }),
+      expect.objectContaining({ id: "tutorials", groupId: "learn", order: 0 }),
       expect.objectContaining({ id: "software-library", groupId: "learn", order: 10 }),
     ]);
     expect(snapshot.dockMenus.map(({ id, label }) => ({ id, label }))).toEqual([
@@ -215,10 +216,11 @@ describe("WorkbenchModuleRegistry", () => {
       "minimal",
     ]);
     expect(snapshot.layoutPresets.find(({ id }) => id === "build")?.panelIds).toContain("ai-hints");
-    expect(snapshot.commands).toHaveLength(21);
+    expect(snapshot.commands).toHaveLength(22);
     expect(snapshot.commands.map(({ id }) => id)).toEqual(
       expect.arrayContaining([
         "navigation.projects",
+        "navigation.tutorials",
         "navigation.workspace",
         "navigation.analysis",
         "navigation.library",

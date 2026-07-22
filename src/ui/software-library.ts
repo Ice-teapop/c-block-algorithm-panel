@@ -12,6 +12,11 @@ import {
   type LibraryFeatureLink,
 } from "../library/index.js";
 import type { InterfaceLocale } from "../shared/interface-locale.js";
+import {
+  createLibraryTaskLesson,
+  type LibraryTaskLesson,
+  type LibraryTaskLessonPhase,
+} from "./library-task-lesson.js";
 
 export type SoftwareFeatureStatus = "available" | "foundation" | "planned";
 
@@ -32,6 +37,7 @@ export interface SoftwareFeatureDefinition {
 export interface SoftwareLibraryCallbacks {
   readonly onOpenFeature: (pageId: string, targetId: string) => void;
   readonly onStartGuidedLesson: () => void;
+  readonly onOpenTutorialLesson?: ((lessonId: string) => void) | undefined;
 }
 
 export interface SoftwareLibrary {
@@ -43,6 +49,23 @@ export interface SoftwareLibrary {
   selectEntry(entryId: string): void;
   selectBranch(branchId: string): void;
   destroy(): void;
+}
+
+/** Compatibility targets for retired Library tutorials that no longer occupy Tutorials catalog rows. */
+export const LEGACY_LIBRARY_TUTORIAL_TARGETS: Readonly<Record<string, string>> = Object.freeze({
+  "tutorial.maximum-stream": "tutorial.foa.c04.l028",
+  "tutorial.blocks-to-c": "tutorial.foa.c01.l004",
+  "tutorial.input-cases": "tutorial.foa.c01.l005",
+  "tutorial.debug-comparison": "tutorial.foa.c03.l017",
+  "tutorial.real-trace": "tutorial.foa.c05.l041",
+  "tutorial.complexity-growth": "tutorial.foa.c12.l112",
+  "tutorial.pointer-memory": "tutorial.foa.c06.l048",
+  "tutorial.failure-recovery": "tutorial.foa.c01.l003",
+  "tutorial.insertion-sort-lab": "tutorial.foa.c07.l060",
+});
+
+export function resolveLibraryTutorialLessonId(entryId: string): string {
+  return LEGACY_LIBRARY_TUTORIAL_TARGETS[entryId] ?? entryId;
 }
 
 export const SOFTWARE_FEATURES: readonly SoftwareFeatureDefinition[] = Object.freeze([
@@ -281,6 +304,8 @@ export function createSoftwareLibrary(
   let activeFilterId: LibraryFilterId | null = null;
   let activeAudience: LibraryAudience = "learner";
   let selectedFeatureOverride: SoftwareFeatureDefinition | null = null;
+  let taskLesson: LibraryTaskLesson | null = null;
+  let taskLessonId: string | null = null;
   let destroyed = false;
   let entryButtons: HTMLButtonElement[] = [];
   const branchButtons = LIBRARY_FILTERS.map((definition) => {
@@ -314,7 +339,7 @@ export function createSoftwareLibrary(
     const entry = getLibraryEntry(entryId);
     if (entry !== null) {
       const presented = localizeLibraryEntry(entry, locale);
-      renderDictionaryDetail(ownerDocument, detail, presented, callbacks, selectEntry, locale, {
+      renderEntryDetail(presented, {
         label: english() ? `Open ${presented.title}` : `打开${featureDefinition.title}`,
         pageId: featureDefinition.pageId,
         targetId: featureDefinition.targetId,
@@ -350,14 +375,7 @@ export function createSoftwareLibrary(
     selectedFeatureId = featureIdForEntry(entry.id);
     selectedFeatureOverride = null;
     if (audienceChanged) renderDirectory();
-    renderDictionaryDetail(
-      ownerDocument,
-      detail,
-      localizeLibraryEntry(entry, locale),
-      callbacks,
-      selectEntry,
-      locale,
-    );
+    renderEntryDetail(localizeLibraryEntry(entry, locale));
     updateSelection();
   };
 
@@ -487,14 +505,7 @@ export function createSoftwareLibrary(
     selectedFeatureId = featureIdForEntry(first.id);
     selectedFeatureOverride = null;
     renderDirectory();
-    renderDictionaryDetail(
-      ownerDocument,
-      detail,
-      localizeLibraryEntry(first, locale),
-      callbacks,
-      selectEntry,
-      locale,
-    );
+    renderEntryDetail(localizeLibraryEntry(first, locale));
     updateSelection();
   }
 
@@ -576,16 +587,55 @@ export function createSoftwareLibrary(
             pageId: featureDefinition.pageId,
             targetId: featureDefinition.targetId,
           };
+    renderEntryDetail(presented, featureLinkOverride);
+  };
+
+  function renderEntryDetail(
+    entry: LibraryEntry,
+    featureLinkOverride: LibraryFeatureLink | null = null,
+  ): void {
+    const nextTaskLessonId = entry.tutorial?.taskLessonId ?? null;
+    if (nextTaskLessonId !== null) {
+      if (taskLesson !== null && taskLessonId === nextTaskLessonId) {
+        taskLesson.setLocale(locale, entry);
+        renderTutorialModuleLink(detail, entry, callbacks, locale);
+        return;
+      }
+      destroyTaskLesson();
+      taskLessonId = nextTaskLessonId;
+      taskLesson = createLibraryTaskLesson(detail, nextTaskLessonId, {
+        locale,
+        entry,
+        onPhaseChange: setTaskLessonPhase,
+      });
+      if (taskLesson !== null) {
+        renderTutorialModuleLink(detail, entry, callbacks, locale);
+        return;
+      }
+      taskLessonId = null;
+    } else destroyTaskLesson();
     renderDictionaryDetail(
       ownerDocument,
       detail,
-      presented,
+      entry,
       callbacks,
       selectEntry,
       locale,
       featureLinkOverride,
     );
-  };
+    renderTutorialModuleLink(detail, entry, callbacks, locale);
+  }
+
+  function setTaskLessonPhase(phase: LibraryTaskLessonPhase): void {
+    root.dataset.taskLessonPhase = phase;
+  }
+
+  function destroyTaskLesson(): void {
+    taskLesson?.destroy();
+    taskLesson = null;
+    taskLessonId = null;
+    delete root.dataset.taskLessonPhase;
+  }
   search.addEventListener("input", onSearch);
   search.addEventListener("keydown", onSearchKeydown);
   list.addEventListener("keydown", onListKeydown);
@@ -627,6 +677,7 @@ export function createSoftwareLibrary(
       shell?.removeEventListener("software-library-activated", onActivated);
       localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       localeObserver?.disconnect();
+      destroyTaskLesson();
       entryButtons = [];
       root.remove();
     },
@@ -822,13 +873,13 @@ function renderDictionaryDetail(
     relatedSection.append(relatedTitle, relatedLinks);
     body.append(relatedSection);
   }
-  if (entry.aliases.length > 0 || entry.keywords.length > 0) {
+  const searchableTerms = english
+    ? [...entry.aliases, ...entry.keywords].filter((value) => !containsHan(value))
+    : [...entry.aliases, ...entry.keywords];
+  if (searchableTerms.length > 0) {
     const terms = ownerDocument.createElement("p");
     terms.className = "software-library__terms";
-    terms.textContent = `${english ? "Also searchable as" : "也可搜索"}：${[
-      ...entry.aliases,
-      ...entry.keywords,
-    ].join(" · ")}`;
+    terms.textContent = `${english ? "Also searchable as" : "也可搜索"}：${searchableTerms.join(" · ")}`;
     body.append(terms);
   }
 
@@ -857,6 +908,35 @@ function renderDictionaryDetail(
     actions.append(lesson);
   }
   host.replaceChildren(header, body, actions);
+}
+
+function renderTutorialModuleLink(
+  host: HTMLElement,
+  entry: LibraryEntry,
+  callbacks: SoftwareLibraryCallbacks,
+  locale: InterfaceLocale,
+): void {
+  if (entry.tutorial === null || entry.tutorial === undefined) return;
+  // The production host is an HTMLElement. Keep the renderer tolerant of the minimal DOM
+  // harness used by unit tests, which deliberately exposes only creation and replacement APIs.
+  const query = (host as HTMLElement & { querySelector?: HTMLElement["querySelector"] })
+    .querySelector;
+  const existing =
+    (query?.call(host, "[data-open-tutorial-lesson]") as HTMLElement | null | undefined) ?? null;
+  if (callbacks.onOpenTutorialLesson === undefined) {
+    existing?.remove();
+    return;
+  }
+  const button = existing ?? host.ownerDocument.createElement("button");
+  const targetLessonId = resolveLibraryTutorialLessonId(entry.id);
+  button.className = "software-library__tutorial-module-link";
+  button.setAttribute("type", "button");
+  button.dataset.openTutorialLesson = targetLessonId;
+  button.textContent = locale === "en" ? "Open in Tutorials" : "在教程模块中打开";
+  if (existing === null) {
+    button.addEventListener("click", () => callbacks.onOpenTutorialLesson?.(targetLessonId));
+    host.insertBefore(button, host.firstChild);
+  }
 }
 
 function renderGuidedLessonDetail(
@@ -1241,6 +1321,10 @@ function branchLabel(branchId: LibraryBranchId, locale: InterfaceLocale): string
 
 function resolveLibraryLocale(value: unknown): InterfaceLocale {
   return typeof value === "string" && value.toLocaleLowerCase().startsWith("en") ? "en" : "zh-CN";
+}
+
+function containsHan(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
 }
 
 function statusLabel(status: SoftwareFeatureStatus): string {

@@ -444,7 +444,7 @@ test("drags a projected node freely and restores its sidecar position after relo
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
-  const row = page.getByRole("link", { name: "打开项目“M6 自由画布”" });
+  const row = page.getByRole("link", { name: /打开\s*项目\s*“M6 自由画布”/u });
   await row.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
@@ -514,6 +514,9 @@ test("keeps teaching simulation isolated, then renders a backend-confirmed real 
 
   await page.getByRole("combobox", { name: "算法案例" }).selectOption("");
   await page.getByRole("button", { name: "运行", exact: true }).click();
+  await expect(page.locator("#trace-primary-action")).toHaveText("再次运行");
+  await expect(tracePanel).toHaveAttribute("data-status", "idle");
+  await expect(traceEvents).toHaveCount(0);
   await expect(page.getByRole("button", { name: "观察路径", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "观察路径", exact: true }).click();
   await expect(tracePanel).toHaveAttribute("data-status", "completed", { timeout: 20_000 });
@@ -528,12 +531,20 @@ test("keeps teaching simulation isolated, then renders a backend-confirmed real 
   await expect(traceChart.locator("[data-series='trace']")).toBeVisible();
   await expect(traceChart.locator("[data-kind='branch'][data-branch-taken='true']")).toBeVisible();
   await expect(page.locator(".trace-panel__reference")).toHaveAttribute("data-available", "false");
-  await expect(page.locator(".trace-panel__reference")).toContainText("参考工作量：不可用");
+  await expect(page.locator(".trace-panel__reference")).toContainText("实测/参考工作量比：不可用");
   await expect(page.locator(".flow-node[data-execution-mode='real']").first()).toBeVisible();
   await expect(page.locator("[data-trace-field='operation-count']")).toContainText(
     "真实 Trace 事件",
   );
-  expect(await fileExists(join(projectDirectory, "run-history.json"))).toBe(false);
+  await expect(page.locator("#runtime-metrics-host")).toContainText("真实运行已记录");
+  await expect
+    .poll(async () => {
+      const stored = JSON.parse(
+        await readFile(join(projectDirectory, "run-history.json"), "utf8"),
+      ) as { readonly payload?: { readonly entries?: readonly unknown[] } };
+      return stored.payload?.entries?.length ?? 0;
+    })
+    .toBeGreaterThan(0);
 });
 
 function requireApplication(): ElectronApplication {

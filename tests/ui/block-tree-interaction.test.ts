@@ -153,6 +153,60 @@ describe("block tree interaction gate", () => {
     expect(slot.classList.contains("is-template-drop-target")).toBe(false);
   });
 
+  it("only activates structural slots accepted by the dragged C block", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const onInsert = vi.fn();
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn(), onInsert);
+    tree.setDocument(document, index);
+    const target = buttonFor(host, "return_statement");
+    const slot = slotFor(host, target.dataset.blockIndex ?? "", "before");
+
+    expect(slot.dataset.syntaxSlot).toBe("function-body");
+    tree.setTemplateDrag("builtin.control.continue", ["loop-body"]);
+    expect(
+      host.emit("dragover", slot, { dataTransfer: new FakeDataTransfer() }).defaultPrevented,
+    ).toBe(false);
+    expect(onInsert).not.toHaveBeenCalled();
+
+    tree.setTemplateDrag("builtin.c.print-integer", ["function-body"]);
+    expect(
+      host.emit("dragover", slot, { dataTransfer: new FakeDataTransfer() }).defaultPrevented,
+    ).toBe(true);
+  });
+
+  it("uses enclosing control capabilities for break and continue inside nested compounds", () => {
+    const { document, index } = nestedLoopFixture();
+    const host = fakeDocument.createElement("div");
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn(), vi.fn());
+    tree.setDocument(document, index);
+    const nestedStatement = buttonFor(host, "expression_statement");
+    const nestedSlot = slotFor(host, nestedStatement.dataset.blockIndex ?? "", "before");
+    const outsideReturn = buttonFor(host, "return_statement");
+    const outsideSlot = slotFor(host, outsideReturn.dataset.blockIndex ?? "", "before");
+    const allStatementSlots = [
+      "function-body",
+      "compound-body",
+      "loop-body",
+      "switch-case",
+    ] as const;
+
+    expect(nestedSlot.dataset.syntaxSlot).toBe("compound-body");
+    expect(nestedSlot.dataset.syntaxAncestorCapabilities).toContain("loop");
+    tree.setTemplateDrag("builtin.control.continue", allStatementSlots, ["loop"]);
+    expect(
+      host.emit("dragover", nestedSlot, { dataTransfer: new FakeDataTransfer() }).defaultPrevented,
+    ).toBe(true);
+    expect(
+      host.emit("dragover", outsideSlot, { dataTransfer: new FakeDataTransfer() }).defaultPrevented,
+    ).toBe(false);
+
+    tree.setTemplateDrag("builtin.control.break", allStatementSlots, ["loop", "switch"]);
+    expect(
+      host.emit("dragover", nestedSlot, { dataTransfer: new FakeDataTransfer() }).defaultPrevented,
+    ).toBe(true);
+  });
+
   it("falls back to the enclosing tree node when it intercepts an expanded slot", () => {
     const { document, index } = fixture();
     const host = fakeDocument.createElement("div");
@@ -418,11 +472,42 @@ function fixture(): { readonly document: SourceDoc; readonly index: BlockIndex }
   return { document, index: createBlockIndex(document) };
 }
 
+function nestedLoopFixture(): { readonly document: SourceDoc; readonly index: BlockIndex } {
+  const source = "while (ready) { if (flag) { total++; } }\nreturn total;\n";
+  const statement = syntaxBlock(source, "total++;", "statement", "expression_statement");
+  const branch = syntaxBlock(source, "if (flag) { total++; }", "statement", "if_statement", [
+    statement,
+  ]);
+  const loop = syntaxBlock(
+    source,
+    "while (ready) { if (flag) { total++; } }",
+    "statement",
+    "while_statement",
+    [branch],
+  );
+  const blocks: readonly Block[] = [
+    loop,
+    syntaxBlock(source, "return total;", "statement", "return_statement"),
+  ];
+  const document: SourceDoc = {
+    source,
+    range: textRange(0, source.length),
+    blocks,
+    comments: [],
+    parse: { mode: "tree-sitter", hasError: false, errorRanges: [], missingOffsets: [] },
+    issues: [],
+    concerns: [],
+    symbols: { symbols: [], occurrences: [] },
+  };
+  return { document, index: createBlockIndex(document) };
+}
+
 function syntaxBlock(
   source: string,
   excerpt: string,
   role: "function" | "statement" | "declaration" | "preprocessor",
   nodeType: string,
+  children: readonly Block[] = [],
 ): Block {
   const from = source.indexOf(excerpt);
   return {
@@ -430,7 +515,7 @@ function syntaxBlock(
     role,
     nodeType,
     range: textRange(from, from + excerpt.length),
-    children: [],
+    children,
   };
 }
 

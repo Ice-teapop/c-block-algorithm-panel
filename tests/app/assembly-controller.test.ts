@@ -75,6 +75,50 @@ describe("assembly insertion request", () => {
       }),
     ).toThrow(/明确插槽/u);
   });
+
+  it("accepts continue in a nested loop compound and rejects it outside a loop", () => {
+    const source = `int main(void) {
+  int value = 0;
+  while (value < 3) {
+    if (value == 1) {
+      value++;
+    }
+  }
+  return value;
+}
+`;
+    const analysis = parser.analyze(source, 10);
+    const catalog = createLearningCatalog();
+    const entries = createBlockIndex(analysis.document).entries.filter(
+      (candidate) => candidate.block?.kind === "syntax",
+    );
+    const nestedExpression = entries.find(
+      (candidate) =>
+        candidate.block?.kind === "syntax" && candidate.block.nodeType === "expression_statement",
+    );
+    const outsideReturn = entries.find(
+      (candidate) =>
+        candidate.block?.kind === "syntax" && candidate.block.nodeType === "return_statement",
+    );
+    if (nestedExpression === undefined || outsideReturn === undefined) {
+      throw new Error("missing nested placement targets");
+    }
+
+    expect(() =>
+      buildAssemblyInsertRequest(catalog, analysis, {
+        templateId: "builtin.control.continue",
+        target: nestedExpression,
+        position: "before",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      buildAssemblyInsertRequest(catalog, analysis, {
+        templateId: "builtin.control.continue",
+        target: outsideReturn,
+        position: "before",
+      }),
+    ).toThrow(/循环或 switch/u);
+  });
 });
 
 describe("assembly controller", () => {

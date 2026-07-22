@@ -19,7 +19,10 @@ import {
   type PresetBlockScenario,
   type PresetPlacementCondition,
   type PresetPortDefinition,
+  type PresetProvidedSyntaxSlot,
   type PresetSourceBlockDefinition,
+  type PresetSyntaxAncestorCapability,
+  type PresetSyntaxSlotKind,
   type PresetVirtualBlockDefinition,
   type RetiredLearningTemplateTombstone,
 } from "./contracts.js";
@@ -34,6 +37,16 @@ const VERSION_PATTERN =
   /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u;
 const CONTROL_FRAGMENT_PATTERN = /^(?:if|for|while|do|switch)\b/u;
 const MAX_TEMPLATE_SOURCE_LENGTH = 64 * 1024;
+const PRESET_SYNTAX_SLOT_KINDS: ReadonlySet<PresetSyntaxSlotKind> = new Set([
+  "function-body",
+  "compound-body",
+  "loop-body",
+  "switch-case",
+]);
+const PRESET_SYNTAX_ANCESTOR_CAPABILITIES: ReadonlySet<PresetSyntaxAncestorCapability> = new Set([
+  "loop",
+  "switch",
+]);
 
 export interface LearningCatalogOptions {
   readonly stages?: readonly LearningStageDefinition[];
@@ -515,6 +528,12 @@ function normalizePlacement(
       ),
       requiresHeaders: Object.freeze([]),
       requiresSymbols: Object.freeze([]),
+      acceptedSyntaxSlots:
+        expectedScope === "function-body"
+          ? Object.freeze([...PRESET_SYNTAX_SLOT_KINDS])
+          : Object.freeze([]),
+      requiredAnyAncestorCapabilities: Object.freeze([]),
+      providedSyntaxSlots: Object.freeze([]),
     });
   }
   if (!isRecord(value) || value.scope !== expectedScope) {
@@ -528,7 +547,97 @@ function normalizePlacement(
     ),
     requiresHeaders: normalizeIdentifierList(value.requiresHeaders, "placement header"),
     requiresSymbols: normalizeIdentifierList(value.requiresSymbols, "placement symbol"),
+    acceptedSyntaxSlots: normalizeSyntaxSlotKinds(
+      value.acceptedSyntaxSlots,
+      expectedScope === "function-body" ? [...PRESET_SYNTAX_SLOT_KINDS] : [],
+    ),
+    requiredAnyAncestorCapabilities: normalizeAncestorCapabilities(
+      value.requiredAnyAncestorCapabilities,
+    ),
+    providedSyntaxSlots: normalizeProvidedSyntaxSlots(value.providedSyntaxSlots),
   });
+}
+
+function normalizeAncestorCapabilities(value: unknown): readonly PresetSyntaxAncestorCapability[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) {
+    throw catalogError("INVALID_TEMPLATE", "placement ancestor capabilities 必须是数组");
+  }
+  const seen = new Set<PresetSyntaxAncestorCapability>();
+  return Object.freeze(
+    value.map((candidate) => {
+      if (
+        typeof candidate !== "string" ||
+        !PRESET_SYNTAX_ANCESTOR_CAPABILITIES.has(candidate as PresetSyntaxAncestorCapability)
+      ) {
+        throw catalogError("INVALID_TEMPLATE", `未知 ancestor capability：${String(candidate)}`);
+      }
+      const capability = candidate as PresetSyntaxAncestorCapability;
+      if (seen.has(capability)) {
+        throw catalogError("INVALID_TEMPLATE", `ancestor capability ${capability} 重复`);
+      }
+      seen.add(capability);
+      return capability;
+    }),
+  );
+}
+
+function normalizeSyntaxSlotKinds(
+  value: unknown,
+  fallback: readonly PresetSyntaxSlotKind[],
+): readonly PresetSyntaxSlotKind[] {
+  const input = value === undefined ? fallback : value;
+  if (!Array.isArray(input)) {
+    throw catalogError("INVALID_TEMPLATE", "placement accepted syntax slots 必须是数组");
+  }
+  const seen = new Set<PresetSyntaxSlotKind>();
+  const slots = input.map((candidate) => {
+    if (
+      typeof candidate !== "string" ||
+      !PRESET_SYNTAX_SLOT_KINDS.has(candidate as PresetSyntaxSlotKind)
+    ) {
+      throw catalogError("INVALID_TEMPLATE", `未知 syntax slot：${String(candidate)}`);
+    }
+    const slot = candidate as PresetSyntaxSlotKind;
+    if (seen.has(slot)) throw catalogError("INVALID_TEMPLATE", `syntax slot ${slot} 重复`);
+    seen.add(slot);
+    return slot;
+  });
+  return Object.freeze(slots);
+}
+
+function normalizeProvidedSyntaxSlots(value: unknown): readonly PresetProvidedSyntaxSlot[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value)) {
+    throw catalogError("INVALID_TEMPLATE", "placement provided syntax slots 必须是数组");
+  }
+  const ids = new Set<string>();
+  return Object.freeze(
+    value.map((candidate) => {
+      if (!isRecord(candidate)) {
+        throw catalogError("INVALID_TEMPLATE", "provided syntax slot 必须是对象");
+      }
+      const id = assertStableIdentifier(candidate.id, "provided syntax slot id");
+      if (ids.has(id)) throw catalogError("INVALID_TEMPLATE", `provided syntax slot ${id} 重复`);
+      ids.add(id);
+      const kind = candidate.kind;
+      if (typeof kind !== "string" || !PRESET_SYNTAX_SLOT_KINDS.has(kind as PresetSyntaxSlotKind)) {
+        throw catalogError("INVALID_TEMPLATE", `provided syntax slot ${id} kind 无效`);
+      }
+      if (candidate.cardinality !== "one" && candidate.cardinality !== "many") {
+        throw catalogError("INVALID_TEMPLATE", `provided syntax slot ${id} cardinality 无效`);
+      }
+      return Object.freeze({
+        id,
+        label: assertText(candidate.label, "provided syntax slot label"),
+        kind: kind as PresetSyntaxSlotKind,
+        cardinality: candidate.cardinality,
+        ...(candidate.branch === undefined
+          ? {}
+          : { branch: assertStableIdentifier(candidate.branch, "provided syntax slot branch") }),
+      });
+    }),
+  );
 }
 
 function normalizeExplanation(value: unknown, description: string): PresetBlockExplanation {

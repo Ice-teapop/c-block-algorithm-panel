@@ -259,7 +259,7 @@ test("compiles and runs from the UI after exactly two accepted native trust prom
   await expect(runPanel).toHaveAttribute("data-state", "ready");
   await expect(page.locator('[data-run-field="mode"]')).toContainText("可信代码模式");
   await expect(page.locator('[data-run-field="trust-confirmation"]')).toContainText("需要");
-  await page.getByRole("button", { name: "编译并运行" }).click();
+  await page.locator("#trace-primary-action").click();
 
   await expect(runPanel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
   expect(await page.locator('[data-run-field="stdout"]').evaluate((node) => node.textContent)).toBe(
@@ -291,6 +291,13 @@ test("keeps CodeMirror editable and injects nonce-bearing styles without CSP vio
     .evaluateAll((styles) => styles.map((style) => (style as HTMLStyleElement).nonce));
   expect(styleNonces.length).toBeGreaterThan(0);
   expect(styleNonces.every((styleNonce) => styleNonce === nonce)).toBe(true);
+
+  // CodeMirror updates line geometry only after a real edit. Checking the initial mount alone
+  // misses CSP failures caused by its runtime style attributes.
+  await content.click();
+  await page.keyboard.press("Meta+End");
+  await page.keyboard.insertText("\n");
+  await expect(content).toContainText("return 0;");
   const violations = await page.evaluate(() => {
     const state = globalThis as typeof globalThis & {
       __m2CspViolations?: readonly unknown[];
@@ -306,8 +313,14 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     BrowserWindow.getAllWindows()[0]?.setSize(860, 600);
   });
   try {
-    await expect(page.locator("#parser-status")).toBeVisible();
-    await expect(page.locator("#import-status")).toBeVisible();
+    await expect(page.locator("#parser-status")).toHaveAttribute("aria-live", "polite");
+    await expect(page.locator("#workspace-save-status")).toHaveAttribute("aria-live", "polite");
+    await expect(page.locator(".workbench-live-status")).toHaveClass(/visually-hidden/u);
+    await expect(page.locator(".workbench-live-status")).not.toHaveAttribute("aria-hidden", "true");
+    await expect(page.locator("#import-status")).toHaveAttribute("role", "alert");
+    await expect(page.locator("#import-status")).toHaveAttribute("aria-live", "assertive");
+    await expect(page.locator("#import-status")).toBeHidden();
+    await expect(page.locator(".status-bar")).toHaveCount(0);
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
 
@@ -321,7 +334,7 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
 
     await page.getByRole("tab", { name: "运行", exact: true }).click();
     await expect(page.locator("#run-panel")).toBeVisible();
-    await expect(page.getByRole("button", { name: "编译并运行" })).toBeVisible();
+    await expect(page.locator("#trace-primary-action")).toBeVisible();
 
     await page.getByRole("tab", { name: "工作区", exact: true }).click();
     await expect(page.locator("#block-palette")).toBeVisible();
@@ -329,9 +342,13 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     await expect(page.locator("#flow-canvas")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
     const viewport = await page.evaluate(() => {
-      const statusBar = document.querySelector(".status-bar")?.getBoundingClientRect();
       const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
+      const pages = document.querySelector("#workbench-pages")?.getBoundingClientRect();
       const workbench = document.querySelector("#build-layout")?.getBoundingClientRect();
+      const workArea = document.querySelector("#work-area")?.getBoundingClientRect();
+      const primaryWorkspace = document
+        .querySelector("#primary-workspace")
+        ?.getBoundingClientRect();
       const regions = ["#left-pane", "#center-pane", "#right-pane"].flatMap((selector) => {
         const panel = document.querySelector<HTMLElement>(selector);
         if (panel === null) return [];
@@ -348,9 +365,18 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
           },
         ];
       });
-      const splitters = [
+      const mainSplitters = [
         ...document.querySelectorAll<HTMLElement>("#build-layout > .resizable-layout__splitter"),
       ].map((splitter) => splitter.getBoundingClientRect());
+      const primarySplitters = [
+        ...document.querySelectorAll<HTMLElement>(
+          "#primary-workspace > .resizable-layout__splitter",
+        ),
+      ].map((splitter) => splitter.getBoundingClientRect());
+      const rectangle = (value: DOMRect | undefined) =>
+        value === undefined
+          ? undefined
+          : { left: value.left, right: value.right, top: value.top, bottom: value.bottom };
       return {
         clientHeight: document.documentElement.clientHeight,
         scrollHeight: document.documentElement.scrollHeight,
@@ -361,20 +387,19 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
         bodyClientWidth: document.body.clientWidth,
         bodyScrollWidth: document.body.scrollWidth,
         codePaneHeight: codePane?.height,
-        statusTop: statusBar?.top,
-        statusBottom: statusBar?.bottom,
-        statusHeight: statusBar?.height,
-        workbench:
-          workbench === undefined
-            ? undefined
-            : {
-                left: workbench.left,
-                right: workbench.right,
-                top: workbench.top,
-                bottom: workbench.bottom,
-              },
+        pagesBottom: pages?.bottom,
+        hasVisibleStatusBar: document.querySelector(".status-bar") !== null,
+        workbench: rectangle(workbench),
+        workArea: rectangle(workArea),
+        primaryWorkspace: rectangle(primaryWorkspace),
         regions,
-        splitters: splitters.map((splitter) => ({
+        mainSplitters: mainSplitters.map((splitter) => ({
+          left: splitter.left,
+          right: splitter.right,
+          top: splitter.top,
+          bottom: splitter.bottom,
+        })),
+        primarySplitters: primarySplitters.map((splitter) => ({
           left: splitter.left,
           right: splitter.right,
           top: splitter.top,
@@ -387,16 +412,19 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     expect(viewport.bodyScrollHeight).toBe(viewport.bodyClientHeight);
     expect(viewport.bodyScrollWidth).toBe(viewport.bodyClientWidth);
     expect(viewport.codePaneHeight).toBeGreaterThan(100);
-    expect(viewport.statusHeight).toBe(22);
-    expect(viewport.statusTop).toBeGreaterThanOrEqual(0);
-    expect(viewport.statusBottom).toBeLessThanOrEqual(viewport.clientHeight);
+    expect(viewport.hasVisibleStatusBar).toBe(false);
+    expect(viewport.pagesBottom).toBeCloseTo(viewport.clientHeight, 1);
     expect(viewport.regions).toHaveLength(3);
-    expect(viewport.splitters).toHaveLength(2);
+    expect(viewport.mainSplitters).toHaveLength(1);
+    expect(viewport.primarySplitters).toHaveLength(1);
     expect(viewport.workbench).toBeDefined();
     const [leftRegion, centerRegion, rightRegion] = viewport.regions;
-    const [leftSplitter, centerSplitter] = viewport.splitters;
+    const [leftSplitter] = viewport.mainSplitters;
+    const [centerSplitter] = viewport.primarySplitters;
     if (
       viewport.workbench === undefined ||
+      viewport.workArea === undefined ||
+      viewport.primaryWorkspace === undefined ||
       leftRegion === undefined ||
       centerRegion === undefined ||
       rightRegion === undefined ||
@@ -407,13 +435,21 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     }
     expect(leftRegion.left).toBeCloseTo(viewport.workbench.left, 1);
     expect(leftRegion.right).toBeCloseTo(leftSplitter.left, 1);
-    expect(leftSplitter.right).toBeCloseTo(centerRegion.left, 1);
+    expect(leftRegion.top).toBeCloseTo(viewport.workbench.top, 1);
+    expect(leftRegion.bottom).toBeCloseTo(viewport.workbench.bottom, 1);
+    expect(leftSplitter.right).toBeCloseTo(viewport.workArea.left, 1);
+    expect(viewport.workArea.right).toBeCloseTo(viewport.workbench.right, 1);
+    expect(viewport.primaryWorkspace.left).toBeCloseTo(viewport.workArea.left, 1);
+    expect(viewport.primaryWorkspace.right).toBeCloseTo(viewport.workArea.right, 1);
+    expect(centerRegion.left).toBeCloseTo(viewport.primaryWorkspace.left, 1);
     expect(centerRegion.right).toBeCloseTo(centerSplitter.left, 1);
     expect(centerSplitter.right).toBeCloseTo(rightRegion.left, 1);
-    expect(rightRegion.right).toBeCloseTo(viewport.workbench.right, 1);
+    expect(rightRegion.right).toBeCloseTo(viewport.primaryWorkspace.right, 1);
+    for (const panel of [centerRegion, rightRegion]) {
+      expect(panel.top).toBeCloseTo(viewport.primaryWorkspace.top, 1);
+      expect(panel.bottom).toBeCloseTo(viewport.primaryWorkspace.bottom, 1);
+    }
     for (const panel of viewport.regions) {
-      expect(panel.top).toBeCloseTo(viewport.workbench.top, 1);
-      expect(panel.bottom).toBeCloseTo(viewport.workbench.bottom, 1);
       expect(panel.borderRadius).toBe("0px");
       expect(panel.boxShadow).toBe("none");
     }
@@ -448,7 +484,7 @@ test("navigates the four Dock roots and their branches entirely by keyboard", as
   await page.keyboard.press("ArrowRight");
   const settingsMenu = page.getByRole("menu", { name: "设置" });
   await expect(settingsMenu).toBeVisible();
-  await expect(settingsMenu.getByRole("menuitem", { name: "外观", exact: true })).toBeFocused();
+  await expect(settingsMenu.getByRole("menuitem", { name: "通用", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(roots[0]!).toBeFocused();
   await expect(settingsMenu).toBeHidden();
@@ -465,7 +501,7 @@ test("switches and persists the industrial color theme", async () => {
       .locator("body")
       .evaluate((body) => getComputedStyle(body).backgroundColor);
 
-    await openMenuBranch("设置", "外观");
+    await openMenuBranch("设置", "通用");
     const toDarkButton = page.getByRole("button", { name: "切换为深色主题" });
     await expect(toDarkButton).toBeVisible();
     await toDarkButton.click();
@@ -481,7 +517,7 @@ test("switches and persists the industrial color theme", async () => {
       await page.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor),
     ).toBe(darkBackground);
 
-    await openMenuBranch("设置", "外观");
+    await openMenuBranch("设置", "通用");
     await page.getByRole("button", { name: "切换为浅色主题" }).click();
     await expect(root).toHaveAttribute("data-theme", "light");
     await page.reload({ waitUntil: "domcontentloaded" });

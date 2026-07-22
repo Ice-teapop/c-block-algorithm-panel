@@ -21,6 +21,8 @@ interface ScenarioSeed {
 
 const VERSION = "1.0.0";
 
+type SortingInputShape = "random" | "sorted" | "reverse" | "duplicates";
+
 const SEEDS: readonly ScenarioSeed[] = Object.freeze([
   seed(
     "scenario.sorting.integers",
@@ -40,6 +42,9 @@ const SEEDS: readonly ScenarioSeed[] = Object.freeze([
       );
     },
   ),
+  ...sortingScenarioSeeds("insertion", "插入排序"),
+  ...sortingScenarioSeeds("quick", "快速排序"),
+  ...sortingScenarioSeeds("merge", "归并排序"),
   seed(
     "scenario.searching.linear",
     "searching",
@@ -284,6 +289,63 @@ function ascending(size: number): number[] {
 
 function descending(size: number): number[] {
   return ascending(size).reverse();
+}
+
+function sortingScenarioSeeds(
+  algorithm: "insertion" | "quick" | "merge",
+  algorithmLabel: string,
+): readonly ScenarioSeed[] {
+  const shapes: readonly SortingInputShape[] = ["random", "sorted", "reverse", "duplicates"];
+  return Object.freeze(
+    shapes.map((shape) => {
+      const suffix = shape === "random" ? "" : `.${shape}`;
+      const shapeLabel = sortingShapeLabel(shape);
+      return seed(
+        `scenario.sorting.${algorithm}${suffix}`,
+        "sorting",
+        `${algorithmLabel} · ${shapeLabel}`,
+        `使用${shapeLabel}输入核对${algorithmLabel}输出，并把该输入分布与其他 Benchmark cohort 分开。`,
+        1,
+        256,
+        [8, 32, 128],
+        `第一项是 n，随后 n 个${shapeLabel}整数；输出为升序整数。`,
+        (size) => {
+          const values = sortingValues(size, shape);
+          return runCase(
+            size,
+            `${String(size)}\n${values.join(" ")}\n`,
+            `${[...values].sort((left, right) => left - right).join(" ")}\n`,
+          );
+        },
+      );
+    }),
+  );
+}
+
+function sortingShapeLabel(shape: SortingInputShape): string {
+  if (shape === "sorted") return "已排序";
+  if (shape === "reverse") return "逆序";
+  if (shape === "duplicates") return "重复值";
+  return "确定性随机";
+}
+
+function sortingValues(size: number, shape: SortingInputShape): number[] {
+  if (shape === "sorted") return ascending(size);
+  if (shape === "reverse") return descending(size);
+  if (shape === "duplicates") {
+    const distinct = Math.max(2, Math.min(7, Math.ceil(Math.sqrt(size))));
+    return Array.from({ length: size }, (_, index) => index % distinct).reverse();
+  }
+  const values = ascending(size);
+  let state = (size * 2_654_435_761) >>> 0;
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    const target = state % (index + 1);
+    const previous = values[index]!;
+    values[index] = values[target]!;
+    values[target] = previous;
+  }
+  return values;
 }
 
 /** Alternates record-setting values with lower negatives to exercise both comparison outcomes. */

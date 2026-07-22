@@ -52,9 +52,10 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
   await openMenuBranch("积木", "自定义");
   await expect(page.locator("#block-library-panel")).toBeVisible();
   await expect(page.locator("#build-panel")).toBeHidden();
-  await openMenuBranch("Library", "完整软件手册");
+  await menuTrigger("Library").click();
   await expect(page.locator("#software-library-panel")).toBeVisible();
-  await expect(page.locator("#workbench-shell")).toHaveAttribute("data-library-branch", "manual");
+  await expect(page.locator("#workbench-shell")).toHaveAttribute("data-library-branch", "c-syntax");
+  await page.getByRole("button", { name: "帮助", exact: true }).click();
   await expect(
     page.locator("[data-library-branch-id='manual'][aria-current='true']"),
   ).toBeVisible();
@@ -85,7 +86,10 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   await openMenuBranch("积木", "自定义");
   await page.getByRole("textbox", { name: "积木名称" }).fill("我的累加");
   await page.getByRole("textbox", { name: "分类" }).fill("custom");
-  await page.getByRole("combobox", { name: "学习阶段" }).selectOption("c.basics");
+  await page
+    .getByRole("form", { name: "新建自定义积木" })
+    .getByRole("combobox", { name: "学习阶段" })
+    .selectOption("c.basics");
   await page.getByRole("textbox", { name: "C 源码片段" }).fill("total += 10;");
   await page.getByRole("button", { name: "保存自定义积木" }).click();
   await expect(page.locator(".block-library-manager__status")).toContainText("已创建");
@@ -105,6 +109,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
 
   await openMenuBranch("积木", "自定义");
   let customEntry = customLibraryEntry();
+  await openCustomManagement(customEntry);
   await customEntry.getByRole("button", { name: "弃用" }).click();
   await expect(customEntry).toHaveAttribute("data-lifecycle", "deprecated");
   await dock("工作区").click();
@@ -115,10 +120,13 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
 
   await openMenuBranch("积木", "自定义");
   customEntry = customLibraryEntry();
+  await openCustomManagement(customEntry);
   await customEntry.getByRole("button", { name: "恢复" }).click();
   customEntry = customLibraryEntry();
+  await openCustomManagement(customEntry);
   await customEntry.getByRole("button", { name: "弃用" }).click();
   customEntry = customLibraryEntry();
+  await openCustomManagement(customEntry);
   page.once("dialog", async (dialog) => dialog.accept());
   await customEntry.getByRole("button", { name: "退休" }).click();
   await expect(customLibraryEntry()).toHaveAttribute("data-lifecycle", "retired");
@@ -160,6 +168,13 @@ function customLibraryEntry(): Locator {
   return page
     .locator(".block-library-manager__entry[data-origin='custom']")
     .filter({ hasText: "我的累加" });
+}
+
+async function openCustomManagement(entry: Locator): Promise<void> {
+  const management = entry.locator("details.block-library-manager__management");
+  if ((await management.getAttribute("open")) === null) {
+    await management.locator(":scope > summary").click();
+  }
 }
 
 async function confirmVisibleDiff(): Promise<void> {

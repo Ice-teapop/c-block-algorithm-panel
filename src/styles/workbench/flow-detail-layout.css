@@ -1,0 +1,246 @@
+/* Section: Flow details, splitters, drawers, and panel visibility. */
+.block-palette__drag-surface--virtual {
+  border-left-color: var(--accent);
+  background: var(--surface-soft);
+}
+
+.block-palette__item[data-block-kind="virtual"] .block-palette__source {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.flow-detail {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
+  user-select: text;
+}
+
+.flow-detail[data-minimized="true"] {
+  height: 30px !important;
+}
+
+.flow-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 9px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  cursor: move;
+  touch-action: none;
+}
+
+.flow-detail__title {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-detail__actions {
+  display: flex;
+  align-self: stretch;
+}
+
+.flow-detail__actions button {
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-size: 9px;
+}
+
+.flow-detail__body {
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+  font-size: 10px;
+}
+
+.flow-detail__body h3 {
+  margin: 12px 0 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.flow-detail__code {
+  max-height: 130px;
+  margin: 8px 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--input-surface);
+  font-size: 9px;
+  white-space: pre-wrap;
+}
+
+.flow-detail__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.resizable-layout__splitter {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 10px;
+  background: transparent;
+  touch-action: none;
+}
+
+.resizable-layout__splitter::after {
+  position: absolute;
+  content: "";
+  background: var(--line);
+  pointer-events: none;
+}
+
+.resizable-layout__splitter::before {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised);
+  content: "";
+  pointer-events: none;
+}
+
+.resizable-layout[data-resizable-axis="horizontal"] > .resizable-layout__splitter {
+  cursor: col-resize;
+}
+
+.resizable-layout[data-resizable-axis="horizontal"] > .resizable-layout__splitter::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.resizable-layout[data-resizable-axis="horizontal"] > .resizable-layout__splitter::before {
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+}
+
+.resizable-layout[data-resizable-axis="vertical"] > .resizable-layout__splitter {
+  cursor: row-resize;
+}
+
+.resizable-layout[data-resizable-axis="vertical"] > .resizable-layout__splitter::after {
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+.resizable-layout[data-resizable-axis="vertical"] > .resizable-layout__splitter::before {
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+}
+
+.resizable-layout__splitter:hover,
+.resizable-layout__splitter:focus-visible,
+.resizable-layout__splitter.is-resizing {
+  background: transparent;
+}
+
+.resizable-layout__splitter:hover::after,
+.resizable-layout__splitter:focus-visible::after,
+.resizable-layout__splitter.is-resizing::after {
+  background: var(--accent);
+}
+
+.resizable-layout__splitter:hover::before,
+.resizable-layout__splitter:focus-visible::before,
+.resizable-layout__splitter.is-resizing::before {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+#work-area:has(#bottom-pane[hidden]) > .resizable-layout__splitter[data-splitter-for="primary"],
+#right-pane:has(#inspector-stack[hidden]) > .resizable-layout__splitter[data-splitter-for="code"],
+#right-pane:has(#code-panel[hidden]) > .resizable-layout__splitter[data-splitter-for="code"],
+#left-pane:has(#outline-pane[hidden]) > .resizable-layout__splitter[data-splitter-for="presets"] {
+  display: none;
+}
+
+/* Layout invariant: Hidden panes must release their persisted splitter allocation. */
+#work-area:has(> #bottom-pane[hidden]) > #primary-workspace,
+#right-pane:has(> #inspector-stack[hidden]) > #code-panel,
+#right-pane:has(> #code-panel[hidden]) > #inspector-stack,
+#left-pane:has(> #outline-pane[hidden]) > #presets-pane,
+#left-pane:has(> #presets-pane[hidden]) > #outline-pane {
+  flex: 1 1 0 !important;
+  max-height: none !important;
+}
+
+.resizable-layout__pane.workbench-region,
+.resizable-layout__pane.center-canvas-pane,
+.resizable-layout__pane.panel {
+  overflow: hidden !important;
+}
+
+.workbench-shell[data-layout-preset="analyze"] #left-pane,
+.workbench-shell[data-layout-preset="minimal"] #left-pane,
+.workbench-shell[data-layout-preset="analyze"]
+  #build-layout
+  > .resizable-layout__splitter[data-splitter-for="left"],
+.workbench-shell[data-layout-preset="minimal"]
+  #build-layout
+  > .resizable-layout__splitter[data-splitter-for="left"] {
+  display: none;
+}
+
+.workbench-shell[data-layout-preset="minimal"] #bottom-pane,
+.workbench-shell[data-layout-preset="minimal"]
+  #work-area
+  > .resizable-layout__splitter[data-splitter-for="primary"] {
+  display: none;
+}
+
+.workbench-shell[data-layout-preset="debug"] #presets-pane,
+.workbench-shell[data-layout-preset="debug"]
+  #left-pane
+  > .resizable-layout__splitter[data-splitter-for="presets"] {
+  display: none;
+}
+
+.flow-detail__editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 92px;
+  margin-bottom: 7px;
+  padding: 8px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--code-ink);
+  background: var(--input-surface);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.flow-detail__editor .button {
+  min-height: 26px;
+  border-radius: 0;
+  font-size: 9px;
+}

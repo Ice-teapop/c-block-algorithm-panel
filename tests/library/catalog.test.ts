@@ -102,7 +102,7 @@ describe("Library catalog", () => {
     }
   });
 
-  it("publishes one immutable eight-part beginner tutorial path inside Examples", () => {
+  it("publishes one immutable nine-part beginner tutorial path inside Examples", () => {
     const tutorials = LIBRARY_ENTRIES.filter(
       (entry) => entry.tutorial?.pathId === "beginner-core",
     ).sort((left, right) => left.tutorial!.order - right.tutorial!.order);
@@ -115,8 +115,9 @@ describe("Library catalog", () => {
       "tutorial.complexity-growth",
       "tutorial.pointer-memory",
       "tutorial.failure-recovery",
+      "tutorial.insertion-sort-lab",
     ]);
-    expect(tutorials.map((entry) => entry.tutorial?.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(tutorials.map((entry) => entry.tutorial?.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     for (const entry of tutorials) {
       const tutorial = entry.tutorial;
       if (tutorial === null || tutorial === undefined) throw new Error(entry.id);
@@ -218,5 +219,67 @@ describe("Library catalog", () => {
     expect(artifactText).toContain("7\n");
     expect(artifactText).toContain("-4\n");
     expect(artifactText).toContain("42\n");
+  });
+
+  it("publishes an intermediate insertion-sort lab with executable source and three cases", () => {
+    const entry = getLibraryEntry("tutorial.insertion-sort-lab");
+    if (entry?.tutorial === null || entry?.tutorial === undefined) {
+      throw new Error("插入排序教程缺失");
+    }
+
+    expect(entry.tutorial.pathId).toBe("beginner-core");
+    expect(entry.tutorial.order).toBe(9);
+    expect(entry.tutorial.level).toBe("intermediate");
+    expect(entry.tutorial.guidedLessonId).toBeUndefined();
+    expect(entry.tutorial.taskLessonId).toBe("lesson.task.insertion-sort");
+    expect(entry.tutorial.steps.map(({ id }) => id)).toEqual([
+      "compare-insertion-block",
+      "run-input-families",
+      "trace-reverse-path",
+      "benchmark-insertion-growth",
+    ]);
+
+    const source = entry.example?.code ?? "";
+    for (const fragment of [
+      "enum { MAX_VALUES = 256 };",
+      'scanf("%zu", &count)',
+      "count == 0 || count > MAX_VALUES",
+      "for (size_t i = 1; i < count; i++)",
+      "while (j > 0 && values[j - 1] > values[j])",
+      "int temporary = values[j - 1];",
+      "values[j - 1] = values[j];",
+      "values[j] = temporary;",
+    ]) {
+      expect(source, fragment).toContain(fragment);
+    }
+    expect(
+      entry.tutorial.steps[0]?.artifacts.find(({ kind }) => kind === "source")?.example.code,
+    ).toBe(source);
+
+    const cases = entry.tutorial.steps.find(({ id }) => id === "run-input-families")?.artifacts;
+    expect(cases?.map(({ kind }) => kind)).toEqual(["snippet", "snippet", "snippet"]);
+    expect(cases?.map(({ example }) => example.code)).toEqual([
+      "stdin:\n5\n5 2 4 6 1\nexpected stdout:\n1 2 4 5 6",
+      "stdin:\n5\n5 4 3 2 1\nexpected stdout:\n1 2 3 4 5",
+      "stdin:\n6\n3 1 3 2 1 2\nexpected stdout:\n1 1 2 2 3 3",
+    ]);
+  });
+
+  it("projects every FOA lesson and knowledge point into Library with tutorial deep links", () => {
+    const lessons = LIBRARY_ENTRIES.filter((entry) => entry.id.startsWith("tutorial.foa."));
+    const knowledge = LIBRARY_ENTRIES.filter((entry) => entry.id.startsWith("foa.kc."));
+    expect(lessons).toHaveLength(120);
+    expect(knowledge).toHaveLength(120);
+    for (const lesson of lessons) {
+      expect(lesson.featureLink).toMatchObject({ pageId: "tutorials", targetId: lesson.id });
+      expect(lesson.relatedEntryIds.some((id) => id.startsWith("foa.kc."))).toBe(true);
+    }
+    const point = getLibraryEntry("foa.kc.c01.l001");
+    expect(point?.featureLink).toEqual({
+      label: "在教程中练习",
+      pageId: "tutorials",
+      targetId: "tutorial.foa.c01.l001",
+    });
+    expect(point?.relatedEntryIds).toContain("tutorial.foa.c01.l001");
   });
 });

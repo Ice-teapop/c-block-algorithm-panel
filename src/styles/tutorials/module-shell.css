@@ -1,0 +1,378 @@
+/* Section: Tutorial catalog and independently scrolling stage. */
+.tutorials-host {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  container-name: tutorials-host;
+  container-type: inline-size;
+}
+
+.tutorials-module {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: clamp(212px, 22vw, 272px) minmax(0, 1fr);
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.tutorials-module__catalog,
+.tutorials-module__stage {
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.tutorials-module__catalog {
+  display: grid;
+  grid-template-rows: 46px 34px minmax(0, 1fr);
+  border-right: 1px solid var(--line-strong);
+}
+
+.tutorials-module__catalog > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tutorials-module__catalog h2,
+.tutorials-module__catalog h3,
+.tutorials-module__stage h2,
+.tutorials-module__stage p {
+  margin: 0;
+}
+
+.tutorials-module__catalog h2 {
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.tutorials-module__progress,
+.tutorials-module__eyebrow,
+.tutorials-module__chapter summary {
+  color: var(--muted-subtle);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tutorials-module__progress {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tutorials-module__search {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 10px;
+}
+
+.tutorials-module__lesson-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.tutorials-module__chapter {
+  border-bottom: 1px solid var(--line);
+}
+
+.tutorials-module__chapter summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tutorials-module__chapter summary::-webkit-details-marker {
+  display: none;
+}
+
+.tutorials-module__chapter summary::after {
+  float: right;
+  content: "+";
+}
+
+.tutorials-module__chapter[open] summary::after {
+  content: "−";
+}
+
+.tutorials-module__lesson {
+  display: grid;
+  width: 100%;
+  min-height: 37px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-secondary);
+  background: transparent;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tutorials-module__lesson:hover,
+.tutorials-module__lesson[data-selected="true"] {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.tutorials-module__lesson[data-selected="true"] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tutorials-module__lesson-order {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+}
+
+.tutorials-module__lesson > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tutorials-module__lesson[data-mastery-status="mastered"] .tutorials-module__lesson-order {
+  color: var(--success);
+}
+
+.tutorials-module__lesson[data-mastery-status="skipped"] .tutorials-module__lesson-order {
+  color: var(--muted);
+}
+
+.tutorials-module__empty {
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.tutorials-module__stage {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.tutorials-module__stage-host {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+.tutorials-module__stage-host > * {
+  animation: tutorials-stage-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes tutorials-stage-enter {
+  from {
+    opacity: 0.76;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.tutorials-module__stage-empty {
+  display: grid;
+  max-width: 720px;
+  min-height: 100%;
+  align-content: center;
+  gap: 14px;
+  padding: clamp(28px, 7vw, 96px);
+}
+
+.tutorials-module__stage-empty h2 {
+  font-size: clamp(21px, 3vw, 34px);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.tutorials-module__stage-empty p {
+  max-width: 62ch;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@container tutorials-host (max-width: 760px) {
+  .tutorials-module {
+    grid-template-columns: 188px minmax(0, 1fr);
+  }
+
+  .tutorials-module__lesson {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorials-module *,
+  .tutorials-module *::before,
+  .tutorials-module *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Section: Tutorial catalog typography and container-responsive controls. */
+.tutorials-module__stage-host {
+  container-name: tutorial-stage;
+  container-type: inline-size;
+}
+
+.tutorials-module__catalog > header {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding-block: 5px;
+}
+
+.tutorials-module__catalog {
+  grid-template-rows: 54px 34px minmax(0, 1fr);
+}
+
+.tutorials-module__catalog h2 {
+  grid-column: 1;
+  grid-row: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tutorials-module__progress {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.tutorials-module__catalog-toggle {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.tutorials-module__catalog-toggle {
+  min-width: 36px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tutorials-module__catalog-toggle:hover,
+.tutorials-module__catalog-toggle:focus-visible {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.tutorials-module[data-catalog-collapsed="true"] {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__catalog {
+  grid-template-rows: 46px;
+}
+
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__catalog > header {
+  display: flex;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__catalog h2,
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__progress,
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__search,
+.tutorials-module[data-catalog-collapsed="true"] .tutorials-module__lesson-list {
+  display: none;
+}
+
+.tutorials-module__catalog h2 {
+  font-size: 13px;
+}
+
+.software-library__tutorial-module-link {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  max-height: 34px;
+  align-self: start;
+  align-items: center;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--accent);
+  background: var(--surface-soft);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.software-library__tutorial-module-link:hover,
+.software-library__tutorial-module-link:focus-visible {
+  color: var(--accent-hover);
+  background: var(--surface-hover);
+}
+
+.tutorials-module__progress,
+.tutorials-module__chapter summary,
+.tutorials-module__eyebrow {
+  font-size: 10px;
+}
+
+.tutorials-module__search,
+.tutorials-module__lesson,
+.tutorials-module__empty {
+  font-size: 12px;
+}
+
+.tutorials-module__lesson {
+  min-height: 42px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  padding-block: 7px;
+}
+
+.tutorials-module__lesson-order {
+  font-size: 10px;
+}
+
+.tutorials-module__lesson-label {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tutorials-module__lesson-mode {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}

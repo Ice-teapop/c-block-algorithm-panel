@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { readStyleManifestSource } from "../test-support/style-manifest.js";
 
-const style = readFileSync(new URL("../../src/style.css", import.meta.url), "utf8");
+const style = readStyleManifestSource(new URL("../../src/style.css", import.meta.url));
 const menu = readFileSync(new URL("../../src/ui/workbench-menu.ts", import.meta.url), "utf8");
 
 describe("interaction foundation", () => {
@@ -21,12 +22,15 @@ describe("interaction foundation", () => {
     expect(foundation).not.toMatch(/transition:\s*(?:width|height|padding|margin)/u);
   });
 
-  it("gives Dock surfaces explicit opening and closing states", () => {
-    expect(menu).toContain('menu.popup.dataset.state = "opening"');
-    expect(menu).toContain('menu.popup.dataset.state = "closing"');
+  it("keeps high-frequency Dock and page switches instant", () => {
+    expect(menu).toContain('menu.popup.dataset.state = "open"');
     expect(menu).toContain('menu.popup.dataset.state = "closed"');
-    expect(style).toContain('.workbench-menu__popup[data-state="opening"]');
-    expect(style).toContain('.workbench-menu__popup[data-state="closing"]');
+    expect(menu).not.toContain('menu.popup.dataset.state = "opening"');
+    expect(menu).not.toContain('menu.popup.dataset.state = "closing"');
+    expect(style).toMatch(
+      /\[role="tabpanel"\],[\s\S]*?\.workbench-page\s*\{[\s\S]*?transition:\s*none/u,
+    );
+    expect(style).toMatch(/\.quick-open\s*\{[\s\S]*?transition:\s*none/u);
   });
 
   it("keeps lesson and transcript surfaces on theme and background tokens", () => {

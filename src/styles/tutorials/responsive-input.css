@@ -1,0 +1,469 @@
+/* Compatibility: Resizable tutorial panes use container width to prevent label overflow. */
+@container tutorial-stage (max-width: 860px) {
+  .foa-semantic-scene.foa-runtime-scene[data-scene-kind] .foa-runtime-scene__mechanism {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "header"
+      "action"
+      "nodes"
+      "frame"
+      "values"
+      "relation"
+      "special"
+      "history";
+    grid-template-rows: repeat(8, auto);
+    gap: 12px;
+    padding: 16px 18px;
+  }
+
+  .foa-runtime-scene__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .foa-runtime-scene__primary-action {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .foa-runtime-scene__history {
+    padding: 10px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .foa-runtime-scene__stack-controls,
+  .foa-runtime-scene__memory-controls {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+}
+
+@container tutorial-stage (max-width: 760px) {
+  .foa-semantic-scene__evidence {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 24px 32px;
+    gap: 0 12px;
+  }
+
+  .foa-semantic-scene__boundary {
+    display: none;
+  }
+
+  .foa-semantic-scene__evidence > strong {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .foa-semantic-scene__run-status {
+    grid-column: 2 / 4;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .foa-semantic-scene__channels {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+
+  .foa-semantic-scene__change-input {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .foa-runtime-scene__value-label {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .foa-semantic-scene:not(.foa-runtime-scene) .foa-semantic-scene__node-detail {
+    -webkit-line-clamp: 3;
+  }
+
+  .foa-semantic-scene {
+    grid-template-rows: 64px minmax(0, 1fr);
+  }
+
+  .foa-semantic-scene__diagram:not(.foa-runtime-scene__mechanism),
+  .foa-semantic-scene[data-scene-kind]
+    .foa-semantic-scene__diagram:not(.foa-runtime-scene__mechanism) {
+    grid-template-columns: minmax(180px, 1fr);
+    grid-template-rows: none;
+    align-content: start;
+    gap: 18px;
+    padding: 18px;
+  }
+
+  .foa-semantic-scene[data-scene-kind="matrix"] .foa-semantic-scene__node[data-index],
+  .foa-semantic-scene[data-connection="alias"] .foa-semantic-scene__node[data-index] {
+    grid-row: auto;
+    grid-column: auto;
+  }
+}
+
+.foa-semantic-scene.foa-runtime-scene[data-scene-kind]
+  .foa-runtime-scene__mechanism[data-specialized="signature-contract"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "special";
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  gap: 0;
+  padding: 16px 24px 10px;
+  overflow: auto;
+}
+
+.foa-flow-demo__steps > li {
+  position: relative;
+  min-width: 0;
+}
+
+.foa-flow-demo__steps > li:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: calc(-1 * clamp(18px, 2.6vw, 36px));
+  color: var(--line-strong, #9aa1a9);
+  font-size: 18px;
+  content: "→";
+  transform: translateY(-50%);
+}
+
+.foa-flow-demo__steps > li:is([data-state="active"], [data-state="done"]):not(:last-child)::after {
+  color: var(--accent, #275e9f);
+}
+
+.foa-flow-demo__step {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 94px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto 28px;
+  align-content: center;
+  gap: 5px 8px;
+  padding: 10px 8px;
+  border: 0;
+  color: var(--muted, #68717c);
+  background: transparent;
+  text-align: left;
+}
+
+.foa-flow-demo__step:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.foa-flow-demo__ordinal {
+  grid-row: 1 / 3;
+  align-self: start;
+  color: var(--muted, #68717c);
+  font:
+    11px/1.4 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.foa-flow-demo__step > strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--tutorial-type-body, 12px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-flow-demo__step > small {
+  min-height: 30px;
+  color: inherit;
+  font-size: var(--tutorial-type-meta, 11px);
+  line-height: 1.4;
+}
+
+.foa-flow-demo__value-mount {
+  min-width: 0;
+  grid-column: 2;
+}
+
+.foa-flow-demo__moving-value {
+  display: inline-block;
+  min-width: 42px;
+  padding: 3px 0 2px;
+  border-bottom: 2px solid currentcolor;
+  color: var(--accent, #275e9f);
+  font:
+    650 13px/1.25 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  text-align: center;
+  will-change: transform;
+}
+
+.foa-flow-demo__steps > li[data-state="active"] .foa-flow-demo__step {
+  color: var(--ink, #111);
+  background: var(--accent-soft, #eef5fc);
+  box-shadow: inset 0 -2px 0 var(--accent, #275e9f);
+  cursor: pointer;
+}
+
+.foa-flow-demo__steps > li[data-state="done"] .foa-flow-demo__step {
+  color: var(--success, #286140);
+}
+
+.foa-flow-demo__steps > li[data-state="skipped"] .foa-flow-demo__step,
+.foa-flow-demo__steps
+  > li[data-path-state="skipped"]:not([data-state="active"])
+  .foa-flow-demo__step {
+  color: var(--muted, #68717c);
+  opacity: 0.48;
+}
+
+.foa-flow-demo__iterations {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+  gap: 14px;
+  margin: 0;
+  padding: 4px 0 0 28px;
+  overflow-x: auto;
+  color: var(--muted, #68717c);
+  font:
+    var(--tutorial-type-meta, 11px) / 1.35 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  list-style: none;
+}
+
+.foa-flow-demo__iterations li {
+  flex: none;
+  opacity: 0.35;
+}
+
+.foa-flow-demo__iterations li[data-state="visible"] {
+  color: var(--ink, #111);
+  opacity: 1;
+}
+
+.foa-flow-demo__output {
+  display: grid;
+  min-width: 120px;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-content: center;
+  gap: 6px;
+  padding-left: 18px;
+  box-shadow: inset 1px 0 0 var(--line, #d9dde2);
+}
+
+.foa-flow-demo__output > span {
+  color: var(--muted, #68717c);
+  font-size: var(--tutorial-type-meta, 11px);
+}
+
+.foa-flow-demo__output > strong {
+  font:
+    650 20px/1.2 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.foa-flow-demo__output[data-state="done"] > strong {
+  color: var(--success, #286140);
+}
+
+.foa-flow-demo__status {
+  margin: 0;
+  padding: 6px 14px;
+  overflow: hidden;
+  color: var(--muted, #68717c);
+  font-size: var(--tutorial-type-meta, 11px);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-flow-input-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong, #9aa1a9);
+  border-radius: 3px;
+  color: var(--ink, #111);
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 20%);
+}
+
+.foa-flow-input-dialog::backdrop {
+  background: rgb(0 0 0 / 28%);
+}
+
+.foa-flow-input-dialog__surface {
+  display: grid;
+  max-height: inherit;
+  gap: 12px;
+  margin: 0;
+  padding: 22px;
+  overflow: auto;
+}
+
+.foa-flow-input-dialog__surface h2,
+.foa-flow-input-dialog__surface p {
+  margin: 0;
+}
+
+.foa-flow-input-dialog__surface h2 {
+  font-size: 15px;
+}
+
+.foa-flow-input-dialog__surface > p:not(.foa-flow-input-dialog__error) {
+  color: var(--muted, #68717c);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.foa-flow-input-dialog__surface label {
+  color: var(--ink, #111);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.foa-flow-input-dialog__fields {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.foa-flow-input-dialog[data-interactive-input-group="pair"] .foa-flow-input-dialog__fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.foa-flow-input-dialog__field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.foa-flow-input-dialog__surface input {
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong, #9aa1a9);
+  color: var(--ink, #111);
+  background: var(--surface, #fff);
+  font:
+    13px/1 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.foa-flow-input-dialog__surface input:focus {
+  border-color: var(--accent, #275e9f);
+  outline: 2px solid var(--accent-soft, #eef5fc);
+  outline-offset: 1px;
+}
+
+.foa-flow-input-dialog__error {
+  min-height: 18px;
+  color: var(--danger, #972e2e);
+  font-size: 11px;
+}
+
+.foa-flow-input-dialog__error:empty {
+  min-height: 0;
+}
+
+.foa-flow-input-dialog__surface footer {
+  position: sticky;
+  bottom: -22px;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0 -22px -22px;
+  padding: 12px 22px 22px;
+  background: var(--surface, #fff);
+}
+
+.library-task-stage__header-actions {
+  display: flex;
+  min-width: max-content;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.library-task-stage__header-actions > .button {
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+}
+
+.library-task-stage__header-actions > .button:hover:not(:disabled) {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+@container tutorial-stage (max-width: 860px) {
+  .library-task-stage__identity {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .library-task-stage__header-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .library-task-stage__progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 520px) {
+  .foa-flow-input-dialog[data-interactive-input-group="pair"] .foa-flow-input-dialog__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.foa-flow-input-dialog__surface footer .button {
+  min-height: 34px;
+  padding: 5px 12px;
+}
+
+@container tutorial-stage (max-width: 760px) {
+  .foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__primary {
+    grid-template-rows:
+      minmax(250px, 340px) 6px
+      minmax(220px, 1fr);
+  }
+
+  .foa-flow-demo__canvas {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 1fr) auto auto;
+  }
+
+  .foa-flow-demo__output {
+    min-height: 48px;
+    grid-column: 1;
+    grid-row: 3;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    padding: 8px 0 0 28px;
+    box-shadow: none;
+  }
+}

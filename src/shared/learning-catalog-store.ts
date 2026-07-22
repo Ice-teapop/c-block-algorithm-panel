@@ -203,14 +203,73 @@ function isPorts(value: unknown): boolean {
 }
 
 function isPlacement(value: unknown): boolean {
-  if (!isExactObject(value, PLACEMENT_KEYS)) return false;
+  if (
+    !isObjectWithOptionalKeys(value, PLACEMENT_KEYS, [
+      "acceptedSyntaxSlots",
+      "requiredAnyAncestorCapabilities",
+      "providedSyntaxSlots",
+    ])
+  ) {
+    return false;
+  }
   const placement = value as Record<string, unknown>;
   return (
     placement.scope === "function-body" &&
     isStableIdArray(placement.allowedParentNodeTypes) &&
     isStableIdArray(placement.requiresHeaders) &&
-    isStableIdArray(placement.requiresSymbols)
+    isStableIdArray(placement.requiresSymbols) &&
+    (placement.acceptedSyntaxSlots === undefined ||
+      isSyntaxSlotKindArray(placement.acceptedSyntaxSlots)) &&
+    (placement.requiredAnyAncestorCapabilities === undefined ||
+      isSyntaxAncestorCapabilityArray(placement.requiredAnyAncestorCapabilities)) &&
+    (placement.providedSyntaxSlots === undefined ||
+      isProvidedSyntaxSlots(placement.providedSyntaxSlots))
   );
+}
+
+function isSyntaxAncestorCapabilityArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    new Set(value).size === value.length &&
+    value.every((candidate) => candidate === "loop" || candidate === "switch")
+  );
+}
+
+function isSyntaxSlotKindArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    new Set(value).size === value.length &&
+    value.every(
+      (candidate) =>
+        candidate === "function-body" ||
+        candidate === "compound-body" ||
+        candidate === "loop-body" ||
+        candidate === "switch-case",
+    )
+  );
+}
+
+function isProvidedSyntaxSlots(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  const ids = new Set<string>();
+  return value.every((candidate) => {
+    if (!isObjectWithOptionalKeys(candidate, ["cardinality", "id", "kind", "label"], ["branch"])) {
+      return false;
+    }
+    const slot = candidate as Record<string, unknown>;
+    if (
+      !isStableId(slot.id) ||
+      ids.has(slot.id) ||
+      !isNonEmptyText(slot.label) ||
+      !isSyntaxSlotKindArray([slot.kind]) ||
+      (slot.cardinality !== "one" && slot.cardinality !== "many") ||
+      (slot.branch !== undefined && !isStableId(slot.branch))
+    ) {
+      return false;
+    }
+    ids.add(slot.id);
+    return true;
+  });
 }
 
 function isExplanation(value: unknown): boolean {

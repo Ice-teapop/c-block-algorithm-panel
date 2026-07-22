@@ -18,7 +18,12 @@ import {
   distanceToFlowWire,
   exceedsFlowCanvasDragThreshold,
   fitFlowCanvasViewport,
+  flowCanvasPortScreenScale,
+  flowCanvasDraftNodeRole,
+  flowCanvasProjectedNodeRole,
+  flowCanvasWireDragPhase,
   flowWireLabelPoint,
+  nearestFlowCanvasWireTargetKey,
   normalizeFlowCanvasDraftState,
   normalizeFlowCanvasViewState,
   recoverDisconnectedFlowCanvasViewport,
@@ -161,6 +166,62 @@ describe("M6 flow canvas contracts", () => {
     expect(() => exceedsFlowCanvasDragThreshold({ x: 0, y: 0 }, { x: 1, y: 1 }, -1)).toThrow(
       /非负距离/u,
     );
+  });
+
+  it("arms a cable immediately but does not unplug it until a seven-pixel drag", () => {
+    expect(flowCanvasWireDragPhase({ x: 10, y: 10 }, { x: 10, y: 10 }, false)).toBe("armed");
+    expect(flowCanvasWireDragPhase({ x: 10, y: 10 }, { x: 17, y: 10 }, false)).toBe("armed");
+    expect(flowCanvasWireDragPhase({ x: 10, y: 10 }, { x: 18, y: 10 }, false)).toBe("dragging");
+    expect(flowCanvasWireDragPhase({ x: 10, y: 10 }, { x: 10, y: 10 }, true)).toBe("dragging");
+  });
+
+  it("keeps port hit targets screen-sized and selects only the nearest compatible socket", () => {
+    expect(flowCanvasPortScreenScale(0.25)).toBe(4);
+    expect(flowCanvasPortScreenScale(1)).toBe(1);
+    expect(flowCanvasPortScreenScale(2.5)).toBe(0.4);
+    expect(() => flowCanvasPortScreenScale(0)).toThrow(/缩放/u);
+
+    expect(
+      nearestFlowCanvasWireTargetKey(
+        { x: 100, y: 100 },
+        [
+          { key: "far", point: { x: 132, y: 100 } },
+          { key: "nearest", point: { x: 111, y: 104 } },
+          { key: "other", point: { x: 92, y: 119 } },
+        ],
+        28,
+      ),
+    ).toBe("nearest");
+    expect(
+      nearestFlowCanvasWireTargetKey(
+        { x: 100, y: 100 },
+        [{ key: "outside", point: { x: 129, y: 100 } }],
+        28,
+      ),
+    ).toBeNull();
+  });
+
+  it("exposes stable semantic roles without turning visual state into source semantics", () => {
+    expect(flowCanvasProjectedNodeRole(node("start", "start", "开始", 0, 0))).toBe("cfg-boundary");
+    expect(flowCanvasProjectedNodeRole(node("branch", "branch", "分支", 0, 0))).toBe(
+      "projected-structure",
+    );
+    expect(flowCanvasProjectedNodeRole(node("statement", "statement", "语句", 0, 0))).toBe(
+      "projected-code",
+    );
+    expect(flowCanvasProjectedNodeRole(node("raw", "raw", "原始源码", 0, 0))).toBe("raw");
+
+    expect(flowCanvasDraftNodeRole(draftNode())).toBe("detached-code");
+    expect(
+      flowCanvasDraftNodeRole(
+        Object.freeze({
+          ...draftNode(),
+          id: "virtual:checkpoint",
+          blockKind: "virtual",
+          sourceText: undefined,
+        }),
+      ),
+    ).toBe("runtime-marker");
   });
 
   it("fits all flow items into the viewport around their shared center", () => {

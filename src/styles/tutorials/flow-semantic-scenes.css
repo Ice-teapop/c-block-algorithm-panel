@@ -1,0 +1,471 @@
+/* Section: Learner-input flow demos. */
+.foa-semantic-stage[data-flow-demo-kind] .library-task-stage__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 48px;
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .library-task-stage__progress,
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__primary > .library-task-stage__prompt,
+.foa-semantic-stage[data-flow-demo-kind] .library-task-stage__controls,
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__region,
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__feedback {
+  display: none;
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__identity {
+  border: 0;
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__primary {
+  grid-template-rows:
+    minmax(230px, 320px) 6px
+    minmax(260px, 1fr);
+}
+
+.foa-semantic-stage[data-flow-demo-kind] .foa-semantic-stage__workspace {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.foa-flow-demo {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: 38px minmax(0, 1fr) 32px;
+  color: var(--ink, #111);
+  background: var(--surface, #fff);
+}
+
+.foa-flow-demo > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 14px;
+}
+
+.foa-flow-demo > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.foa-flow-demo > header strong {
+  font-size: var(--tutorial-type-body, 12px);
+}
+
+.foa-flow-demo > header span {
+  color: var(--muted, #68717c);
+  font:
+    var(--tutorial-type-meta, 11px) / 1.3 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.foa-flow-demo > header .button {
+  min-height: 28px;
+  padding: 2px 0;
+  border: 0;
+  color: var(--accent, #275e9f);
+  background: transparent;
+}
+
+.foa-flow-demo > header .button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foa-flow-demo__canvas {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto);
+  grid-template-rows: minmax(112px, 1fr) auto;
+  align-items: center;
+  column-gap: 24px;
+  padding: 14px clamp(16px, 3vw, 34px) 8px;
+  overflow: auto;
+}
+
+.foa-flow-demo__steps {
+  display: grid;
+  min-width: 600px;
+  grid-template-columns: repeat(4, minmax(126px, 1fr));
+  gap: clamp(22px, 3vw, 42px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Section: Fixed-case semantic scenes. */
+.foa-semantic-stage[data-concept-scene] .library-task-stage__header {
+  min-height: 44px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.foa-semantic-stage[data-concept-scene] .library-task-stage__progress,
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__primary > .library-task-stage__prompt,
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__region,
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__feedback {
+  display: none;
+}
+
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__primary {
+  grid-template-rows:
+    minmax(0, 1fr) auto 6px
+    clamp(60px, var(--foa-source-height, 180px), var(--foa-source-max, 32%));
+}
+
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__workspace {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.foa-semantic-stage[data-concept-scene] .teaching-source-view {
+  height: 100%;
+  min-height: 0;
+}
+
+.foa-semantic-stage[data-concept-scene] .library-task-stage__controls {
+  min-height: 38px;
+  padding: 4px 14px;
+}
+
+.foa-semantic-stage[data-concept-scene] .foa-semantic-stage__preview-banner {
+  grid-column: 1 / -1;
+  min-height: 30px;
+  margin: -4px -14px 4px;
+  padding: 3px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.foa-semantic-stage[data-transitioning="true"] .foa-semantic-scene__node {
+  pointer-events: none;
+}
+
+.foa-semantic-scene {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: 46px minmax(0, 1fr);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.foa-semantic-scene__evidence {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.foa-semantic-scene__change-input {
+  min-height: 28px;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  font-size: var(--tutorial-type-meta, 11px);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.foa-semantic-scene__change-input:hover {
+  border-bottom-color: currentColor;
+}
+
+.foa-semantic-scene__change-input:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.foa-semantic-scene__evidence > strong,
+.foa-semantic-scene__boundary,
+.foa-semantic-scene__channels {
+  font-size: var(--tutorial-type-meta, 11px);
+}
+
+.foa-semantic-scene__boundary {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-semantic-scene__channels {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(48px, auto) auto minmax(64px, auto);
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.foa-semantic-scene__channels dt {
+  color: var(--muted);
+}
+
+.foa-semantic-scene__channels dd {
+  min-width: 0;
+  max-width: min(240px, 22cqi);
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foa-semantic-scene__run-status {
+  min-width: 52px;
+  color: var(--muted);
+  font-size: var(--tutorial-type-meta, 11px);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.foa-semantic-scene__run-status[data-state="running"] {
+  color: var(--accent);
+}
+
+.foa-semantic-scene__run-status[data-state="completed"] {
+  color: var(--success);
+}
+
+.foa-semantic-scene__diagram {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
+  align-items: center;
+  align-content: center;
+  gap: clamp(28px, 4vw, 52px);
+  padding: clamp(20px, 3vh, 36px) clamp(24px, 5vw, 72px);
+  overflow: auto;
+}
+
+.foa-semantic-scene__edges {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.foa-semantic-scene__edges path:not(marker path) {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.foa-semantic-scene__edges path[data-state="done"],
+.foa-semantic-scene__edges path[data-state="active"] {
+  stroke: var(--accent);
+}
+
+.foa-semantic-scene__edges marker path {
+  fill: var(--line-strong);
+}
+
+.foa-semantic-scene__node {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-width: 0;
+  min-height: 72px;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-content: center;
+  gap: 3px 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink);
+  background: var(--surface);
+  text-align: left;
+}
+
+.foa-semantic-scene__node:hover:not(:disabled),
+.foa-semantic-scene__node:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: 1px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.foa-semantic-scene__node[data-state="active"] {
+  border-bottom: 2px solid var(--accent);
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+
+.foa-semantic-scene__node[data-state="done"] {
+  color: var(--success);
+  border-bottom-color: var(--success);
+}
+
+.foa-semantic-scene__node[data-state="pending"] {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.foa-semantic-scene__node[data-state="preview"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.foa-semantic-scene__node-order {
+  grid-row: 1 / -1;
+  align-self: center;
+  color: var(--muted);
+  font:
+    var(--tutorial-type-meta, 11px) / 1 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.foa-semantic-scene__node strong {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.foa-semantic-scene__node-status {
+  color: currentColor;
+  font-size: 11px;
+}
+
+.foa-semantic-scene__node-detail {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.foa-semantic-scene__node-detail[hidden] {
+  display: none;
+}
+
+.foa-semantic-scene[data-run-state="paused"] .foa-semantic-scene__node[data-state="preview"] {
+  background: var(--surface);
+}
+
+.foa-semantic-scene__travel-token {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--surface);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.foa-semantic-scene[data-scene-kind="branch"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="pointer"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="scope"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="expression"] .foa-semantic-scene__diagram {
+  grid-template-columns: repeat(2, minmax(150px, 280px));
+  grid-template-rows: repeat(2, minmax(64px, auto));
+  justify-content: center;
+  align-content: center;
+}
+
+.foa-semantic-scene[data-scene-kind="loop"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="stream"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="search"] .foa-semantic-scene__diagram {
+  grid-template-columns: repeat(2, minmax(150px, 260px));
+  grid-template-rows: repeat(2, minmax(64px, auto));
+  justify-content: center;
+  align-content: center;
+}
+
+.foa-semantic-scene[data-scene-kind="call-stack"] .foa-semantic-scene__diagram {
+  grid-template-columns: minmax(220px, 380px);
+  grid-template-rows: repeat(4, minmax(48px, auto));
+  justify-content: center;
+  align-content: center;
+  gap: 10px;
+}
+
+.foa-semantic-scene[data-scene-kind="call-stack"] .foa-semantic-scene__node {
+  border-left: 2px solid var(--line-strong);
+}
+
+.foa-semantic-scene[data-scene-kind="array"] .foa-semantic-scene__diagram,
+.foa-semantic-scene[data-scene-kind="sorting"] .foa-semantic-scene__diagram {
+  grid-template-columns: repeat(4, minmax(104px, 190px));
+  justify-content: center;
+  align-content: center;
+}
+
+.foa-semantic-scene[data-scene-kind="matrix"] .foa-semantic-scene__diagram {
+  grid-template-columns: repeat(2, minmax(150px, 240px));
+  grid-template-rows: repeat(2, minmax(64px, auto));
+  justify-content: center;
+  align-content: center;
+}
+
+/* Layout invariant: Perimeter placement prevents crossing edges in four-step cycles. */
+.foa-semantic-scene[data-scene-kind="matrix"]
+  .foa-semantic-scene__diagram
+  > .foa-semantic-scene__node[data-index="2"],
+.foa-semantic-scene[data-connection="alias"]
+  .foa-semantic-scene__diagram
+  > .foa-semantic-scene__node[data-index="2"] {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+.foa-semantic-scene[data-scene-kind="matrix"]
+  .foa-semantic-scene__diagram
+  > .foa-semantic-scene__node[data-index="3"],
+.foa-semantic-scene[data-connection="alias"]
+  .foa-semantic-scene__diagram
+  > .foa-semantic-scene__node[data-index="3"] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+.foa-semantic-scene[data-connection="alias"] .foa-semantic-scene__node[data-scene-slot="pointer"] {
+  border-bottom-style: dashed;
+}
+
+.foa-semantic-scene[data-scene-kind="matrix"] .foa-semantic-scene__node,
+.foa-semantic-scene[data-scene-kind="array"] .foa-semantic-scene__node {
+  font-variant-numeric: tabular-nums;
+}
+
+.foa-semantic-scene[data-reduced-motion="true"] .foa-semantic-scene__travel-token {
+  display: none;
+}

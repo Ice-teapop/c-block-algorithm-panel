@@ -29,6 +29,7 @@ export interface WorkbenchCommandSurface {
 const MAX_EXTERNAL_ITEMS_PER_KIND = 400;
 const COMMAND_DETAIL_EN: Readonly<Record<string, string>> = Object.freeze({
   "navigation.projects": "Open local projects and sandboxes",
+  "navigation.tutorials": "Open the task-based algorithm tutorial module",
   "navigation.workspace": "Return to the flow canvas and C source workspace",
   "navigation.analysis": "Open full runtime and complexity analysis",
   "navigation.library": "Open the C and algorithm dictionary",
@@ -181,6 +182,13 @@ function builtinCommandHandlers(elements: WorkbenchElements): readonly Workbench
       "打开本地项目与沙箱列表",
       ["dashboard", "文件"],
       "dashboard",
+    ),
+    showPage(
+      "navigation.tutorials",
+      "Tutorials",
+      "打开任务型算法教程",
+      ["lesson", "course", "学习"],
+      "tutorials",
     ),
     showPage(
       "navigation.workspace",

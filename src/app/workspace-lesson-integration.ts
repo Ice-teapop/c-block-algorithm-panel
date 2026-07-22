@@ -5,6 +5,7 @@ import type { ImportedSource } from "../shared/api.js";
 import type { WorkspaceEntrySummary } from "../shared/workspace.js";
 import type { CodePane } from "../ui/code-pane.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
+import { createFoaWorkspaceLaunchContract, type FoaLessonDefinition } from "../tutorials/index.js";
 import type { FlowWorkbenchController } from "./flow-workbench-controller.js";
 import {
   createGuidedLessonWorkspaceController,
@@ -23,12 +24,14 @@ export interface WorkspaceLessonIntegrationOptions {
   readonly loadSource: (source: ImportedSource) => void;
   readonly onError: (message: string) => void;
   readonly onActiveEntryChange?: ((entry: WorkspaceEntrySummary | null) => void) | undefined;
+  readonly isDestroyed?: (() => boolean) | undefined;
 }
 
 export interface WorkspaceLessonIntegration {
   readonly workspace: WorkspaceController;
   readonly guidedLesson: GuidedLessonWorkspaceController;
   handleSourceChanged(source: string): void;
+  openFoaLesson(lesson: FoaLessonDefinition): void;
 }
 
 export function createWorkspaceLessonIntegration(
@@ -36,6 +39,7 @@ export function createWorkspaceLessonIntegration(
 ): WorkspaceLessonIntegration {
   let guidedLesson: GuidedLessonWorkspaceController | null = null;
   let pendingSourceReason: GuidedSourceChangeReason | null = null;
+  let launchingFoaLesson = false;
   const workspace = createWorkspaceController({
     host: options.elements.getPageHost("dashboard"),
     api: options.api,
@@ -43,18 +47,21 @@ export function createWorkspaceLessonIntegration(
     recoveryButton: options.elements.workspaceRecoveryButton,
     load: options.loadSource,
     enterWorkbench: () => options.elements.showPage("build"),
-    onActiveEntryChange: (entry) => {
-      options.onActiveEntryChange?.(entry);
-      const entryId = entry?.id ?? null;
-      const fingerprint = entryId === null ? null : fingerprintSource(options.codePane.getSource());
-      void Promise.all([
-        options.flow.setWorkspaceEntry(entryId),
-        options.runtime.setWorkspaceEntry(entryId, fingerprint),
-      ])
-        .then(() => guidedLesson?.setWorkspaceEntry(entry ?? null))
-        .catch((error: unknown) => {
-          options.onError(error instanceof Error ? error.message : "工作区 sidecar 载入失败");
-        });
+    onActiveEntryChange: async (entry) => {
+      try {
+        options.onActiveEntryChange?.(entry);
+        const entryId = entry?.id ?? null;
+        const fingerprint =
+          entryId === null ? null : fingerprintSource(options.codePane.getSource());
+        await Promise.all([
+          options.flow.setWorkspaceEntry(entryId),
+          options.runtime.setWorkspaceEntry(entryId, fingerprint),
+        ]);
+        await guidedLesson?.setWorkspaceEntry(entry ?? null);
+      } catch (error: unknown) {
+        options.onError(error instanceof Error ? error.message : "工作区 sidecar 载入失败");
+        throw error;
+      }
     },
   });
   guidedLesson = createGuidedLessonWorkspaceController({
@@ -82,9 +89,52 @@ export function createWorkspaceLessonIntegration(
     onError: (error) => options.onError(error.message),
   });
   const lesson = guidedLesson;
+  const openFoaLesson = (definition: FoaLessonDefinition): void => {
+    if (launchingFoaLesson) return;
+    const launch = createFoaWorkspaceLaunchContract(definition);
+    if (launch === null) {
+      const english = options.elements.shell.dataset.locale === "en";
+      options.onError(
+        english
+          ? "This lesson does not define an independent workspace exercise."
+          : "本课程没有定义独立工作区练习。",
+      );
+      return;
+    }
+    const english = options.elements.shell.dataset.locale === "en";
+    const title = `${english ? "Lesson" : "教程"} ${String(definition.order)} · ${definition.title[english ? "en" : "zh"]}`;
+    launchingFoaLesson = true;
+    void workspace
+      .createDocument("sandbox", title, launch.initialSource)
+      .then((created) => {
+        if (!created || options.isDestroyed?.()) return;
+        options.runtime.configureTutorialCase(launch.runtimeCase);
+        options.elements.setWorkspaceLessonFocus({
+          lessonId: definition.id,
+          title: {
+            zh: `课程 ${String(definition.order)} · ${definition.title.zh}`,
+            en: `Lesson ${String(definition.order)} · ${definition.title.en}`,
+          },
+          instruction: {
+            zh: definition.objectives[0]?.zh ?? definition.summary.zh,
+            en: definition.objectives[0]?.en ?? definition.summary.en,
+          },
+          onExit: () => options.elements.showPage("tutorials"),
+        });
+        options.elements.showPage("build");
+        options.elements.focusPanel("runtime");
+      })
+      .catch((error: unknown) => {
+        options.onError(error instanceof Error ? error.message : "教程工作区创建失败");
+      })
+      .finally(() => {
+        launchingFoaLesson = false;
+      });
+  };
   return Object.freeze({
     workspace,
     guidedLesson: lesson,
+    openFoaLesson,
     handleSourceChanged(source: string): void {
       lesson.handleSourceChanged(fingerprintSource(source), pendingSourceReason ?? "editor");
       pendingSourceReason = null;

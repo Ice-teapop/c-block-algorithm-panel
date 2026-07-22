@@ -2,6 +2,8 @@ import type { FixtureInput, PanelApi, RunnerError } from "../shared/api.js";
 import { fingerprintSource } from "../shared/source-snapshot.js";
 import {
   isTerminalTraceStatus,
+  type TraceExecutionIdentity,
+  type TraceObservationProfileId,
   type TraceEvent,
   type TraceRunEvidence,
   type TraceSessionStatus,
@@ -41,6 +43,9 @@ export interface TraceControllerState {
   readonly message: string;
   readonly sessionId: string | null;
   readonly sourceFingerprint: string | null;
+  readonly inputFingerprint: string | null;
+  readonly observationProfileId: TraceObservationProfileId | null;
+  readonly observationAuthorizationDigest: string | null;
   readonly playbackPaused: boolean;
   readonly eventCount: number;
   readonly evidence: TraceRunEvidence | null;
@@ -75,6 +80,8 @@ export interface TraceControllerInput {
   readonly stdin?: string | undefined;
   readonly args?: readonly string[] | undefined;
   readonly fixtures?: readonly FixtureInput[] | undefined;
+  /** Selects a main-process-owned, read-only observation plan. Renderer code cannot submit C expressions. */
+  readonly observationProfileId?: TraceObservationProfileId | undefined;
 }
 
 export interface TraceController {
@@ -104,6 +111,7 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
   let events: TraceEvent[] = [];
   let pendingPlayback: RealTracePathUpdate[] = [];
   let sourceSnapshot: { readonly source: string; readonly fingerprint: string } | null = null;
+  let traceIdentity: TraceExecutionIdentity | null = null;
   let sessionId: string | null = null;
   let afterSequence = 0;
   let timer: unknown;
@@ -250,6 +258,13 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
         });
         return;
       }
+      if (traceIdentity === null || !sameTraceIdentity(batch, traceIdentity)) {
+        failTrace("Trace 返回了不属于本次输入或观测配置的事件，已拒绝显示。", {
+          code: "TRACE_PROTOCOL_ERROR",
+          message: "Trace batch execution identity mismatch",
+        });
+        return;
+      }
       afterSequence = batch.nextSequence;
       if (!appendEvents(batch.events)) return;
       const unread = afterSequence < batch.totalEventCount;
@@ -294,6 +309,7 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
     const activeSession = sessionId;
     clearTimer();
     sessionId = null;
+    traceIdentity = null;
     if (activeSession !== null) void api.cancelTrace(activeSession).catch(() => undefined);
     publishState({
       status: error.code === "RESOURCE_LIMIT" ? "resource" : "error",
@@ -316,6 +332,7 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
     generation += 1;
     sessionId = null;
     sourceSnapshot = null;
+    traceIdentity = null;
     clearTimer();
     resetVisuals();
     publishState({
@@ -348,12 +365,18 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
     }
     const fingerprint = fingerprintSource(source);
     const inputSnapshot = snapshotTraceInput(input);
+    const expectedInputFingerprint = fingerprintSource(inputSnapshot.stdin ?? "");
+    const expectedProfileId = inputSnapshot.observationProfileId ?? null;
+    traceIdentity = null;
     sourceSnapshot = Object.freeze({ source, fingerprint });
     publishState({
       status: "preparing",
       message: "正在准备临时影子 Trace…",
       sessionId: null,
       sourceFingerprint: fingerprint,
+      inputFingerprint: null,
+      observationProfileId: null,
+      observationAuthorizationDigest: null,
       playbackPaused: false,
       eventCount: 0,
       evidence: null,
@@ -405,9 +428,29 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
         });
         return;
       }
+      if (!validStartIdentity(result, expectedInputFingerprint, expectedProfileId)) {
+        void api.cancelTrace(result.sessionId).catch(() => undefined);
+        publishState({
+          status: "error",
+          message: "Trace session 与本次输入或观测配置不匹配，已拒绝启动。",
+          sessionId: null,
+          inputFingerprint: null,
+          observationProfileId: null,
+          observationAuthorizationDigest: null,
+          error: {
+            code: "TRACE_PROTOCOL_ERROR",
+            message: "Trace start execution identity mismatch",
+          },
+        });
+        return;
+      }
+      traceIdentity = freezeIdentity(result);
       sessionId = result.sessionId;
       publishState({
         sessionId,
+        inputFingerprint: traceIdentity.inputFingerprint,
+        observationProfileId: traceIdentity.observationProfileId,
+        observationAuthorizationDigest: traceIdentity.observationAuthorizationDigest,
         status: "preparing",
         message: "Trace session 已建立，等待真实事件…",
       });
@@ -434,6 +477,7 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
       state.status === "branch";
     generation += 1;
     sessionId = null;
+    traceIdentity = null;
     clearTimer();
     pendingPlayback = [];
     if (!activeOperation) {
@@ -504,6 +548,7 @@ export function createTraceController(options: TraceControllerOptions): TraceCon
       destroyed = true;
       generation += 1;
       sessionId = null;
+      traceIdentity = null;
       clearTimer();
       events = [];
       pendingPlayback = [];
@@ -542,6 +587,7 @@ function snapshotTraceInput(input: TraceControllerInput | undefined): TraceContr
     stdin?: string;
     args?: readonly string[];
     fixtures?: readonly FixtureInput[];
+    observationProfileId?: TraceObservationProfileId;
   } = {};
   if (input.stdin !== undefined) snapshot.stdin = input.stdin;
   if (input.args !== undefined) snapshot.args = Object.freeze([...input.args]);
@@ -558,7 +604,42 @@ function snapshotTraceInput(input: TraceControllerInput | undefined): TraceContr
       ),
     );
   }
+  if (input.observationProfileId !== undefined) {
+    snapshot.observationProfileId = input.observationProfileId;
+  }
   return Object.freeze(snapshot);
+}
+
+function validStartIdentity(
+  identity: TraceExecutionIdentity,
+  expectedInputFingerprint: string,
+  expectedProfileId: TraceObservationProfileId | null,
+): boolean {
+  if (
+    identity.inputFingerprint !== expectedInputFingerprint ||
+    identity.observationProfileId !== expectedProfileId
+  ) {
+    return false;
+  }
+  return expectedProfileId === null
+    ? identity.observationAuthorizationDigest === null
+    : /^[a-f0-9]{64}$/u.test(identity.observationAuthorizationDigest ?? "");
+}
+
+function sameTraceIdentity(left: TraceExecutionIdentity, right: TraceExecutionIdentity): boolean {
+  return (
+    left.inputFingerprint === right.inputFingerprint &&
+    left.observationProfileId === right.observationProfileId &&
+    left.observationAuthorizationDigest === right.observationAuthorizationDigest
+  );
+}
+
+function freezeIdentity(identity: TraceExecutionIdentity): TraceExecutionIdentity {
+  return Object.freeze({
+    inputFingerprint: identity.inputFingerprint,
+    observationProfileId: identity.observationProfileId,
+    observationAuthorizationDigest: identity.observationAuthorizationDigest,
+  });
 }
 
 function freezeEvent(event: TraceEvent): TraceEvent {
@@ -590,6 +671,9 @@ function idleState(): TraceControllerState {
     message: "尚未启动真实运行轨迹。",
     sessionId: null,
     sourceFingerprint: null,
+    inputFingerprint: null,
+    observationProfileId: null,
+    observationAuthorizationDigest: null,
     playbackPaused: false,
     eventCount: 0,
     evidence: null,

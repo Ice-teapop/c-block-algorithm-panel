@@ -61,34 +61,20 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
-  it("passes the exact scenario input to Trace and enables only the branch actually observed", async () => {
+  it("runs a scenario once, then observes its path independently with the exact input", async () => {
     const harness = setup({ traceBranches: [true, false] });
     await harness.controller.setWorkspaceEntry("project-a", FINGERPRINT);
     harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const firstRun = harness.controller.scenario.runReal();
-    await driveTrace(harness.scheduler);
     await firstRun;
 
-    expect(harness.api.startTrace).toHaveBeenCalledWith(
-      expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
-    );
+    expect(harness.api.startTrace).not.toHaveBeenCalled();
     expect(harness.api.compile).toHaveBeenCalledOnce();
     expect(harness.api.run).toHaveBeenCalledWith(
       expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
     );
-    expect(harness.learningObservations.slice(0, 2)).toEqual([
-      expect.objectContaining({
-        type: "trace-completed",
-        workspaceId: "project-a",
-        sourceFingerprint: FINGERPRINT,
-        scenarioId: "scenario.test.branch",
-        scenarioVersion: "1.0.0",
-        size: 1,
-        mapped: true,
-        truncated: false,
-        branchKinds: ["branch-true"],
-      }),
+    expect(harness.learningObservations).toEqual([
       expect.objectContaining({
         type: "run-completed",
         workspaceId: "project-a",
@@ -101,15 +87,37 @@ describe("runtime workspace controller", () => {
         historyDisposition: "success",
       }),
     ]);
+    expect(() => harness.controller.scenario.selectTargetBranch("edge.true")).toThrow(
+      /未知目标分支|尚未由真实 Trace/u,
+    );
+
+    harness.elements.traceObserveButton.click();
+    await driveTrace(harness.scheduler);
+    await waitFor(() => harness.learningObservations.length === 2);
+
+    expect(harness.api.startTrace).toHaveBeenCalledWith(
+      expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
+    );
+    expect(harness.learningObservations[1]).toMatchObject({
+      type: "trace-completed",
+      workspaceId: "project-a",
+      sourceFingerprint: FINGERPRINT,
+      scenarioId: "scenario.test.branch",
+      scenarioVersion: "1.0.0",
+      size: 1,
+      mapped: true,
+      truncated: false,
+      branchKinds: ["branch-true"],
+    });
     harness.controller.scenario.selectTargetBranch("edge.true");
     expect(() => harness.controller.scenario.selectTargetBranch("edge.false")).toThrow(
       /尚未由真实 Trace/u,
     );
 
-    const secondRun = harness.controller.scenario.runReal();
-    await driveTrace(harness.scheduler);
-    await expect(secondRun).rejects.toThrow(/未经过目标分支/u);
-    expect(harness.api.compile).toHaveBeenCalledOnce();
+    await harness.controller.scenario.runReal();
+    expect(harness.api.startTrace).toHaveBeenCalledOnce();
+    expect(harness.api.compile).toHaveBeenCalledTimes(2);
+    expect(harness.api.run).toHaveBeenCalledTimes(2);
     await harness.controller.flush();
     const scenarios = harness.saved.find((request) => request.kind === "scenarios");
     expect(JSON.parse(scenarios?.serialized ?? "null")).toMatchObject({
@@ -126,19 +134,11 @@ describe("runtime workspace controller", () => {
     });
     expect(harness.saved.some((request) => request.kind === "run-history")).toBe(true);
     const runHistory = harness.saved.find((request) => request.kind === "run-history");
-    expect(JSON.parse(runHistory?.serialized ?? "null")).toMatchObject({
-      entries: [
-        {
-          trace: {
-            status: "validated",
-            edgeIds: expect.arrayContaining(["edge.true"]),
-            nodeVisits: expect.arrayContaining([
-              expect.objectContaining({ nodeId: "branch", count: 1 }),
-            ]),
-          },
-        },
-      ],
-    });
+    const persistedHistory = JSON.parse(runHistory?.serialized ?? "null") as {
+      entries: Array<{ trace: unknown }>;
+    };
+    expect(persistedHistory.entries).toHaveLength(2);
+    expect(persistedHistory.entries.every((entry) => entry.trace === null)).toBe(true);
     await harness.controller.destroy();
   });
 
@@ -148,8 +148,8 @@ describe("runtime workspace controller", () => {
     harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const run = harness.controller.scenario.runReal();
-    await driveTrace(harness.scheduler);
     await run;
+    expect(harness.api.startTrace).not.toHaveBeenCalled();
 
     expect(harness.learningObservations).toContainEqual(
       expect.objectContaining({
@@ -162,21 +162,40 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
+  it("keeps a normal scenario run available when explicit Trace is unsupported", async () => {
+    const harness = setup({ traceUnsupported: true });
+    await harness.controller.setWorkspaceEntry("trace-unsupported", FINGERPRINT);
+    harness.controller.scenario.selectScenario("scenario.test.branch");
+
+    harness.elements.traceObserveButton.click();
+    await waitFor(() => harness.api.startTrace.mock.calls.length === 1);
+    await waitFor(() => harness.elements.tracePrimaryButton.disabled === false);
+
+    expect(harness.api.compile).not.toHaveBeenCalled();
+    expect(harness.api.run).not.toHaveBeenCalled();
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("运行");
+
+    harness.elements.tracePrimaryButton.click();
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+    await waitFor(() => harness.elements.tracePrimaryButton.disabled === false);
+
+    expect(harness.api.compile).toHaveBeenCalledOnce();
+    expect(harness.api.run).toHaveBeenCalledWith(
+      expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
+    );
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("再次运行");
+    await harness.controller.destroy();
+  });
+
   it("reports a wrong real output as teaching evidence before rejecting history", async () => {
     const harness = setup({ runStdout: "wrong\n" });
     await harness.controller.setWorkspaceEntry("tutorial-a", FINGERPRINT);
     harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const run = harness.controller.scenario.runReal();
-    await driveTrace(harness.scheduler);
     await expect(run).rejects.toThrow(/期望不一致/u);
 
     expect(harness.learningObservations).toEqual([
-      expect.objectContaining({
-        type: "trace-completed",
-        workspaceId: "tutorial-a",
-        branchKinds: ["branch-true"],
-      }),
       expect.objectContaining({
         type: "run-completed",
         workspaceId: "tutorial-a",
@@ -192,7 +211,7 @@ describe("runtime workspace controller", () => {
     await harness.controller.destroy();
   });
 
-  it("runs an unbound project before offering a fully mapped manual Trace", async () => {
+  it("keeps Run and Observe separate for an unbound project", async () => {
     const harness = setup();
     await harness.controller.setWorkspaceEntry("tutorial-trace", FINGERPRINT);
     await flushAsync();
@@ -211,9 +230,10 @@ describe("runtime workspace controller", () => {
     await waitFor(() => harness.api.run.mock.calls.length === 1);
     expect(harness.api.startTrace).not.toHaveBeenCalled();
     expect(harness.api.run).toHaveBeenCalledWith(expect.objectContaining({ stdin: "", args: [] }));
-    expect(harness.elements.tracePrimaryButton.textContent).toBe("观察路径");
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("再次运行");
+    expect(harness.elements.traceObserveButton.textContent).toBe("观察路径");
 
-    harness.elements.tracePrimaryButton.click();
+    harness.elements.traceObserveButton.click();
     expect(harness.elements.focusPanel).toHaveBeenCalledWith("runtime");
     await driveTrace(harness.scheduler);
     await waitFor(() => harness.learningObservations.length === 1);
@@ -231,6 +251,140 @@ describe("runtime workspace controller", () => {
     ]);
     expect(harness.api.compile).toHaveBeenCalledOnce();
     expect(harness.api.run).toHaveBeenCalledOnce();
+    await harness.controller.destroy();
+  });
+
+  it("resumes the requested Observe action after collecting manual input", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("manual-observe", FINGERPRINT);
+
+    harness.elements.traceObserveButton.click();
+    expect(harness.api.startTrace).not.toHaveBeenCalled();
+    findElement(
+      harness.elements.manualRunInputHost,
+      (element) => element.textContent === "无输入运行",
+    ).click();
+    await waitFor(() => harness.api.startTrace.mock.calls.length === 1);
+    await driveTrace(harness.scheduler);
+    await waitFor(() => harness.learningObservations.length === 1);
+
+    expect(harness.api.compile).not.toHaveBeenCalled();
+    expect(harness.api.run).not.toHaveBeenCalled();
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("运行");
+    expect(harness.learningObservations[0]).toMatchObject({
+      type: "trace-completed",
+      workspaceId: "manual-observe",
+      scenarioId: "manual.current-source",
+    });
+    await harness.controller.destroy();
+  });
+
+  it("binds a tutorial case to the primary run and emits verified course evidence", async () => {
+    const harness = setup({ runStdout: "positive\n" });
+    await harness.controller.setWorkspaceEntry("tutorial-course", FINGERPRINT);
+    harness.controller.configureTutorialCase({
+      id: "tutorial.foa.c13.l120",
+      version: "1.0.0",
+      stdin: "1\n",
+      expectedStdout: "positive\n",
+    });
+
+    harness.elements.tracePrimaryButton.click();
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+
+    expect(harness.api.run).toHaveBeenCalledWith(
+      expect.objectContaining({ stdin: "1\n", args: [] }),
+    );
+    expect(harness.learningObservations).toContainEqual(
+      expect.objectContaining({
+        type: "run-completed",
+        workspaceId: "tutorial-course",
+        scenarioId: "tutorial.foa.c13.l120",
+        scenarioVersion: "1.0.0",
+        stdout: "positive\n",
+        expectedStdout: "positive\n",
+        expectedMatch: true,
+      }),
+    );
+    await harness.controller.destroy();
+  });
+
+  it("advances a tutorial verification suite only after output and source structure both pass", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("tutorial-suite", FINGERPRINT);
+    harness.controller.configureTutorialCase({
+      id: "tutorial.foa.c13.l120",
+      version: "1.0.0",
+      cases: [
+        { id: "case-positive", size: 1, stdin: "1\n", expectedStdout: "positive\n" },
+        { id: "case-negative", size: 2, stdin: "-1\n", expectedStdout: "nonpositive\n" },
+      ],
+      sourceContractId: "foa-source:branch+output",
+      sourceRequirements: [
+        { id: "branch", pattern: "if\\s*\\(" },
+        { id: "output", pattern: "puts\\s*\\(" },
+      ],
+    });
+
+    harness.elements.tracePrimaryButton.click();
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+    await waitFor(() => harness.learningObservations.length === 1);
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("运行");
+    harness.elements.tracePrimaryButton.click();
+    await waitFor(() => harness.api.run.mock.calls.length === 2);
+    await waitFor(() => harness.learningObservations.length === 2);
+
+    expect(harness.api.run.mock.calls.map(([request]) => request.stdin)).toEqual(["1\n", "-1\n"]);
+    expect(harness.learningObservations).toEqual([
+      expect.objectContaining({
+        type: "run-completed",
+        caseId: "case-positive",
+        sourceContractId: "foa-source:branch+output",
+        verifiedSourceRequirementIds: ["branch", "output"],
+        expectedMatch: true,
+      }),
+      expect.objectContaining({
+        type: "run-completed",
+        caseId: "case-negative",
+        sourceContractId: "foa-source:branch+output",
+        verifiedSourceRequirementIds: ["branch", "output"],
+        expectedMatch: true,
+      }),
+    ]);
+    expect(
+      harness.learningObservations.every(
+        (item) =>
+          item.type !== "run-completed" ||
+          /^\d+:[0-9a-f]+:[0-9a-f]+$/u.test(item.sourceStructureFingerprint),
+      ),
+    ).toBe(true);
+    await harness.controller.destroy();
+  });
+
+  it("does not advance a tutorial suite when the actual source misses a required structure", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("tutorial-structure", FINGERPRINT);
+    harness.controller.configureTutorialCase({
+      id: "tutorial.foa.c13.l120",
+      version: "1.0.0",
+      cases: [
+        { id: "case-positive", size: 1, stdin: "1\n", expectedStdout: "positive\n" },
+        { id: "case-negative", size: 2, stdin: "-1\n", expectedStdout: "nonpositive\n" },
+      ],
+      sourceContractId: "foa-source:loop",
+      sourceRequirements: [{ id: "loop", pattern: "while\\s*\\(" }],
+    });
+
+    harness.elements.tracePrimaryButton.click();
+    await waitFor(() => harness.learningObservations.length === 1);
+    expect(harness.learningObservations[0]).toMatchObject({
+      type: "run-completed",
+      caseId: "case-positive",
+      sourceContractId: null,
+      verifiedSourceRequirementIds: [],
+      expectedMatch: true,
+    });
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("再次运行");
     await harness.controller.destroy();
   });
 
@@ -276,7 +430,7 @@ describe("runtime workspace controller", () => {
     await restored.controller.destroy();
   });
 
-  it("cycles certain findings with the primary action and F8 shortcuts", async () => {
+  it("keeps run stable and cycles certain findings only with F8 shortcuts", async () => {
     const analysis = analysisWithCertainFindings();
     const harness = setup({ analysis });
     await harness.controller.setWorkspaceEntry("problem-cycle", FINGERPRINT);
@@ -289,16 +443,20 @@ describe("runtime workspace controller", () => {
     ).click();
     await waitFor(() => harness.api.run.mock.calls.length === 1);
 
-    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 1/2");
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("再次运行");
     harness.elements.tracePrimaryButton.click();
-    expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(1, 2));
-    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 2/2");
+    await waitFor(() => harness.api.run.mock.calls.length === 2);
+    expect(harness.onRevealRange).not.toHaveBeenCalled();
 
     const next = keyboardEvent("F8");
     harness.elements.shell.dispatch("keydown", next);
     expect(next.preventDefault).toHaveBeenCalledOnce();
+    expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(1, 2));
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("再次运行");
+
+    const second = keyboardEvent("F8");
+    harness.elements.shell.dispatch("keydown", second);
     expect(harness.onRevealRange).toHaveBeenLastCalledWith(textRange(3, 4));
-    expect(harness.elements.tracePrimaryButton.textContent).toBe("问题 1/2");
 
     const previous = keyboardEvent("F8", true);
     harness.elements.shell.dispatch("keydown", previous);
@@ -313,8 +471,10 @@ describe("runtime workspace controller", () => {
     harness.controller.scenario.configureBenchmark([1, 2, 3], 3);
 
     const benchmark = harness.controller.scenario.runBenchmark();
-    for (let run = 0; run < 9; run += 1) await driveTrace(harness.scheduler);
     await benchmark;
+    expect(harness.api.startTrace).not.toHaveBeenCalled();
+    expect(harness.api.compile).toHaveBeenCalledTimes(9);
+    expect(harness.api.run).toHaveBeenCalledTimes(9);
 
     const completed = harness.learningObservations.filter(
       (observation) => observation.type === "benchmark-completed",
@@ -343,8 +503,6 @@ describe("runtime workspace controller", () => {
     harness.controller.scenario.configureBenchmark([1, 2, 3], 3);
 
     const benchmark = harness.controller.scenario.runBenchmark();
-    await driveTrace(harness.scheduler);
-    await driveTrace(harness.scheduler);
     await waitFor(() => harness.api.compile.mock.calls.length === 2);
     harness.source.value = `${SOURCE}\n`;
     harness.controller.invalidateSource();
@@ -379,6 +537,7 @@ describe("runtime workspace controller", () => {
 
 interface SetupOptions {
   readonly traceBranches?: readonly boolean[];
+  readonly traceUnsupported?: boolean;
   readonly runStdout?: string;
   readonly deferCompileCall?: number;
   readonly deferredCompile?: Deferred<CompileResult>;
@@ -398,7 +557,16 @@ function setup(config: SetupOptions = {}) {
   const onRevealRange = vi.fn();
   const saved: Array<{ kind: string; serialized: string }> = [];
   const traceBranches = [...(config.traceBranches ?? [true])];
-  const traceSessions = new Map<string, { branch: boolean; reads: number }>();
+  const traceSessions = new Map<
+    string,
+    {
+      branch: boolean;
+      reads: number;
+      inputFingerprint: string;
+      observationProfileId: SuccessfulTraceBatch["observationProfileId"];
+      observationAuthorizationDigest: string | null;
+    }
+  >();
   let nextSession = 0;
   let compileCalls = 0;
 
@@ -414,22 +582,52 @@ function setup(config: SetupOptions = {}) {
     run: vi.fn(async (request: { stdin?: string }) =>
       successfulRun(config.runStdout ?? expectedForInput(request.stdin)),
     ),
-    startTrace: vi.fn(async (request: { sourceFingerprint: string }) => {
-      const sessionId = `trace-${String(++nextSession)}`;
-      traceSessions.set(sessionId, { branch: traceBranches.shift() ?? true, reads: 0 });
-      return {
-        ok: true as const,
-        sessionId,
-        sourceFingerprint: request.sourceFingerprint,
-        status: "preparing" as const,
-      };
-    }),
+    startTrace: vi.fn(
+      async (request: {
+        sourceFingerprint: string;
+        stdin?: string;
+        observationProfileId?: SuccessfulTraceBatch["observationProfileId"];
+      }) => {
+        if (config.traceUnsupported === true) {
+          return {
+            ok: false as const,
+            error: { code: "TRACE_UNSUPPORTED" as const, message: "unsupported layout" },
+            unsupported: {
+              code: "unsupported-control-layout" as const,
+              line: 4,
+              message: "无法可靠插桩该控制结构",
+            },
+          };
+        }
+        const sessionId = `trace-${String(++nextSession)}`;
+        const inputFingerprint = fingerprintSource(request.stdin ?? "");
+        const observationProfileId = request.observationProfileId ?? null;
+        const observationAuthorizationDigest =
+          observationProfileId === null ? null : "a".repeat(64);
+        traceSessions.set(sessionId, {
+          branch: traceBranches.shift() ?? true,
+          reads: 0,
+          inputFingerprint,
+          observationProfileId,
+          observationAuthorizationDigest,
+        });
+        return {
+          ok: true as const,
+          sessionId,
+          sourceFingerprint: request.sourceFingerprint,
+          inputFingerprint,
+          observationProfileId,
+          observationAuthorizationDigest,
+          status: "preparing" as const,
+        };
+      },
+    ),
     readTrace: vi.fn(async (sessionId: string, afterSequence: number) => {
       const session = traceSessions.get(sessionId);
       if (session === undefined) throw new Error("unknown trace");
       session.reads += 1;
-      if (session.reads === 1) return traceBatch(sessionId, session.branch, afterSequence);
-      return traceTerminalBatch(sessionId, afterSequence);
+      if (session.reads === 1) return traceBatch(sessionId, session.branch, afterSequence, session);
+      return traceTerminalBatch(sessionId, afterSequence, session);
     }),
     cancelTrace: vi.fn(async (sessionId: string) => ({
       ok: true as const,
@@ -711,6 +909,10 @@ function traceBatch(
   sessionId: string,
   branch: boolean,
   afterSequence: number,
+  identity: Pick<
+    SuccessfulTraceBatch,
+    "inputFingerprint" | "observationProfileId" | "observationAuthorizationDigest"
+  >,
 ): SuccessfulTraceBatch {
   const events: readonly TraceEvent[] = Object.freeze([
     event(1, "line", 3),
@@ -722,6 +924,9 @@ function traceBatch(
     ok: true,
     sessionId,
     sourceFingerprint: FINGERPRINT,
+    inputFingerprint: identity.inputFingerprint,
+    observationProfileId: identity.observationProfileId,
+    observationAuthorizationDigest: identity.observationAuthorizationDigest,
     status: "running",
     afterSequence,
     nextSequence: 4,
@@ -735,11 +940,21 @@ function traceBatch(
   });
 }
 
-function traceTerminalBatch(sessionId: string, afterSequence: number): SuccessfulTraceBatch {
+function traceTerminalBatch(
+  sessionId: string,
+  afterSequence: number,
+  identity: Pick<
+    SuccessfulTraceBatch,
+    "inputFingerprint" | "observationProfileId" | "observationAuthorizationDigest"
+  >,
+): SuccessfulTraceBatch {
   return Object.freeze({
     ok: true,
     sessionId,
     sourceFingerprint: FINGERPRINT,
+    inputFingerprint: identity.inputFingerprint,
+    observationProfileId: identity.observationProfileId,
+    observationAuthorizationDigest: identity.observationAuthorizationDigest,
     status: "completed",
     afterSequence,
     nextSequence: 4,
@@ -877,6 +1092,8 @@ function workbenchElements(document: FakeDocument) {
     scenarioHost: document.createElement("div"),
     traceHost: document.createElement("div"),
     tracePrimaryButton: document.createElement("button"),
+    traceObserveButton: document.createElement("button"),
+    analysisPrimaryButton: document.createElement("button"),
     manualRunInputHost: document.createElement("div"),
     metricsHost: document.createElement("div"),
     mentorHost: document.createElement("div"),

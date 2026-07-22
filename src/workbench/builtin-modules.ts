@@ -102,6 +102,7 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
     ]),
     pages: Object.freeze([
       Object.freeze({ id: "dashboard", label: "Dashboard", groupId: "home", order: 0 }),
+      Object.freeze({ id: "tutorials", label: "教程", groupId: "learn", order: 0 }),
       Object.freeze({ id: "build", label: "搭建", groupId: "core", order: 10 }),
       Object.freeze({ id: "analysis", label: "分析", groupId: "core", order: 20 }),
       Object.freeze({ id: "block-library", label: "积木管理", groupId: "core", order: 30 }),
@@ -112,9 +113,10 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
     ]),
     commands: Object.freeze([
       command("navigation.projects", "项目", 0),
-      command("navigation.workspace", "工作区", 10),
-      command("navigation.analysis", "分析界面", 20),
-      command("navigation.library", "Library", 30),
+      command("navigation.tutorials", "教程", 10),
+      command("navigation.workspace", "工作区", 20),
+      command("navigation.analysis", "分析界面", 30),
+      command("navigation.library", "Library", 40),
       command("source.open", "打开 C 文件", 40),
       command("source.paste", "粘贴源码", 50),
       command("settings.general", "设置：通用", 100),

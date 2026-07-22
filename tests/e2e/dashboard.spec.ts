@@ -52,6 +52,9 @@ test.afterAll(async () => {
 test("starts on an empty, dense Dashboard instead of silently loading a demo", async () => {
   await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".workspace-dashboard")).toBeVisible();
+  await expect(page.locator(".first-run-start")).toHaveCount(0);
+  await expect(page.locator(".workspace-dashboard__content")).toHaveCSS("overflow", "hidden");
+  await expect(page.locator(".workspace-dashboard__table-region")).toHaveCSS("overflow-y", "auto");
   await expect(page.getByText("这里还没有本地条目。")).toBeVisible();
   await expect(page.locator(".cm-line")).toHaveText([""]);
   await expect(page.locator(".workspace-dashboard__sidebar")).toHaveCSS("width", "188px");
@@ -95,7 +98,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute("aria-selected", "true");
-  const projectRow = page.getByRole("link", { name: "打开项目“二分搜索”" });
+  const projectRow = page.getByRole("link", { name: /打开\s*项目\s*“二分搜索”/u });
   await projectRow.focus();
   await expect(projectRow).toBeFocused();
   await page.keyboard.press("Enter");
@@ -108,7 +111,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
 
   await reloadThroughApplicationLifecycle();
   await expect(page.locator("#startup-loader")).toBeHidden();
-  const rowAfterReload = page.getByRole("link", { name: "打开项目“二分搜索”" });
+  const rowAfterReload = page.getByRole("link", { name: /打开\s*项目\s*“二分搜索”/u });
   const kindCell = rowAfterReload.locator("td").nth(1);
   await kindCell.click();
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");

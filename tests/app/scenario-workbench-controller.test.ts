@@ -53,7 +53,7 @@ describe("scenario workbench controller", () => {
       scenario: { id: "scenario.graph.bfs-chain" },
       runCase: { size: 4 },
       targetBranch: { id: "loop.exit" },
-      traceValidation: "required",
+      pathEvidence: "separate-observation",
     });
   });
 

@@ -85,11 +85,31 @@ const STABLE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const MINIMUM_GROWTH_SIZES = 3;
 
 const BUILTIN_COMPLEXITY_REFERENCES: Readonly<Record<string, ComplexityReference>> = Object.freeze({
-  "scenario.sorting.integers": reference(
-    "n-log-n",
-    "n log n",
-    "内置整数排序情景使用 n log n 作为增长参考；它不是对当前实现的复杂度证明。",
+  "scenario.sorting.insertion": sortingReference("quadratic", "n²", "插入排序", "确定性随机"),
+  "scenario.sorting.insertion.sorted": sortingReference("linear", "n", "插入排序", "已排序"),
+  "scenario.sorting.insertion.reverse": sortingReference("quadratic", "n²", "插入排序", "逆序"),
+  "scenario.sorting.insertion.duplicates": sortingReference(
+    "quadratic",
+    "n²",
+    "插入排序",
+    "重复值",
   ),
+  "scenario.sorting.quick": sortingReference(
+    "n-log-n",
+    "n log n（平均）",
+    "快速排序",
+    "确定性随机",
+  ),
+  "scenario.sorting.quick.duplicates": sortingReference(
+    "n-log-n",
+    "n log n（平均）",
+    "快速排序",
+    "重复值",
+  ),
+  "scenario.sorting.merge": sortingReference("n-log-n", "n log n", "归并排序", "确定性随机"),
+  "scenario.sorting.merge.sorted": sortingReference("n-log-n", "n log n", "归并排序", "已排序"),
+  "scenario.sorting.merge.reverse": sortingReference("n-log-n", "n log n", "归并排序", "逆序"),
+  "scenario.sorting.merge.duplicates": sortingReference("n-log-n", "n log n", "归并排序", "重复值"),
   "scenario.searching.linear": reference("linear", "n", "内置线性搜索情景使用线性增长参考。"),
   "scenario.searching.maximum": reference(
     "linear",
@@ -443,6 +463,19 @@ function reference(curve: ComplexityCurve, label: string, evidence: string): Com
     confirmed: true,
     evidence,
   });
+}
+
+function sortingReference(
+  curve: ComplexityCurve,
+  label: string,
+  algorithm: string,
+  inputShape: string,
+): ComplexityReference {
+  return reference(
+    curve,
+    label,
+    `内置${algorithm} · ${inputShape}情景使用 ${label} 作为该算法与输入分布的教学参考；它不是对当前源码复杂度的证明。`,
+  );
 }
 
 function freezeCohort(

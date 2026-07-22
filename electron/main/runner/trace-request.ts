@@ -1,7 +1,15 @@
 import type { RunnerLimits } from "../../../src/shared/limits.js";
 import { fingerprintSource } from "../../../src/shared/source-snapshot.js";
-import type { TraceRequest } from "../../../src/shared/trace.js";
+import {
+  TRACE_OBSERVATION_PROFILE_IDS,
+  type TraceObservationProfileId,
+  type TraceRequest,
+} from "../../../src/shared/trace.js";
 import { RunnerFailure } from "./errors.js";
+import {
+  resolveTraceObservationProfile,
+  type ResolvedTraceObservationProfile,
+} from "./trace-observation-profiles.js";
 import { validateDiagnoseRequest, type ValidatedFixture } from "./validation.js";
 
 export interface ValidatedTraceRequest {
@@ -11,11 +19,13 @@ export interface ValidatedTraceRequest {
   readonly args: readonly string[];
   readonly stdin: string;
   readonly fixtures: readonly ValidatedFixture[];
+  readonly observationProfile: ResolvedTraceObservationProfile | null;
 }
 
 const TRACE_REQUEST_KEYS = Object.freeze([
   "args",
   "fixtures",
+  "observationProfileId",
   "source",
   "sourceFingerprint",
   "sourceName",
@@ -35,6 +45,7 @@ export function validateTraceRequest(value: unknown, limits: RunnerLimits): Vali
   if (typeof record.sourceFingerprint !== "string" || record.sourceFingerprint.length > 128) {
     throw invalid("sourceFingerprint 必须是受限长度的字符串。");
   }
+  const observationProfileId = validateObservationProfileId(record.observationProfileId);
   const validated = validateDiagnoseRequest(
     {
       source: record.source,
@@ -53,6 +64,16 @@ export function validateTraceRequest(value: unknown, limits: RunnerLimits): Vali
   if (record.sourceFingerprint !== actualFingerprint) {
     throw new RunnerFailure("TRACE_SOURCE_MISMATCH", "源码指纹与 Trace 请求正文不一致。");
   }
+  const observationProfile =
+    observationProfileId === null
+      ? null
+      : resolveTraceObservationProfile(observationProfileId, validated.source);
+  if (observationProfileId !== null && observationProfile === null) {
+    throw new RunnerFailure(
+      "TRACE_SOURCE_MISMATCH",
+      "当前源码不完全匹配所选固定 Trace observation profile。",
+    );
+  }
   return Object.freeze({
     source: validated.source,
     sourceName: validated.sourceName,
@@ -60,6 +81,7 @@ export function validateTraceRequest(value: unknown, limits: RunnerLimits): Vali
     args: runtime.args,
     stdin: runtime.stdin,
     fixtures: runtime.fixtures,
+    observationProfile,
   });
 }
 
@@ -85,7 +107,21 @@ export function copyTraceRequest(request: TraceRequest): TraceRequest {
             ),
           ),
         }),
+    ...(request.observationProfileId === undefined
+      ? {}
+      : { observationProfileId: request.observationProfileId }),
   });
+}
+
+function validateObservationProfileId(value: unknown): TraceObservationProfileId | null {
+  if (value === undefined) return null;
+  if (
+    typeof value !== "string" ||
+    !TRACE_OBSERVATION_PROFILE_IDS.some((candidate) => candidate === value)
+  ) {
+    throw invalid("observationProfileId 不是受支持的固定 Trace profile。");
+  }
+  return value as TraceObservationProfileId;
 }
 
 function requirePlainRecord(value: unknown): Record<string, unknown> {

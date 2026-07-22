@@ -49,6 +49,10 @@ describe("Library full-text search", () => {
       ["输入规模 中位数", "tutorial.complexity-growth"],
       ["指针 malloc free", "tutorial.pointer-memory"],
       ["编译 超时 恢复", "tutorial.failure-recovery"],
+      ["插入排序 逆序", "tutorial.insertion-sort-lab"],
+      ["insertion sort sorted prefix", "tutorial.insertion-sort-lab"],
+      ["语句顺序 标准输出", "tutorial.foa.c01.l001"],
+      ["A first observable program", "tutorial.foa.c01.l001"],
     ];
     for (const [query, expectedId] of queries) {
       expect(
@@ -56,6 +60,9 @@ describe("Library full-text search", () => {
         query,
       ).toContain(expectedId);
     }
+    expect(searchLibrary("语句顺序 标准输出").map(({ entry }) => entry.id)).toContain(
+      "foa.kc.c01.l001",
+    );
     const stepOnly = searchLibrary("遮住输出", { branchId: "examples" });
     expect(stepOnly[0]?.entry.id).toBe("tutorial.input-cases");
     expect(stepOnly[0]?.matchedFields).toContain("tutorial");

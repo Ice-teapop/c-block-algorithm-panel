@@ -455,7 +455,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
   const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
   const appInfo = await page.evaluate(() => window.panelApi.getAppInfo());
   expect(appInfo).toMatchObject({
-    version: "0.0.3-preview.1",
+    version: "0.1.1-preview.1",
     license: "PolyForm-Noncommercial-1.0.0",
     repositoryUrl: "https://github.com/Ice-teapop/algolatch",
     releasesUrl: "https://github.com/Ice-teapop/algolatch/releases",
@@ -566,7 +566,17 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     .find(([name]) => name === "script-src");
   expect(scriptPolicy).toContain("'wasm-unsafe-eval'");
   expect(scriptPolicy).not.toContain("'unsafe-eval'");
-  expect(contentSecurityPolicy).not.toContain("unsafe-inline");
+  expect(scriptPolicy).not.toContain("'unsafe-inline'");
+  const stylePolicy = contentSecurityPolicy
+    ?.split(";")
+    .map((directive) => directive.trim().split(/\s+/u))
+    .find(([name]) => name === "style-src");
+  const styleAttributePolicy = contentSecurityPolicy
+    ?.split(";")
+    .map((directive) => directive.trim().split(/\s+/u))
+    .find(([name]) => name === "style-src-attr");
+  expect(stylePolicy).not.toContain("'unsafe-inline'");
+  expect(styleAttributePolicy).toContain("'unsafe-inline'");
   const scriptSources = await page
     .locator("script[src]")
     .evaluateAll((scripts) => scripts.map((script) => (script as HTMLScriptElement).src));

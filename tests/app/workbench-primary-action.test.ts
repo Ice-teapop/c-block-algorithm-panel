@@ -9,7 +9,7 @@ const SOURCE_A = "100:source-a";
 const SOURCE_B = "100:source-b";
 
 describe("workbench primary action state", () => {
-  it("keeps a known problem behind run, then prioritizes it after real execution", () => {
+  it("keeps the primary action bound to run when a problem is present", () => {
     let state = createWorkbenchPrimaryActionState(SOURCE_A);
     expect(selectWorkbenchPrimaryAction(state)).toBe("run");
 
@@ -25,7 +25,7 @@ describe("workbench primary action state", () => {
       sourceFingerprint: SOURCE_A,
       ok: true,
     });
-    expect(selectWorkbenchPrimaryAction(state)).toBe("problem");
+    expect(selectWorkbenchPrimaryAction(state)).toBe("run");
   });
 
   it("returns to run after a successful observation when no problem exists", () => {
@@ -45,12 +45,12 @@ describe("workbench primary action state", () => {
     expect(selectWorkbenchPrimaryAction(state)).toBe("run");
   });
 
-  it("routes run and observation failures directly to problem", () => {
+  it("keeps run and observation failures on their independent controls", () => {
     const runFailed = reduceWorkbenchPrimaryActionState(
       createWorkbenchPrimaryActionState(SOURCE_A),
       { type: "run-finished", sourceFingerprint: SOURCE_A, ok: false },
     );
-    expect(selectWorkbenchPrimaryAction(runFailed)).toBe("problem");
+    expect(selectWorkbenchPrimaryAction(runFailed)).toBe("run");
 
     let observationFailed = createWorkbenchPrimaryActionState(SOURCE_A);
     observationFailed = reduceWorkbenchPrimaryActionState(observationFailed, {
@@ -63,7 +63,7 @@ describe("workbench primary action state", () => {
       sourceFingerprint: SOURCE_A,
       ok: false,
     });
-    expect(selectWorkbenchPrimaryAction(observationFailed)).toBe("problem");
+    expect(selectWorkbenchPrimaryAction(observationFailed)).toBe("run");
   });
 
   it("ignores stale evidence and resets all progress for a source change", () => {
@@ -80,7 +80,12 @@ describe("workbench primary action state", () => {
       sourceFingerprint: SOURCE_A,
       ok: true,
     });
-    expect(earlyObservation).toBe(state);
+    expect(earlyObservation).toEqual({
+      sourceFingerprint: SOURCE_A,
+      run: "none",
+      observation: "completed",
+      problemPresent: false,
+    });
 
     state = reduceWorkbenchPrimaryActionState(state, {
       type: "run-finished",

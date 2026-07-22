@@ -1,0 +1,752 @@
+/* Cascade contract: Keep tutorial normalization after legacy lesson and theme rules. */
+.library-task-lesson--v2,
+.library-task-lesson--v2 .library-task-lesson__intro,
+.library-task-stage,
+.library-task-stage__board,
+.library-task-stage__side,
+.library-task-stage__reflection,
+.library-task-stage__controls,
+.library-task-lesson__completion,
+.teaching-source-view,
+.teaching-source-view pre,
+.foa-semantic-stage,
+.foa-semantic-stage__execution-slot,
+.foa-semantic-stage__token,
+.foa-semantic-stage__completion-details,
+.foa-block-stage,
+.foa-block-stage__source pre,
+.foa-block-stage__block {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.library-task-stage__identity span,
+.library-task-stage__prompt > p:not(.library-task-lesson__boundary),
+.library-task-stage__prompt .library-task-lesson__boundary,
+.library-task-stage__facts dt,
+.library-task-stage__action-state p,
+.library-task-stage__input-error,
+.library-task-stage__transport label,
+.library-task-stage__speed span,
+.foa-semantic-stage__region > strong,
+.foa-semantic-stage__feedback,
+.foa-semantic-stage__placeholder,
+.foa-block-stage__eyebrow,
+.foa-block-stage__block-meta,
+.foa-block-stage__source-anchor {
+  color: var(--muted);
+}
+
+.teaching-source-view code,
+.foa-block-stage__source-content {
+  color: var(--code-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.teaching-source-view > header strong,
+.library-task-stage__action-state strong,
+.library-task-stage__prediction strong,
+.library-task-stage__experiment label,
+.foa-semantic-stage__identity,
+.foa-semantic-stage__token,
+.foa-block-stage__block-code {
+  font-size: 12px;
+}
+
+.teaching-source-view > header span,
+.library-task-stage__identity span,
+.library-task-stage__facts dt,
+.library-task-stage__transport label,
+.library-task-stage__speed span,
+.foa-semantic-stage__region > strong,
+.foa-semantic-stage__placeholder {
+  font-size: 10px;
+}
+
+.library-task-stage__identity strong,
+.library-task-stage__prompt > p:not(.library-task-lesson__boundary),
+.library-task-stage__prompt .library-task-lesson__boundary,
+.library-task-stage__action-state p,
+.library-task-stage__input-error,
+.library-task-stage__experiment input,
+.library-task-stage__relation-text,
+.foa-semantic-stage__feedback,
+.foa-semantic-stage__completion-details {
+  font-size: 11px;
+}
+
+.library-task-lesson__eyebrow,
+.library-task-lesson__boundary,
+.library-task-lesson__goals > h3,
+.library-task-lesson__goals li > span,
+.library-task-stage__key-tray,
+.library-task-stage__slot::after {
+  font-size: 10px;
+}
+
+.library-task-lesson__goals li > strong,
+.library-task-lesson .button,
+.foa-block-stage .button,
+.library-task-stage__progress li {
+  font-size: 11px;
+}
+
+.library-task-lesson__completion-section p,
+.library-task-lesson__completion-section li {
+  font-size: 12px;
+}
+
+.library-task-lesson__completion-section h3,
+.library-task-lesson__completion-section th,
+.library-task-lesson__completion-section td,
+.library-task-lesson__completion-section summary {
+  font-size: 11px;
+}
+
+.library-task-stage__progress li[data-state="active"],
+.library-task-stage__speed .button[data-selected="true"],
+.foa-semantic-stage__token[data-state="active"],
+.foa-semantic-stage__token[data-state="executing"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.library-task-stage__progress li[data-state="active"],
+.foa-semantic-stage__execution-slot[data-drop-state="compatible"],
+.teaching-source-view__line[data-state="active"],
+.foa-block-stage__source-line[data-state="active"],
+.foa-block-stage__block[data-state="active"] {
+  background: var(--accent-soft);
+}
+
+.teaching-source-view__line[data-state="active"],
+.foa-block-stage__source-line[data-state="active"] {
+  color: var(--code-ink);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.teaching-source-view__line[data-state="previous"],
+.foa-block-stage__source-line[data-redacted="true"] {
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
+.foa-block-stage__task,
+.library-task-stage,
+.foa-semantic-stage__task {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.foa-block-stage__header {
+  min-height: 54px;
+  padding-block: 8px;
+}
+
+.foa-block-stage__header > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.foa-block-stage__instruction {
+  margin: 0;
+  font-size: 12px;
+}
+
+.foa-block-stage__intro h2,
+.foa-block-stage__completion h2,
+.library-task-lesson--v2 .library-task-lesson__intro h2,
+.library-task-lesson__completion h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.foa-block-stage__lead,
+.library-task-lesson--v2 .library-task-lesson__lead {
+  color: var(--ink-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.foa-block-stage__block-code {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.library-task-stage__key-tray,
+.library-task-stage__slot[data-state="hole"],
+.foa-semantic-stage__execution-slot[data-drop-state="invalid"],
+.foa-block-stage__gap {
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
+.library-task-stage__key-tray[data-drop-state="compatible"],
+.library-task-stage__slot[data-drop-state="compatible"],
+.foa-semantic-stage__execution-slot[data-drop-state="compatible"],
+.foa-block-stage[data-dragging-event-id] .foa-block-stage__gap,
+.foa-block-stage__gap:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline-color: var(--accent);
+}
+
+.library-task-stage__key-tray[data-drag-over="true"],
+.library-task-stage__slot[data-drag-over="true"],
+.library-task-stage__token[data-selected="true"],
+.foa-semantic-stage__token[data-preview="true"] {
+  outline-color: var(--focus);
+}
+
+.library-task-stage__relation-svg path {
+  stroke: var(--accent);
+}
+
+.library-task-stage__token:focus-visible,
+.library-task-stage__slot:focus-visible,
+.library-task-stage__key-tray:focus-visible {
+  outline-color: var(--focus);
+}
+
+.library-task-stage__slot,
+.library-task-stage__token,
+.library-task-stage__experiment input {
+  color: var(--ink);
+  background: var(--input-surface);
+}
+
+.library-task-stage__token[data-state="inactive"],
+.foa-semantic-stage__token[data-state="pending"] {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.foa-semantic-stage__token[data-compatible="true"] {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.foa-semantic-stage__token[draggable="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.foa-semantic-stage__token[draggable="false"] {
+  cursor: pointer;
+  touch-action: auto;
+}
+
+.foa-block-stage__block {
+  cursor: pointer;
+}
+
+.foa-block-stage__block[draggable="true"] {
+  cursor: grab;
+}
+
+.foa-block-stage__block[draggable="false"][data-block-role="sequence"] {
+  cursor: default;
+}
+
+.foa-block-stage[data-mode="block-observe"]
+  .foa-block-stage__block[draggable="false"][data-block-role="sequence"] {
+  cursor: pointer;
+}
+
+.library-task-stage__token[data-state="sorted"],
+.foa-semantic-stage__token[data-state="done"],
+.foa-block-stage__block[data-state="done"] {
+  color: var(--success);
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.foa-block-stage__feedback[data-kind="incorrect"],
+.foa-semantic-stage__feedback[data-kind="incorrect"] {
+  color: var(--danger);
+}
+
+.foa-block-stage__feedback[data-kind="correct"],
+.foa-semantic-stage__feedback[data-kind="correct"] {
+  color: var(--success);
+}
+
+.library-task-stage__header,
+.library-task-stage__identity,
+.library-task-stage__progress li,
+.library-task-stage__prompt,
+.library-task-stage__board,
+.library-task-stage__facts,
+.library-task-stage__facts > div,
+.library-task-stage__action-state,
+.library-task-stage__prediction,
+.library-task-stage__experiment,
+.library-task-stage__controls,
+.library-task-stage__transport,
+.library-task-stage__speed,
+.library-task-stage__recovery,
+.teaching-source-view,
+.teaching-source-view > header,
+.foa-semantic-stage__identity,
+.foa-semantic-stage__workspace,
+.foa-semantic-stage__region,
+.foa-semantic-stage__feedback,
+.foa-block-stage__header,
+.foa-block-stage__interaction,
+.foa-block-stage__source pre,
+.foa-block-stage__candidate-section,
+.foa-block-stage__relations {
+  border-color: var(--line);
+}
+
+.teaching-source-view [data-syntax="keyword"] {
+  color: var(--syntax-keyword);
+}
+
+.teaching-source-view [data-syntax="type"] {
+  color: var(--syntax-type);
+}
+
+.teaching-source-view [data-syntax="number"] {
+  color: var(--syntax-number);
+}
+
+.teaching-source-view [data-syntax="string"] {
+  color: var(--syntax-string);
+}
+
+.teaching-source-view [data-syntax="comment"] {
+  color: var(--syntax-comment);
+}
+
+.teaching-source-view [data-syntax="operator"] {
+  color: var(--syntax-operator);
+}
+
+.foa-semantic-stage:is(
+    [data-visual-family="execution"],
+    [data-visual-family="pipeline"],
+    [data-visual-family="sequence"],
+    [data-visual-family="stream"]
+  )
+  .foa-semantic-stage__bank {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(132px, 1fr);
+  grid-template-columns: none;
+  overflow-x: auto;
+}
+
+.foa-semantic-stage:is(
+    [data-visual-family="state"],
+    [data-visual-family="memory"],
+    [data-visual-family="expression"],
+    [data-visual-family="evidence"],
+    [data-visual-family="preprocessor"]
+  )
+  .foa-semantic-stage__bank {
+  grid-template-columns: repeat(2, minmax(132px, 1fr));
+}
+
+.foa-semantic-stage:is(
+    [data-visual-family="decision"],
+    [data-visual-family="tree"],
+    [data-visual-family="dependency"],
+    [data-visual-family="pointer-graph"]
+  )
+  .foa-semantic-stage__bank {
+  grid-template-columns: repeat(2, minmax(132px, 1fr));
+  padding: 8px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.foa-semantic-stage:is(
+    [data-visual-family="decision"],
+    [data-visual-family="tree"],
+    [data-visual-family="dependency"],
+    [data-visual-family="pointer-graph"]
+  )
+  .foa-semantic-stage__token:first-child {
+  grid-column: 1 / -1;
+}
+
+.foa-semantic-stage:is(
+    [data-visual-family="loop"],
+    [data-visual-family="search"],
+    [data-visual-family="sorting"]
+  )
+  .foa-semantic-stage__bank {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(120px, 1fr);
+  grid-template-columns: none;
+  padding-bottom: 8px;
+  overflow-x: auto;
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.foa-semantic-stage[data-visual-family="call-stack"] .foa-semantic-stage__bank {
+  display: flex;
+  flex-direction: column-reverse;
+  padding-left: 12px;
+  border-left: 3px double var(--line-strong);
+}
+
+.foa-semantic-stage[data-visual-family="bit-grid"] .foa-semantic-stage__bank {
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
+  font-variant-numeric: tabular-nums;
+}
+
+.foa-block-stage:is(
+    [data-visual-family="call-stack"],
+    [data-visual-family="state"],
+    [data-visual-family="memory"]
+  )
+  .foa-block-stage__sequence {
+  grid-template-columns: minmax(0, 1fr);
+  padding-left: 12px;
+  border-left: 3px double var(--line-strong);
+}
+
+.foa-block-stage:is(
+    [data-visual-family="expression"],
+    [data-visual-family="evidence"],
+    [data-visual-family="preprocessor"]
+  )
+  .foa-block-stage__sequence {
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+}
+
+.foa-block-stage[data-visual-family="bit-grid"] .foa-block-stage__sequence {
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  font-variant-numeric: tabular-nums;
+}
+
+@container tutorial-stage (max-width: 860px) {
+  .foa-block-stage__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 14px;
+  }
+
+  .foa-block-stage__header > strong {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .foa-block-stage__header > .button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .foa-block-stage__instruction {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .library-task-stage__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 54px;
+  }
+
+  .library-task-stage__progress {
+    grid-column: 1 / -1;
+    min-height: 34px;
+    border-top: 1px solid var(--line);
+  }
+
+  .library-task-stage__prompt {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .library-task-stage__prompt .library-task-lesson__boundary {
+    max-width: none;
+    text-align: left;
+  }
+}
+
+.build-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workspace-lesson-strip {
+  display: grid;
+  min-height: 42px;
+  grid-template-columns: minmax(160px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.workspace-lesson-strip[hidden] {
+  display: none;
+}
+
+.workspace-lesson-strip > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-lesson-strip > button {
+  padding: 3px 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-lesson-strip > button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.panel--palette {
+  position: relative;
+}
+
+.workspace-lesson-focus-mask {
+  position: absolute;
+  z-index: 10;
+  inset: 28px 0 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-size: 11px;
+  text-align: center;
+}
+
+.workspace-lesson-focus-mask[hidden] {
+  display: none;
+}
+
+.workbench-shell[data-workspace-lesson-focus] #presets-pane > .panel__header,
+.workbench-shell[data-workspace-lesson-focus] #block-palette,
+.workbench-shell[data-workspace-lesson-focus] #mentor-tab,
+.workbench-shell[data-workspace-lesson-focus] #ai-assistant-button {
+  opacity: 0.34;
+  filter: grayscale(1);
+}
+
+@media (max-width: 760px) {
+  .workspace-lesson-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .workspace-lesson-strip > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@container tutorial-stage (max-width: 740px) {
+  .library-task-stage__main,
+  .foa-semantic-stage__workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foa-block-stage__workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 0.78fr) minmax(0, 1.22fr);
+    overflow: hidden;
+  }
+
+  .foa-block-stage__interaction {
+    min-height: 0;
+    overflow: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .foa-block-stage__evidence {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .foa-semantic-stage__region:nth-child(3),
+  .foa-semantic-stage__feedback {
+    grid-column: 1;
+  }
+
+  .foa-semantic-stage .library-task-stage__controls {
+    grid-template-columns: repeat(3, auto) minmax(100px, 1fr);
+  }
+
+  .foa-semantic-stage .library-task-stage__speed {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}
+
+.software-library-view
+  .software-library__detail:has(> .software-library__tutorial-module-link + .library-task-lesson) {
+  grid-template-rows: 34px minmax(0, 1fr);
+  align-content: stretch;
+}
+
+/* Cascade contract: Final tutorial layout ownership remains after normalization. */
+.foa-semantic-stage__task {
+  grid-template-rows: 64px minmax(0, 1fr);
+}
+
+.foa-semantic-stage__primary {
+  grid-template-rows:
+    auto minmax(170px, 1fr) auto 6px
+    minmax(150px, var(--foa-source-height, 160px));
+}
+
+.teaching-source-view__line[hidden],
+.foa-block-stage__source-line[hidden] {
+  display: none;
+}
+
+@container tutorial-stage (max-width: 860px) {
+  .foa-semantic-stage__task {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+}
+
+/* Section: Tutorial type scale and state-bearing borders. */
+.tutorials-module,
+.library-task-lesson--v2 {
+  --tutorial-type-title: 13px;
+  --tutorial-type-body: 12px;
+  --tutorial-type-meta: 11px;
+}
+
+.tutorials-module__catalog h2,
+.tutorials-module__search,
+.tutorials-module__lesson,
+.library-task-stage__identity strong,
+.library-task-stage__prompt > p:not(.library-task-lesson__boundary),
+.foa-semantic-stage__guide-row > strong,
+.foa-semantic-stage__guide-row > p,
+.foa-semantic-stage__guide-row > code,
+.foa-semantic-stage__token,
+.foa-semantic-stage__feedback,
+.teaching-source-view > header strong,
+.teaching-source-view code,
+.foa-block-stage__instruction,
+.foa-block-stage__block-code,
+.foa-block-stage__source-content,
+.foa-block-stage__feedback,
+.foa-block-stage__relations li {
+  font-size: var(--tutorial-type-body);
+}
+
+.library-task-stage__prompt h2 {
+  font-size: var(--tutorial-type-title);
+}
+
+.tutorials-module__progress,
+.tutorials-module__chapter summary,
+.tutorials-module__lesson-order,
+.tutorials-module__lesson-mode,
+.library-task-stage__identity span,
+.library-task-stage__progress li,
+.library-task-lesson .button,
+.foa-semantic-stage__timeline-status,
+.foa-semantic-stage__guide-row > span,
+.foa-semantic-stage__preview-banner,
+.foa-semantic-stage__region > strong,
+.foa-semantic-stage__placeholder,
+.teaching-source-view > header span,
+.teaching-source-view__toggle,
+.foa-block-stage__source-toggle,
+.foa-block-stage__eyebrow,
+.foa-block-stage__block-meta,
+.foa-block-stage__source-anchor,
+.foa-block-stage__source-summary {
+  font-size: var(--tutorial-type-meta);
+}
+
+.library-task-stage__identity,
+.library-task-stage__progress li,
+.library-task-stage__header > .button,
+.library-task-stage__prompt,
+.foa-semantic-stage__guide,
+.foa-semantic-stage__guide-row,
+.foa-semantic-stage__workspace,
+.foa-semantic-stage__region,
+.foa-semantic-stage__region:nth-child(3),
+.foa-semantic-stage__feedback,
+.foa-semantic-stage .library-task-stage__controls,
+.foa-semantic-stage .library-task-stage__speed,
+.teaching-source-view,
+.teaching-source-view > header,
+.foa-block-stage__interaction,
+.foa-block-stage__source pre,
+.foa-block-stage__source-header,
+.foa-block-stage__candidate-section,
+.foa-block-stage__relations {
+  border: 0;
+}
+
+.foa-semantic-stage__guide {
+  gap: 20px;
+}
+
+.foa-semantic-stage__guide-row {
+  padding: 7px 0;
+}
+
+.foa-semantic-stage__workspace {
+  column-gap: 16px;
+  row-gap: 8px;
+  padding: 10px 14px 8px;
+}
+
+.foa-semantic-stage__region {
+  padding: 0;
+}
+
+.foa-semantic-stage__feedback {
+  padding: 4px 0;
+}
+
+.foa-semantic-stage__source-splitter {
+  border: 0;
+  background: transparent;
+}
+
+.foa-semantic-stage__source-splitter::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 1px;
+  background: var(--line-strong);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.foa-semantic-stage__source-splitter:hover::after,
+.foa-semantic-stage__source-splitter:focus-visible::after {
+  height: 2px;
+  background: var(--accent);
+}
+
+.teaching-source-view > header,
+.foa-block-stage__source-header {
+  min-height: 30px;
+}
+
+@container tutorial-stage (max-width: 740px) {
+  .foa-block-stage__interaction,
+  .foa-semantic-stage .library-task-stage__speed {
+    border: 0;
+  }
+}

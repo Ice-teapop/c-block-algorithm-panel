@@ -140,7 +140,12 @@ export interface FlowCanvasDraftConnectionIntent {
 export interface FlowCanvasDraftConnection {
   readonly from: FlowPoint;
   readonly to: FlowPoint;
-  readonly status: "pending" | "valid" | "invalid";
+  readonly status: "pending" | "validating" | "valid" | "invalid";
+}
+
+export interface FlowCanvasWireTargetCandidate {
+  readonly key: string;
+  readonly point: FlowPoint;
 }
 
 export interface FlowCanvasVirtualEndpoint {
@@ -195,18 +200,47 @@ export interface FlowCanvasNodePresentation {
   readonly lockReasons: readonly string[];
 }
 
+export type FlowCanvasNodeRole =
+  | "projected-code"
+  | "projected-structure"
+  | "cfg-boundary"
+  | "raw"
+  | "detached-code"
+  | "runtime-marker";
+
+export function flowCanvasProjectedNodeRole(node: FlowNode): FlowCanvasNodeRole {
+  if (node.kind === "start" || node.kind === "end") return "cfg-boundary";
+  if (node.kind === "raw") return "raw";
+  if (
+    node.kind === "module" ||
+    node.kind === "branch" ||
+    node.kind === "loop" ||
+    node.kind === "switch" ||
+    node.kind === "assert" ||
+    node.kind === "control"
+  ) {
+    return "projected-structure";
+  }
+  return "projected-code";
+}
+
+export function flowCanvasDraftNodeRole(node: FlowCanvasDraftNode): FlowCanvasNodeRole {
+  return node.blockKind === "virtual" ? "runtime-marker" : "detached-code";
+}
+
 export interface FlowCanvasOptions {
   readonly onNodeClick?: ((node: FlowNode, selectedNodeIds: readonly string[]) => void) | undefined;
   readonly onViewStateChange?:
     ((state: FlowViewState, reason: FlowCanvasViewChangeReason) => void) | undefined;
-  readonly onConnectionIntent?: ((gesture: FlowCanvasConnectionGesture) => void) | undefined;
   /** Final source-level gate used by port highlighting as well as drop commit. */
   readonly onConnectionPreflight?:
     ((gesture: FlowCanvasConnectionGesture) => { readonly accepted: boolean }) | undefined;
+  readonly onConnectionIntent?:
+    ((gesture: FlowCanvasConnectionGesture) => boolean | void) | undefined;
   readonly onDraftConnectionIntent?:
-    ((intent: FlowCanvasDraftConnectionIntent) => void) | undefined;
+    ((intent: FlowCanvasDraftConnectionIntent) => boolean | void) | undefined;
   readonly onVirtualConnectionIntent?:
-    ((intent: FlowCanvasVirtualConnectionIntent) => void) | undefined;
+    ((intent: FlowCanvasVirtualConnectionIntent) => boolean | void) | undefined;
   readonly onDraftStateChange?:
     ((state: FlowCanvasDraftVisualState, reason: FlowCanvasDraftChangeReason) => void) | undefined;
   readonly onDraftNodeClick?:
@@ -215,6 +249,7 @@ export interface FlowCanvasOptions {
   readonly onDeleteNodes?: ((nodeIds: readonly string[]) => void) | undefined;
   readonly onCopyNodes?: ((nodeIds: readonly string[]) => void) | undefined;
   readonly onUndo?: (() => void) | undefined;
+  readonly onRedo?: (() => void) | undefined;
   readonly onHistoryCheckpoint?: (() => void) | undefined;
   readonly onCompatibleBlockSearch?:
     ((request: FlowCanvasCompatibleBlockSearchRequest) => void) | undefined;
@@ -281,8 +316,20 @@ interface WireGesture {
   readonly portId: string;
   readonly detached: FlowCanvasWireEndpoint | null;
   readonly replaceEdgeId: string | null;
+  readonly startClient: FlowPoint;
   readonly start: FlowPoint;
   current: FlowPoint;
+  activated: boolean;
+  nearestTargetKey: string | null;
+}
+
+interface PendingWireCommit {
+  readonly token: number;
+  readonly from: FlowPoint;
+  to: FlowPoint;
+  readonly returnTo: FlowPoint;
+  readonly replaceEdgeId: string | null;
+  status: "validating" | "valid" | "invalid";
 }
 
 interface DraftNodeDragGesture {
@@ -337,6 +384,8 @@ const KEYBOARD_MOVE = 2;
 const DETAIL_MIN_WIDTH = 280;
 const DETAIL_MIN_HEIGHT = 180;
 const NODE_DRAG_THRESHOLD = 4;
+const WIRE_DRAG_THRESHOLD = 7;
+const WIRE_TARGET_HYSTERESIS = 28;
 const PAN_DRAG_THRESHOLD = 2;
 const VIEWPORT_FIT_PADDING = 44;
 const MINIMAP_PADDING = 64;
@@ -367,7 +416,10 @@ export function createFlowCanvas(
       "Algorithm flow canvas. Click to select, double-click or press Enter for details, drag empty space to pan, and Shift-drag to marquee-select.",
     ),
   );
-  root.setAttribute("aria-keyshortcuts", "Meta+K Control+K Home F Enter");
+  root.setAttribute(
+    "aria-keyshortcuts",
+    "Meta+K Control+K Meta+Z Control+Z Meta+Shift+Z Control+Shift+Z Home F Enter",
+  );
   root.dataset.flowCanvas = "true";
 
   const wires = ownerDocument.createElementNS(SVG_NAMESPACE, "svg");
@@ -413,11 +465,8 @@ export function createFlowCanvas(
 
   const detail = createDetailWindow(ownerDocument, english());
   const minimap = createMinimap(ownerDocument, english());
-  const hud = ownerDocument.createElement("div");
-  hud.className = "flow-canvas__hud";
-  hud.append(minimap.root);
-  root.append(wires, viewport, marquee, emptyState, wireStatus, hud, detail.window);
-  host.replaceChildren(root);
+  root.append(wires, viewport, marquee, emptyState, wireStatus, detail.window);
+  host.replaceChildren(root, minimap.root);
 
   let projection: FlowProjection | null = null;
   let viewState = emptyViewState("");
@@ -425,6 +474,10 @@ export function createFlowCanvas(
   let draftState: FlowCanvasDraftVisualState | null = null;
   let detailDraftNodeId: string | null = null;
   let gesture: CanvasGesture | null = null;
+  let pendingWireCommit: PendingWireCommit | null = null;
+  let wireCommitSequence = 0;
+  let wireReturnAnimationFrame: number | null = null;
+  let wireSettleTimer: ReturnType<typeof setTimeout> | null = null;
   let spacePressed = false;
   let destroyed = false;
   let edgeInsertionPreviewId: string | null = null;
@@ -609,6 +662,7 @@ export function createFlowCanvas(
     const { x, y, zoom } = viewState.viewport;
     root.style.backgroundPosition = `${String(x)}px ${String(y)}px`;
     root.style.backgroundSize = `${String(24 * zoom)}px ${String(24 * zoom)}px`;
+    root.style.setProperty("--flow-port-screen-scale", String(flowCanvasPortScreenScale(zoom)));
     viewport.style.transform = `translate(${String(x)}px, ${String(y)}px) scale(${String(zoom)})`;
     wireViewport.setAttribute(
       "transform",
@@ -623,6 +677,7 @@ export function createFlowCanvas(
       }
     }
     renderWires();
+    renderGestureWire();
     renderMinimap();
   }
 
@@ -856,9 +911,11 @@ export function createFlowCanvas(
 
   function renderGestureWire(): void {
     const connection =
-      gesture?.kind === "wire"
-        ? { from: gesture.start, to: gesture.current, status: "pending" as const }
-        : draftState?.connection;
+      pendingWireCommit !== null
+        ? pendingWireCommit
+        : gesture?.kind === "wire" && gesture.activated
+          ? { from: gesture.start, to: gesture.current, status: "pending" as const }
+          : draftState?.connection;
     if (connection === null || connection === undefined) {
       draftWire.setAttribute("visibility", "hidden");
       draftWire.setAttribute("d", "");
@@ -904,7 +961,7 @@ export function createFlowCanvas(
     const draftCount = draftState?.selectedNodeIds?.length ?? 0;
     const selectedCount = projectionCount + draftCount;
     const mode: FlowCanvasInteractionContext["mode"] =
-      gesture?.kind === "wire"
+      gesture?.kind === "wire" || pendingWireCommit !== null
         ? "wiring"
         : selectedEdgeId !== null
           ? "edge"
@@ -1080,6 +1137,7 @@ export function createFlowCanvas(
       element.dataset.draftId = node.id;
       element.dataset.flowDraftNodeId = node.id;
       element.dataset.status = node.status;
+      element.dataset.nodeRole = flowCanvasDraftNodeRole(node);
       element.setAttribute("role", "button");
       element.setAttribute(
         "aria-label",
@@ -1325,28 +1383,24 @@ export function createFlowCanvas(
       portId: wireStart.anchor.portId,
       detached: wireStart.detached,
       replaceEdgeId: wireStart.replaceEdgeId,
+      startClient: point(event.clientX, event.clientY),
       start,
       current: clientToWorld(root, viewState, event.clientX, event.clientY),
+      activated: false,
+      nearestTargetKey: null,
     };
-    if (wireStart.replaceEdgeId !== null) {
-      selectedEdgeId = wireStart.replaceEdgeId;
-      clearNodeSelectionForEdge();
-      edgeElements.get(wireStart.replaceEdgeId)?.classList.add("is-reconnecting");
-      announceWire(
-        text(
-          "已拔出插头。拖到高亮的兼容插口完成改接；拖到空白或按 Escape 恢复原连接。",
-          "Plug detached. Drop it on a highlighted compatible socket to rewire, or drop on empty space / press Escape to restore the original cable.",
-        ),
-      );
-    } else {
-      announceWire(
-        text(
-          "正在连接。拖到高亮的兼容插口完成插接。",
-          "Connecting. Drop on a highlighted compatible socket.",
-        ),
-      );
-    }
-    renderWireCompatibility(wireStart.anchor);
+    // Give feedback at the plug the learner actually pressed. During a reconnect the drawing
+    // anchor is the opposite endpoint, so using `wireStart.anchor` here would make the response
+    // appear at the far end of the cable.
+    setWirePressedState(requested);
+    announceWire(
+      wireStart.replaceEdgeId === null
+        ? text("拖动以拉出连接线。", "Drag to pull out a cable.")
+        : text(
+            "拖动超过少量距离以拔出插头；单击只选择原连接。",
+            "Drag a short distance to unplug; a click only selects the original cable.",
+          ),
+    );
     renderGestureWire();
   }
 
@@ -1370,11 +1424,57 @@ export function createFlowCanvas(
       portId: port.id,
       detached: null,
       replaceEdgeId: null,
+      startClient: point(event.clientX, event.clientY),
       start: draftPortPoint(node, port),
       current: clientToWorld(root, viewState, event.clientX, event.clientY),
+      activated: false,
+      nearestTargetKey: null,
     };
-    renderWireCompatibility(wireEndpoint("draft", node.id, port));
+    setWirePressedState(wireEndpoint("draft", node.id, port));
+    announceWire(text("拖动以拉出连接线。", "Drag to pull out a cable."));
     renderGestureWire();
+  }
+
+  function setWirePressedState(started: FlowCanvasWireEndpoint | null): void {
+    root.classList.toggle("is-wire-armed", started !== null);
+    root.dataset.wirePhase = started === null ? (pendingWireCommit?.status ?? "idle") : "armed";
+    for (const element of [...nodeElements.values(), ...draftNodeElements.values()]) {
+      for (const port of element.querySelectorAll<HTMLElement>(
+        "[data-flow-port-id], [data-flow-draft-port-id]",
+      )) {
+        delete port.dataset.wirePressed;
+        if (started === null) continue;
+        const source = port.dataset.flowDraftPortId === undefined ? "projection" : "draft";
+        const nodeId = port.dataset.flowDraftNodeId ?? port.dataset.flowNodeId ?? "";
+        const portId = port.dataset.flowDraftPortId ?? port.dataset.flowPortId ?? "";
+        if (source === started.source && nodeId === started.nodeId && portId === started.portId) {
+          port.dataset.wirePressed = "true";
+        }
+      }
+    }
+  }
+
+  function activateWireGesture(current: WireGesture, client: FlowPoint): void {
+    if (current.activated) return;
+    current.activated = true;
+    root.classList.remove("is-wire-armed");
+    root.dataset.wirePhase = "dragging";
+    if (current.replaceEdgeId !== null) {
+      selectedEdgeId = current.replaceEdgeId;
+      clearNodeSelectionForEdge();
+      edgeElements.get(current.replaceEdgeId)?.classList.add("is-reconnecting");
+      announceWire(
+        text(
+          "插头已拔出；原连接保留到新连接验证通过。",
+          "Plug detached; the original cable stays until the new connection is verified.",
+        ),
+      );
+    } else {
+      announceWire(text("连接线正在跟随指针。", "The cable is following the pointer."));
+    }
+    const started = resolveWireEndpoint(current.source, current.nodeId, current.portId);
+    renderWireCompatibility(started);
+    updateNearestWireTarget(current, client.x, client.y);
   }
 
   function renderWireCompatibility(started: FlowCanvasWireEndpoint | null): void {
@@ -1385,6 +1485,7 @@ export function createFlowCanvas(
       )) {
         delete portElement.dataset.wireTarget;
         delete portElement.dataset.wireLabel;
+        delete portElement.dataset.wireNearest;
         if (started === null) continue;
         const endpoint =
           portElement.dataset.flowDraftPortId !== undefined
@@ -1410,12 +1511,98 @@ export function createFlowCanvas(
                 ? "compatible"
                 : "invalid";
         portElement.dataset.wireTarget = target;
-        const english = root.closest<HTMLElement>("[data-locale='en']") !== null;
-        if (target === "compatible") portElement.dataset.wireLabel = english ? "connect" : "可连接";
-        else if (target === "detached")
-          portElement.dataset.wireLabel = english ? "restore" : "恢复";
       }
     }
+  }
+
+  function updateNearestWireTarget(current: WireGesture, clientX: number, clientY: number): void {
+    const candidates: FlowCanvasWireTargetCandidate[] = [];
+    const elements = [...nodeElements.values(), ...draftNodeElements.values()];
+    for (const element of elements) {
+      for (const port of element.querySelectorAll<HTMLElement>(
+        '[data-wire-target="compatible"], [data-wire-target="detached"]',
+      )) {
+        const bounds = port.getBoundingClientRect();
+        candidates.push({
+          key: wirePortElementKey(port),
+          point: point(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2),
+        });
+      }
+    }
+    current.nearestTargetKey = nearestFlowCanvasWireTargetKey(
+      point(clientX, clientY),
+      candidates,
+      WIRE_TARGET_HYSTERESIS,
+    );
+    const started = resolveWireEndpoint(current.source, current.nodeId, current.portId);
+    for (const element of elements) {
+      for (const port of element.querySelectorAll<HTMLElement>(
+        "[data-flow-port-id], [data-flow-draft-port-id]",
+      )) {
+        delete port.dataset.wireNearest;
+        delete port.dataset.wireLabel;
+        if (
+          current.nearestTargetKey === null ||
+          wirePortElementKey(port) !== current.nearestTargetKey
+        )
+          continue;
+        const endpoint = resolveWireDropEndpoint(port);
+        if (started === null || endpoint === null) continue;
+        port.dataset.wireNearest = "true";
+        port.dataset.wireLabel = semanticWireTargetLabel(started, endpoint);
+      }
+    }
+  }
+
+  function semanticWireTargetLabel(
+    started: FlowCanvasWireEndpoint,
+    target: FlowCanvasWireEndpoint,
+  ): string {
+    if (
+      gesture?.kind === "wire" &&
+      gesture.detached?.source === target.source &&
+      gesture.detached.nodeId === target.nodeId &&
+      gesture.detached.portId === target.portId
+    ) {
+      return text("恢复原连接", "Restore original cable");
+    }
+    const canonical = canonicalizeFlowCanvasWireEndpoints(started, target);
+    const nodeLabel =
+      target.source === "projection"
+        ? nodeForId(target.nodeId)?.label
+        : draftNodeForId(target.nodeId)?.label;
+    const label = nodeLabel?.trim() || text("目标积木", "target block");
+    if (started.source === "draft" && target.source === "projection") {
+      return text(`插入到「${label}」之前`, `Insert before “${label}”`);
+    }
+    if (canonical?.edgeKind === "branch-true") {
+      return text(`设为真分支：${label}`, `Set true branch: ${label}`);
+    }
+    if (canonical?.edgeKind === "branch-false") {
+      return text(`设为假分支：${label}`, `Set false branch: ${label}`);
+    }
+    return text(`连接到「${label}」`, `Connect to “${label}”`);
+  }
+
+  function wirePortElementKey(port: HTMLElement): string {
+    const source = port.dataset.flowDraftPortId === undefined ? "projection" : "draft";
+    const nodeId = port.dataset.flowDraftNodeId ?? port.dataset.flowNodeId ?? "";
+    const portId = port.dataset.flowDraftPortId ?? port.dataset.flowPortId ?? "";
+    return `${source}:${nodeId}:${portId}`;
+  }
+
+  function nearestWireDropEndpoint(current: WireGesture): FlowCanvasWireEndpoint | null {
+    if (current.nearestTargetKey === null) return null;
+    for (const element of [...nodeElements.values(), ...draftNodeElements.values()]) {
+      for (const port of element.querySelectorAll<HTMLElement>(
+        "[data-flow-port-id], [data-flow-draft-port-id]",
+      )) {
+        if (wirePortElementKey(port) === current.nearestTargetKey) {
+          return resolveWireDropEndpoint(port);
+        }
+      }
+    }
+    return null;
   }
 
   function isStructurallyCompatibleWireTarget(
@@ -1506,6 +1693,10 @@ export function createFlowCanvas(
     if (destroyed || event.button > 1) return;
     const target = closestElement(event.target);
     if (target === null) return;
+    if (pendingWireCommit !== null) {
+      wireCommitSequence += 1;
+      clearPendingWireCommit(pendingWireCommit.token);
+    }
 
     if (target.closest("[data-flow-minimap-viewport]") !== null) {
       if (event.button !== 0) return;
@@ -1523,7 +1714,7 @@ export function createFlowCanvas(
           (world.bottom - world.top) / map.height,
         ),
       };
-      root.setPointerCapture?.(event.pointerId);
+      minimap.root.setPointerCapture?.(event.pointerId);
       return;
     }
     if (target.closest("[data-flow-minimap]") !== null) return;
@@ -1736,7 +1927,13 @@ export function createFlowCanvas(
       gesture.currentClient = point(event.clientX, event.clientY);
       renderMarquee(root, marquee, gesture);
     } else if (gesture.kind === "wire") {
+      const client = point(event.clientX, event.clientY);
+      if (flowCanvasWireDragPhase(gesture.startClient, client, gesture.activated) === "armed") {
+        return;
+      }
+      activateWireGesture(gesture, client);
       gesture.current = clientToWorld(root, viewState, event.clientX, event.clientY);
+      updateNearestWireTarget(gesture, event.clientX, event.clientY);
       renderGestureWire();
     } else if (gesture.kind === "minimap-pan") {
       const dx = (event.clientX - gesture.startClient.x) * gesture.worldPerPixel.x;
@@ -1765,9 +1962,15 @@ export function createFlowCanvas(
 
   const finishGesture = (event: PointerEvent): void => {
     if (destroyed || gesture === null || gesture.pointerId !== event.pointerId) return;
+    let keepsWireVisual = false;
     if (gesture.kind === "marquee") finishMarquee(gesture);
-    else if (gesture.kind === "wire") finishWire(gesture, event);
-    else if (gesture.kind === "node" && !gesture.activated) {
+    else if (gesture.kind === "wire") {
+      if (!gesture.activated) {
+        if (gesture.replaceEdgeId !== null) selectEdge(gesture.replaceEdgeId);
+      } else {
+        keepsWireVisual = finishWire(gesture, event);
+      }
+    } else if (gesture.kind === "node" && !gesture.activated) {
       const node = nodeForId(gesture.nodeId);
       if (node !== undefined) {
         if (gesture.collapseSelectionOnClick) selectNode(node, false);
@@ -1782,7 +1985,8 @@ export function createFlowCanvas(
     } else if (gesture.kind === "pan" && !gesture.activated && gesture.clearSelectionOnClick) {
       clearSelection();
     }
-    clearGesture(event.pointerId);
+    if (keepsWireVisual) endGestureForWireSettle(event.pointerId);
+    else clearGesture(event.pointerId);
   };
 
   function markDetailPointerDown(source: "projection" | "draft", nodeId: string): boolean {
@@ -1804,22 +2008,46 @@ export function createFlowCanvas(
 
   const cancelGesture = (event: PointerEvent): void => {
     if (destroyed || gesture === null || gesture.pointerId !== event.pointerId) return;
-    if (gesture.kind === "wire" && gesture.replaceEdgeId !== null) {
-      announceWire(
-        text("改接已取消，原连接已恢复。", "Rewire cancelled; the original cable was restored."),
+    if (gesture.kind === "wire" && gesture.activated) {
+      beginWireSnapBack(
+        gesture,
+        text("连接已取消，插头回到原位。", "Connection cancelled; the plug returned home."),
       );
+      endGestureForWireSettle(event.pointerId);
+      return;
     }
     clearGesture(event.pointerId);
   };
 
   function clearGesture(pointerId: number): void {
     gesture = null;
-    root.classList.remove("is-panning");
-    root.classList.remove("is-moving-nodes");
+    root.classList.remove("is-panning", "is-moving-nodes", "is-wire-armed");
+    if (pendingWireCommit === null) root.dataset.wirePhase = "idle";
     for (const element of edgeElements.values()) element.classList.remove("is-reconnecting");
     marquee.hidden = true;
     if (root.hasPointerCapture?.(pointerId)) root.releasePointerCapture(pointerId);
+    if (minimap.root.hasPointerCapture?.(pointerId)) {
+      minimap.root.releasePointerCapture(pointerId);
+    }
     renderWireCompatibility(null);
+    setWirePressedState(null);
+    renderGestureWire();
+    renderEdgeSelection();
+  }
+
+  function endGestureForWireSettle(pointerId: number): void {
+    gesture = null;
+    root.classList.remove("is-wire-armed");
+    marquee.hidden = true;
+    if (root.hasPointerCapture?.(pointerId)) root.releasePointerCapture(pointerId);
+    renderWireCompatibility(null);
+    setWirePressedState(null);
+    if (
+      pendingWireCommit?.replaceEdgeId !== null &&
+      pendingWireCommit?.replaceEdgeId !== undefined
+    ) {
+      edgeElements.get(pendingWireCommit.replaceEdgeId)?.classList.add("is-reconnecting");
+    }
     renderGestureWire();
     renderEdgeSelection();
   }
@@ -1864,23 +2092,16 @@ export function createFlowCanvas(
     publishViewState("selection");
   }
 
-  function finishWire(current: WireGesture, event: PointerEvent): void {
+  function finishWire(current: WireGesture, event: PointerEvent): boolean {
     const target = ownerDocument.elementFromPoint?.(event.clientX, event.clientY);
-    if (projection === null) return;
+    if (projection === null) return false;
     const started = resolveWireEndpoint(current.source, current.nodeId, current.portId);
-    if (started === null) return;
-    const dropped = target instanceof Element ? resolveWireDropEndpoint(target) : null;
+    if (started === null) return false;
+    updateNearestWireTarget(current, event.clientX, event.clientY);
+    const dropped = nearestWireDropEndpoint(current);
     if (dropped === null) {
-      if (current.replaceEdgeId !== null) {
-        announceWire(
-          text(
-            "没有插入新端口，原连接已恢复。",
-            "No new socket was selected; the original cable was restored.",
-          ),
-        );
-        return;
-      }
       if (
+        current.replaceEdgeId === null &&
         target instanceof Element &&
         target.closest("[data-flow-detail-window], [data-flow-minimap]") === null &&
         target.closest(".flow-canvas") === root
@@ -1890,7 +2111,18 @@ export function createFlowCanvas(
           clientToWorld(root, viewState, event.clientX, event.clientY),
         );
       }
-      return;
+      beginWireSnapBack(
+        current,
+        text(
+          current.replaceEdgeId === null
+            ? "未连接；线头回到起点，草稿仍保留。"
+            : "未选择新端口；插头回到原连接。",
+          current.replaceEdgeId === null
+            ? "Not connected; the cable returned home and the draft remains."
+            : "No new socket selected; the plug returned to its original cable.",
+        ),
+      );
+      return true;
     }
     if (
       current.detached !== null &&
@@ -1904,18 +2136,18 @@ export function createFlowCanvas(
           "The plug returned to its original socket; the cable is unchanged.",
         ),
       );
-      return;
+      return false;
     }
     const connection = canonicalizeFlowCanvasWireEndpoints(started, dropped);
     if (connection === null || !isStructurallyCompatibleWireTarget(started, dropped)) {
-      announceWire(
+      beginWireSnapBack(
+        current,
         text(
-          "该插口不兼容，原连接已恢复。",
-          "That socket is incompatible; the original cable was restored.",
+          "该插口不能生成安全的 C；插头回到原位。",
+          "That socket cannot produce safe C; the plug returned home.",
         ),
-        "warning",
       );
-      return;
+      return true;
     }
 
     const fromDraft =
@@ -1931,16 +2163,21 @@ export function createFlowCanvas(
         (connection.to.source === "draft" && !toVirtual) ||
         (fromVirtual && toVirtual)
       ) {
-        return;
+        beginWireSnapBack(current, text("虚拟连接不兼容。", "Virtual connection is incompatible."));
+        return true;
       }
-      options.onVirtualConnectionIntent?.(
-        Object.freeze({
-          sourceFingerprint: projection.sourceFingerprint,
-          from: virtualEndpoint(connection.from),
-          to: virtualEndpoint(connection.to),
-        }),
+      return beginWireCommit(
+        current,
+        dropped,
+        () =>
+          options.onVirtualConnectionIntent?.(
+            Object.freeze({
+              sourceFingerprint: projection!.sourceFingerprint,
+              from: virtualEndpoint(connection.from),
+              to: virtualEndpoint(connection.to),
+            }),
+          ) ?? false,
       );
-      return;
     }
 
     if (connection.from.source === "draft" && connection.to.source === "projection") {
@@ -1954,7 +2191,8 @@ export function createFlowCanvas(
         targetNode === undefined ||
         targetPort === undefined
       ) {
-        return;
+        beginWireSnapBack(current, text("草稿端口已经失效。", "The draft socket is stale."));
+        return true;
       }
       const intent = createFlowCanvasDraftConnectionIntent(
         projection,
@@ -1963,11 +2201,27 @@ export function createFlowCanvas(
         targetNode,
         targetPort,
       );
-      if (intent !== null) options.onDraftConnectionIntent?.(intent);
-      return;
+      if (intent === null) {
+        beginWireSnapBack(
+          current,
+          text("草稿无法接入该语法位置。", "The draft cannot enter that syntax position."),
+        );
+        return true;
+      }
+      return beginWireCommit(
+        current,
+        dropped,
+        () => options.onDraftConnectionIntent?.(intent) ?? false,
+      );
     }
 
-    if (connection.from.source !== "projection" || connection.to.source !== "projection") return;
+    if (connection.from.source !== "projection" || connection.to.source !== "projection") {
+      beginWireSnapBack(
+        current,
+        text("连接方向不受支持。", "That connection direction is unsupported."),
+      );
+      return true;
+    }
     const sourceNode = nodeForId(connection.from.nodeId);
     const sourcePort = sourceNode?.ports.find((port) => port.id === connection.from.portId);
     const targetNode = nodeForId(connection.to.nodeId);
@@ -1980,22 +2234,149 @@ export function createFlowCanvas(
       targetPort === undefined ||
       !targetPort.editable
     ) {
+      beginWireSnapBack(current, text("端口已经失效或被锁定。", "The socket is stale or locked."));
+      return true;
+    }
+    return beginWireCommit(
+      current,
+      dropped,
+      () =>
+        options.onConnectionIntent?.(
+          Object.freeze({
+            sourceFingerprint: projection!.sourceFingerprint,
+            fromNodeId: sourceNode.id,
+            fromPortId: sourcePort.id,
+            toNodeId: targetNode.id,
+            toPortId: targetPort.id,
+            edgeKind: connection.edgeKind,
+            replaceEdgeId: current.replaceEdgeId,
+          }),
+        ) ?? false,
+    );
+  }
+
+  function beginWireCommit(
+    current: WireGesture,
+    dropped: FlowCanvasWireEndpoint,
+    commit: () => boolean | void,
+  ): true {
+    const token = ++wireCommitSequence;
+    pendingWireCommit = {
+      token,
+      from: current.start,
+      to: wireEndpointPoint(dropped) ?? current.current,
+      returnTo: wireEndpointPoint(current.detached) ?? current.start,
+      replaceEdgeId: current.replaceEdgeId,
+      status: "validating",
+    };
+    root.dataset.wirePhase = "validating";
+    announceWire(
+      text(
+        "正在验证源码差异、重解析、无损往返与 CFG…",
+        "Validating source diff, reparse, lossless roundtrip, and CFG…",
+      ),
+    );
+    renderGestureWire();
+    const run = (): void => {
+      if (destroyed || pendingWireCommit?.token !== token) return;
+      let accepted = false;
+      try {
+        accepted = commit() !== false;
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : String(error);
+        announceWire(text(`连接被拒绝：${detail}`, `Connection rejected: ${detail}`), "error");
+      }
+      settleWireCommit(token, accepted);
+    };
+    const view = ownerDocument.defaultView;
+    if (view?.requestAnimationFrame === undefined) queueMicrotask(run);
+    else view.requestAnimationFrame(run);
+    return true;
+  }
+
+  function settleWireCommit(token: number, accepted: boolean): void {
+    const pending = pendingWireCommit;
+    if (pending === null || pending.token !== token) return;
+    if (accepted) {
+      pending.status = "valid";
+      root.dataset.wirePhase = "valid";
+      announceWire(text("连接已固化；可立即撤销。", "Connection committed; Undo is available."));
+      renderGestureWire();
+      wireSettleTimer = setTimeout(() => clearPendingWireCommit(token), 140);
       return;
     }
-    announceWire(
-      text("正在校验 C 语法、源码差异与 CFG…", "Validating C syntax, source diff, and CFG…"),
-    );
-    options.onConnectionIntent?.(
-      Object.freeze({
-        sourceFingerprint: projection.sourceFingerprint,
-        fromNodeId: sourceNode.id,
-        fromPortId: sourcePort.id,
-        toNodeId: targetNode.id,
-        toPortId: targetPort.id,
-        edgeKind: connection.edgeKind,
-        replaceEdgeId: current.replaceEdgeId,
-      }),
-    );
+    pending.status = "invalid";
+    root.dataset.wirePhase = "returning";
+    renderGestureWire();
+    animatePendingWireReturn(token);
+  }
+
+  function beginWireSnapBack(current: WireGesture, message: string): void {
+    const token = ++wireCommitSequence;
+    pendingWireCommit = {
+      token,
+      from: current.start,
+      to: current.current,
+      returnTo: wireEndpointPoint(current.detached) ?? current.start,
+      replaceEdgeId: current.replaceEdgeId,
+      status: "invalid",
+    };
+    root.dataset.wirePhase = "returning";
+    announceWire(message, "warning");
+    renderGestureWire();
+    animatePendingWireReturn(token);
+  }
+
+  function animatePendingWireReturn(token: number): void {
+    const pending = pendingWireCommit;
+    if (pending === null || pending.token !== token) return;
+    const view = ownerDocument.defaultView;
+    const reduced = view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    if (view?.requestAnimationFrame === undefined || reduced) {
+      pending.to = pending.returnTo;
+      renderGestureWire();
+      clearPendingWireCommit(token);
+      return;
+    }
+    const origin = pending.to;
+    const startedAt = view.performance.now();
+    const step = (now: number): void => {
+      const live = pendingWireCommit;
+      if (destroyed || live === null || live.token !== token) return;
+      const progress = Math.min(1, Math.max(0, (now - startedAt) / 180));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      live.to = point(
+        origin.x + (live.returnTo.x - origin.x) * eased,
+        origin.y + (live.returnTo.y - origin.y) * eased,
+      );
+      renderGestureWire();
+      if (progress >= 1) clearPendingWireCommit(token);
+      else wireReturnAnimationFrame = view.requestAnimationFrame(step);
+    };
+    wireReturnAnimationFrame = view.requestAnimationFrame(step);
+  }
+
+  function clearPendingWireCommit(token: number): void {
+    if (pendingWireCommit?.token !== token) return;
+    pendingWireCommit = null;
+    root.dataset.wirePhase = "idle";
+    for (const edge of edgeElements.values()) edge.classList.remove("is-reconnecting");
+    renderGestureWire();
+    renderEdgeSelection();
+  }
+
+  function wireEndpointPoint(endpoint: FlowCanvasWireEndpoint | null): FlowPoint | null {
+    if (endpoint === null) return null;
+    if (endpoint.source === "projection") {
+      const node = nodeForId(endpoint.nodeId);
+      const port = node?.ports.find((candidate) => candidate.id === endpoint.portId);
+      return node === undefined || port === undefined
+        ? null
+        : flowPortPoint(node, port, positionFor(node));
+    }
+    const node = draftNodeForId(endpoint.nodeId);
+    const port = node?.ports?.find((candidate) => candidate.id === endpoint.portId);
+    return node === undefined || port === undefined ? null : draftPortPoint(node, port);
   }
 
   function requestCompatibleBlockSearch(
@@ -2219,13 +2600,14 @@ export function createFlowCanvas(
     if (event.key === "Escape") {
       event.preventDefault();
       if (gesture !== null) {
-        if (gesture.kind === "wire" && gesture.replaceEdgeId !== null) {
-          announceWire(
-            text(
-              "改接已取消，原连接已恢复。",
-              "Rewire cancelled; the original cable was restored.",
-            ),
+        if (gesture.kind === "wire" && gesture.activated) {
+          const pointerId = gesture.pointerId;
+          beginWireSnapBack(
+            gesture,
+            text("连接已取消，插头回到原位。", "Connection cancelled; the plug returned home."),
           );
+          endGestureForWireSettle(pointerId);
+          return;
         }
         clearGesture(gesture.pointerId);
         return;
@@ -2311,7 +2693,8 @@ export function createFlowCanvas(
     }
     if (command && event.key.toLowerCase() === "z") {
       event.preventDefault();
-      options.onUndo?.();
+      if (event.shiftKey) options.onRedo?.();
+      else options.onUndo?.();
       return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && selectedEdgeId !== null) {
@@ -2464,10 +2847,13 @@ export function createFlowCanvas(
     spacePressed = false;
     if (gesture === null) return;
     const pointerId = gesture.pointerId;
-    if (gesture.kind === "wire" && gesture.replaceEdgeId !== null) {
-      announceWire(
-        text("改接已取消，原连接已恢复。", "Rewire cancelled; the original cable was restored."),
+    if (gesture.kind === "wire" && gesture.activated) {
+      beginWireSnapBack(
+        gesture,
+        text("窗口失去焦点，插头回到原位。", "Window lost focus; the plug returned home."),
       );
+      endGestureForWireSettle(pointerId);
+      return;
     }
     clearGesture(pointerId);
   };
@@ -2528,6 +2914,12 @@ export function createFlowCanvas(
   root.addEventListener("blur", onBlur);
   ownerDocument.defaultView?.addEventListener("blur", onWindowBlur);
   detail.window.addEventListener("click", onDetailClick);
+  minimap.root.addEventListener("pointerdown", onPointerDown);
+  minimap.root.addEventListener("pointermove", onPointerMove);
+  minimap.root.addEventListener("pointerup", finishGesture);
+  minimap.root.addEventListener("pointercancel", cancelGesture);
+  minimap.root.addEventListener("lostpointercapture", cancelGesture);
+  minimap.root.addEventListener("wheel", onWheel, { passive: false });
   minimap.root.addEventListener("click", onMinimapClick);
   localeHost.addEventListener?.("workbench-locale-change", onLocaleChange);
   const resizeObserver =
@@ -2670,6 +3062,15 @@ export function createFlowCanvas(
         clearTimeout(wireStatusTimer);
         wireStatusTimer = null;
       }
+      if (wireSettleTimer !== null) {
+        clearTimeout(wireSettleTimer);
+        wireSettleTimer = null;
+      }
+      if (wireReturnAnimationFrame !== null) {
+        ownerDocument.defaultView?.cancelAnimationFrame(wireReturnAnimationFrame);
+        wireReturnAnimationFrame = null;
+      }
+      pendingWireCommit = null;
       root.removeEventListener("pointerdown", onPointerDown);
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerup", finishGesture);
@@ -2682,6 +3083,12 @@ export function createFlowCanvas(
       root.removeEventListener("blur", onBlur);
       ownerDocument.defaultView?.removeEventListener("blur", onWindowBlur);
       detail.window.removeEventListener("click", onDetailClick);
+      minimap.root.removeEventListener("pointerdown", onPointerDown);
+      minimap.root.removeEventListener("pointermove", onPointerMove);
+      minimap.root.removeEventListener("pointerup", finishGesture);
+      minimap.root.removeEventListener("pointercancel", cancelGesture);
+      minimap.root.removeEventListener("lostpointercapture", cancelGesture);
+      minimap.root.removeEventListener("wheel", onWheel);
       minimap.root.removeEventListener("click", onMinimapClick);
       localeHost.removeEventListener?.("workbench-locale-change", onLocaleChange);
       resizeObserver?.disconnect();
@@ -2690,6 +3097,7 @@ export function createFlowCanvas(
         minimapAnimationFrame = null;
       }
       root.remove();
+      minimap.root.remove();
       nodeElements.clear();
       edgeElements.clear();
       edgeHitElements.clear();
@@ -2986,6 +3394,7 @@ function renderNode(
   element.className = "flow-node";
   element.dataset.flowNodeId = node.id;
   element.dataset.nodeKind = node.kind;
+  element.dataset.nodeRole = flowCanvasProjectedNodeRole(node);
   element.dataset.reachable = String(node.reachable);
   element.dataset.locked = String(node.locked);
   element.setAttribute("role", "button");
@@ -3675,6 +4084,43 @@ export function exceedsFlowCanvasDragThreshold(
     throw new TypeError("拖动阈值需要有限坐标与非负距离");
   }
   return Math.hypot(current.x - start.x, current.y - start.y) > threshold;
+}
+
+export function flowCanvasWireDragPhase(
+  start: FlowPoint,
+  current: FlowPoint,
+  activated: boolean,
+): "armed" | "dragging" {
+  return activated || exceedsFlowCanvasDragThreshold(start, current, WIRE_DRAG_THRESHOLD)
+    ? "dragging"
+    : "armed";
+}
+
+export function flowCanvasPortScreenScale(zoom: number): number {
+  if (!Number.isFinite(zoom) || zoom <= 0) throw new TypeError("端口屏幕缩放必须使用正缩放值");
+  return 1 / zoom;
+}
+
+export function nearestFlowCanvasWireTargetKey(
+  pointer: FlowPoint,
+  candidates: readonly FlowCanvasWireTargetCandidate[],
+  maximumDistance: number,
+): string | null {
+  if (
+    !isFinitePoint(pointer) ||
+    !Number.isFinite(maximumDistance) ||
+    maximumDistance < 0 ||
+    candidates.some((candidate) => candidate.key.length === 0 || !isFinitePoint(candidate.point))
+  ) {
+    throw new TypeError("最近端口需要有限坐标、非空 key 与非负命中距离");
+  }
+  let nearest: { readonly key: string; readonly distance: number } | null = null;
+  for (const candidate of candidates) {
+    const distance = Math.hypot(candidate.point.x - pointer.x, candidate.point.y - pointer.y);
+    if (distance > maximumDistance || (nearest !== null && distance >= nearest.distance)) continue;
+    nearest = Object.freeze({ key: candidate.key, distance });
+  }
+  return nearest?.key ?? null;
 }
 
 function dispatchCanvasEvent(target: HTMLElement, name: string, detail: unknown): void {

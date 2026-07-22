@@ -52,6 +52,18 @@ describe("offline algorithm scenario provider", () => {
       stdin: "4\n4 3 2 1\n",
       expected: { stdout: "1 2 3 4\n" },
     });
+    expect(provider.generate("scenario.sorting.insertion.sorted", 4)).toMatchObject({
+      stdin: "4\n1 2 3 4\n",
+      expected: { stdout: "1 2 3 4\n" },
+    });
+    expect(provider.generate("scenario.sorting.insertion.reverse", 4)).toMatchObject({
+      stdin: "4\n4 3 2 1\n",
+      expected: { stdout: "1 2 3 4\n" },
+    });
+    expect(provider.generate("scenario.sorting.merge.duplicates", 6)).toMatchObject({
+      stdin: "6\n2 1 0 2 1 0\n",
+      expected: { stdout: "0 0 1 1 2 2\n" },
+    });
     expect(provider.generate("scenario.searching.linear", 4)).toMatchObject({
       expected: { stdout: "3\n" },
     });

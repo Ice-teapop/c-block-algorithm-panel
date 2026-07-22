@@ -24,7 +24,8 @@ export interface WorkspaceControllerOptions {
   readonly recoveryButton: HTMLButtonElement;
   readonly load: (document: ImportedSource) => void;
   readonly enterWorkbench: () => void;
-  readonly onActiveEntryChange?: ((entry: WorkspaceEntrySummary | null) => void) | undefined;
+  readonly onActiveEntryChange?:
+    ((entry: WorkspaceEntrySummary | null) => void | Promise<void>) | undefined;
 }
 
 export interface WorkspaceController {
@@ -58,6 +59,16 @@ export function createWorkspaceController(
     readonly state: "ready" | "loading" | "success" | "error";
   } | null = null;
   let lastPersistenceStatus: WorkspacePersistenceStatus | null = null;
+  let activeEntryTransition: Promise<void> = Promise.resolve();
+
+  const serializeActiveEntryTransition = <T>(transition: () => T | Promise<T>): Promise<T> => {
+    const result = activeEntryTransition.then(transition, transition);
+    activeEntryTransition = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
 
   const renderPersistenceStatus = (status: WorkspacePersistenceStatus): void => {
     lastPersistenceStatus = status;
@@ -92,21 +103,25 @@ export function createWorkspaceController(
     );
   };
 
-  const adopt = (document: WorkspaceDocument): void => {
-    persistence.adopt(document.entry);
-    options.load({
-      source: document.source,
-      displayName: `${document.entry.title}.c`,
-      origin: "workspace",
+  const adopt = (document: WorkspaceDocument, requestGeneration: number): Promise<boolean> =>
+    serializeActiveEntryTransition(async () => {
+      if (destroyed || requestGeneration !== generation) return false;
+      persistence.adopt(document.entry);
+      options.load({
+        source: document.source,
+        displayName: `${document.entry.title}.c`,
+        origin: "workspace",
+      });
+      await options.onActiveEntryChange?.(document.entry);
+      if (destroyed || requestGeneration !== generation) return false;
+      options.enterWorkbench();
+      setDashboardStatus(
+        `已打开“${document.entry.title}”。`,
+        `Opened “${document.entry.title}”.`,
+        "success",
+      );
+      return true;
     });
-    options.onActiveEntryChange?.(document.entry);
-    options.enterWorkbench();
-    setDashboardStatus(
-      `已打开“${document.entry.title}”。`,
-      `Opened “${document.entry.title}”.`,
-      "success",
-    );
-  };
 
   const refresh = async (): Promise<void> => {
     if (destroyed) return;
@@ -155,7 +170,7 @@ export function createWorkspaceController(
         setFailure(result.error.code, result.error.message);
         return false;
       }
-      adopt(result.document);
+      if (!(await adopt(result.document, requestGeneration))) return false;
       void refresh();
       return true;
     } catch {
@@ -183,7 +198,7 @@ export function createWorkspaceController(
           setFailure(result.error.code, result.error.message);
           return;
         }
-        adopt(result.document);
+        await adopt(result.document, requestGeneration);
       } catch {
         if (!destroyed && requestGeneration === generation) {
           setDashboardStatus(
@@ -222,28 +237,32 @@ export function createWorkspaceController(
         setFailure(result.error.code, result.error.message);
         return;
       }
-      if (persistence.sourceVersion !== expectedSourceVersion) {
+      await serializeActiveEntryTransition(async () => {
+        if (destroyed || requestGeneration !== generation) return;
+        if (persistence.sourceVersion !== expectedSourceVersion) {
+          setDashboardStatus(
+            "源码在恢复期间再次变化；未放弃本地修改，请重新操作。",
+            "Source changed again during recovery. Local edits were kept; try again.",
+            "error",
+          );
+          return;
+        }
+        options.load({
+          source: result.document.source,
+          displayName: `${result.document.entry.title}.c`,
+          origin: "workspace",
+        });
+        persistence.discardActiveChanges(expectedSourceVersion);
+        persistence.adopt(result.document.entry);
+        await options.onActiveEntryChange?.(result.document.entry);
+        if (destroyed || requestGeneration !== generation) return;
+        options.enterWorkbench();
         setDashboardStatus(
-          "源码在恢复期间再次变化；未放弃本地修改，请重新操作。",
-          "Source changed again during recovery. Local edits were kept; try again.",
-          "error",
+          `已重新载入“${result.document.entry.title}”的磁盘版本。`,
+          `Reloaded the disk version of “${result.document.entry.title}”.`,
+          "success",
         );
-        return;
-      }
-      options.load({
-        source: result.document.source,
-        displayName: `${result.document.entry.title}.c`,
-        origin: "workspace",
       });
-      persistence.discardActiveChanges(expectedSourceVersion);
-      persistence.adopt(result.document.entry);
-      options.onActiveEntryChange?.(result.document.entry);
-      options.enterWorkbench();
-      setDashboardStatus(
-        `已重新载入“${result.document.entry.title}”的磁盘版本。`,
-        `Reloaded the disk version of “${result.document.entry.title}”.`,
-        "success",
-      );
     } catch {
       if (!destroyed && requestGeneration === generation) {
         setDashboardStatus(
@@ -293,16 +312,22 @@ export function createWorkspaceController(
     flush: () => persistence.flush(),
     async prepareExternalImport(isCurrent: () => boolean): Promise<boolean> {
       if (destroyed || typeof isCurrent !== "function") return false;
-      await persistence.flush();
-      if (!isCurrent()) return false;
-      persistence.deactivateAfterFlush();
-      options.onActiveEntryChange?.(null);
-      return true;
+      return serializeActiveEntryTransition(async () => {
+        if (destroyed || !isCurrent()) return false;
+        await persistence.flush();
+        if (destroyed || !isCurrent()) return false;
+        persistence.deactivateAfterFlush();
+        await options.onActiveEntryChange?.(null);
+        return true;
+      });
     },
     async deactivate(): Promise<void> {
       if (destroyed) return;
-      await persistence.deactivate();
-      options.onActiveEntryChange?.(null);
+      await serializeActiveEntryTransition(async () => {
+        if (destroyed) return;
+        await persistence.deactivate();
+        await options.onActiveEntryChange?.(null);
+      });
     },
     destroy(): void {
       if (destroyed) return;
@@ -310,7 +335,9 @@ export function createWorkspaceController(
       generation += 1;
       options.recoveryButton.removeEventListener("click", onRecoverDiskVersion);
       localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
-      options.onActiveEntryChange?.(null);
+      void serializeActiveEntryTransition(() => options.onActiveEntryChange?.(null)).catch(
+        () => undefined,
+      );
       persistence.destroy();
       dashboard.destroy();
     },

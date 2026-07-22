@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createRunner } from "../../electron/main/runner/index.js";
 import { fingerprintSource } from "../../src/shared/source-snapshot.js";
 import type { TraceBatch, TraceRequest } from "../../src/shared/trace.js";
+import { FOA_LESSONS } from "../../src/tutorials/foa-catalog.js";
 import { FakeProcessHost, flushAsyncWork } from "./fakes.js";
 
 const TRACE_SESSION_ID = "trace_test_session_00000001";
@@ -55,6 +56,9 @@ describe("Runner bounded Trace lifecycle", () => {
       ok: true,
       sessionId: TRACE_SESSION_ID,
       sourceFingerprint: request.sourceFingerprint,
+      inputFingerprint: fingerprintSource(""),
+      observationProfileId: null,
+      observationAuthorizationDigest: null,
       status: "preparing",
     });
     if (!started.ok) throw new Error(started.error.message);
@@ -63,6 +67,9 @@ describe("Runner bounded Trace lifecycle", () => {
     expect(batch).toMatchObject({
       ok: true,
       status: "completed",
+      inputFingerprint: fingerprintSource(""),
+      observationProfileId: null,
+      observationAuthorizationDigest: null,
       truncated: false,
       totalEventCount: 4,
       events: [
@@ -71,7 +78,7 @@ describe("Runner bounded Trace lifecycle", () => {
         { sequence: 3, kind: "branch", line: 3, branchTaken: true },
         { sequence: 4, kind: "line", line: 4 },
       ],
-      evidence: { ok: true, outputBytes: 18 },
+      evidence: { ok: true, outputBytes: 18, stdout: Uint8Array.from(Buffer.from("user-output")) },
     });
     expect(request.source).toBe(traceSource());
     expect(host.specifications).toHaveLength(2);
@@ -175,6 +182,50 @@ describe("Runner bounded Trace lifecycle", () => {
     expect(host.specifications).toEqual([]);
     await runner.dispose();
   });
+
+  it("binds stdin, fixed profile and its probe manifest into the one-use authorization digest", async () => {
+    const host = new FakeProcessHost();
+    const runner = testRunner(host);
+    const source63 = lessonSource(63);
+    const base: TraceRequest = Object.freeze({
+      source: source63,
+      sourceFingerprint: fingerprintSource(source63),
+      sourceName: "main.c",
+      stdin: "4\n",
+      observationProfileId: "foa-transition-63-v1",
+    });
+    const changedStdin: TraceRequest = Object.freeze({ ...base, stdin: "5\n" });
+    const source70 = lessonSource(70);
+    const changedProfile: TraceRequest = Object.freeze({
+      source: source70,
+      sourceFingerprint: fingerprintSource(source70),
+      sourceName: "main.c",
+      stdin: "5\n1 3 5 7 9\n7\n",
+      observationProfileId: "foa-transition-70-v1",
+    });
+
+    const summary = runner.describeTrustedRequest("trace", base);
+    expect(summary.detailLines).toEqual(
+      expect.arrayContaining([
+        "观测 profile：foa-transition-63-v1",
+        "观测 probes：foa63.counter.value, foa63.link.target",
+      ]),
+    );
+    expect(runner.describeTrustedRequest("trace", changedStdin).requestDigest).not.toBe(
+      summary.requestDigest,
+    );
+    expect(runner.describeTrustedRequest("trace", changedProfile).requestDigest).not.toBe(
+      summary.requestDigest,
+    );
+
+    const grant = runner.createTrustedExecutionGrant("trace", base);
+    await expect(runner.startTrace(changedStdin, grant)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "TRUST_CONFIRMATION_REQUIRED" },
+    });
+    expect(host.specifications).toEqual([]);
+    await runner.dispose();
+  });
 });
 
 function traceSource(): string {
@@ -267,4 +318,10 @@ async function retryAfterRunnerBusy<
     await flushAsyncWork();
   }
   throw new Error("Runner stayed busy after terminal Trace batch");
+}
+
+function lessonSource(order: number): string {
+  const source = FOA_LESSONS[order - 1]?.code.text;
+  if (source === undefined) throw new Error(`FOA lesson ${String(order)} missing`);
+  return source;
 }

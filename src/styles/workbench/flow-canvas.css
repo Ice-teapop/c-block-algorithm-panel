@@ -1,0 +1,808 @@
+/* Section: Free-position flow canvas, wires, nodes, drafts, and minimap. */
+.flow-canvas-host {
+  position: relative;
+  container-name: flow-canvas-host;
+  container-type: size;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--input-surface);
+}
+
+.flow-canvas {
+  position: relative;
+  container-type: size;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--input-surface);
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.flow-canvas.is-panning {
+  cursor: grabbing;
+}
+
+.flow-canvas.is-moving-nodes .flow-node.is-selected,
+.flow-canvas.is-moving-nodes .flow-canvas__draft-node.is-selected {
+  cursor: grabbing !important;
+}
+
+.flow-canvas__wires,
+.flow-canvas__viewport,
+.flow-canvas__surface,
+.flow-canvas__node-layer,
+.flow-canvas__draft-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  transform-origin: 0 0;
+}
+
+.flow-canvas__viewport {
+  pointer-events: none;
+}
+
+.flow-canvas__surface,
+.flow-canvas__node-layer,
+.flow-canvas__draft-layer {
+  width: 4096px;
+  height: 4096px;
+}
+
+.flow-canvas__node-layer,
+.flow-canvas__draft-layer {
+  pointer-events: none;
+}
+
+.flow-canvas__wires {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.flow-canvas__wire-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.flow-canvas__wire-group:has(.flow-canvas__wire-hit:hover) .flow-canvas__wire {
+  stroke-width: 2.2;
+}
+
+.flow-canvas__wire,
+.flow-canvas__draft-wire {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.flow-canvas__draft-wire[data-status="pending"] {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.flow-canvas__draft-wire[data-status="validating"] {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-dasharray: 8 4;
+  animation: flow-wire-validating 620ms linear infinite;
+}
+
+@keyframes flow-wire-validating {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.flow-canvas__draft-wire[data-status="valid"] {
+  stroke: var(--success);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+
+.flow-canvas__draft-wire[data-status="invalid"] {
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-dasharray: 2 3;
+}
+
+.flow-canvas__wire[data-editable="true"] {
+  stroke: var(--ink-secondary);
+  opacity: 0.56;
+}
+
+.flow-canvas__wire.is-selected {
+  stroke: var(--accent);
+  stroke-width: 2.8;
+  opacity: 1;
+}
+
+.flow-canvas__wire.is-reconnecting {
+  stroke-dasharray: 3 4;
+  opacity: 0.78;
+}
+
+.flow-canvas__wire.is-insertion-preview {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: 5 3;
+}
+
+.flow-canvas__wire--data {
+  stroke: var(--muted-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.08;
+}
+
+.flow-canvas__wire--data.is-contextual {
+  opacity: 0.68;
+}
+
+.flow-canvas__wire--virtual {
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-dasharray: 7 3 1 3;
+}
+
+.flow-canvas__wire--virtual[data-status="pending"] {
+  stroke: var(--warning);
+  opacity: 0.72;
+}
+
+.flow-canvas__wire[data-edge-kind="branch-true"] {
+  stroke: var(--success);
+  opacity: 0.82;
+}
+
+.flow-canvas__wire[data-edge-kind="branch-false"],
+.flow-canvas__wire[data-edge-kind="terminate"] {
+  stroke: var(--danger);
+  opacity: 0.82;
+}
+
+.flow-canvas.is-wiring .flow-canvas__wire:not(.is-reconnecting) {
+  opacity: 0.12;
+}
+
+.flow-canvas__wire-label {
+  fill: var(--muted-subtle);
+  stroke: var(--input-surface);
+  stroke-width: 3px;
+  paint-order: stroke fill;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.48;
+  pointer-events: none;
+  user-select: none;
+}
+
+.flow-canvas__wire-label[data-edge-kind="branch-true"] {
+  fill: var(--success);
+}
+
+.flow-canvas__wire-label[data-edge-kind="branch-false"] {
+  fill: var(--danger);
+}
+
+.flow-canvas__wire-group:has(.flow-canvas__wire-hit:hover) .flow-canvas__wire-label,
+.flow-canvas__wire-group:has(.flow-canvas__wire.is-selected) .flow-canvas__wire-label,
+.flow-canvas__wire-label.is-active-path {
+  opacity: 1;
+}
+
+.flow-canvas.has-active-path .flow-canvas__wire-label:not(.is-active-path) {
+  opacity: 0.16;
+}
+
+.flow-canvas__wire.is-active-path[data-execution-mode="real"] {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+
+.flow-canvas__wire.is-active-path[data-execution-mode="simulation"] {
+  stroke: var(--warning);
+  stroke-width: 2.4;
+  stroke-dasharray: 5 4;
+}
+
+.flow-canvas.has-active-path .flow-canvas__wire:not(.is-active-path) {
+  opacity: 0.18;
+}
+
+.flow-canvas.has-active-path .flow-canvas__wire.is-selected,
+.flow-canvas.has-active-path .flow-canvas__wire.is-insertion-preview {
+  opacity: 1;
+}
+
+.flow-canvas.has-active-path .flow-canvas__wire.is-reconnecting {
+  opacity: 0.28;
+}
+
+.flow-node {
+  position: absolute;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  column-gap: 6px;
+  align-items: center;
+  height: 32px;
+  min-height: 32px !important;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--block-statement-line);
+  border-radius: 2px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.flow-node[data-node-kind="branch"],
+.flow-node[data-node-kind="switch"],
+.flow-node[data-node-kind="loop"] {
+  border-left-color: var(--block-control-line);
+}
+
+.flow-node[data-node-role="projected-structure"] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--block-control-line) 20%, transparent);
+}
+
+.flow-node[data-node-kind="start"],
+.flow-node[data-node-kind="end"] {
+  border-left-color: var(--accent);
+}
+
+.flow-node[data-node-kind="raw"],
+.flow-node[data-locked="true"] {
+  border-left-color: var(--raw);
+  background: var(--surface-soft);
+}
+
+.flow-node[data-reachable="true"] {
+  border-style: solid;
+  color: var(--ink);
+  opacity: 1;
+}
+
+.flow-node[data-reachable="false"] {
+  border-color: var(--muted-subtle);
+  border-left-color: var(--muted-subtle);
+  border-style: dashed;
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+
+.flow-node[data-reachable="false"] .flow-node__kind,
+.flow-node[data-reachable="false"] .flow-node__status {
+  color: var(--muted);
+}
+
+.flow-node:hover,
+.flow-node.is-selected {
+  border-color: var(--accent-line);
+}
+
+.flow-node.is-selected {
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.flow-canvas.has-active-path .flow-node:not(.is-active-path),
+.flow-canvas.has-active-path .flow-canvas__draft-node:not(.is-active-path) {
+  opacity: 0.32;
+}
+
+.flow-node.is-active-path[data-execution-mode="real"] {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--accent-soft));
+  box-shadow:
+    0 0 0 1px var(--accent-line),
+    inset 4px 0 0 var(--accent);
+}
+
+.flow-node.is-active-path[data-execution-mode="simulation"] {
+  border-color: var(--warning);
+  border-style: dashed;
+  color: var(--ink);
+  background: var(--surface-raised);
+  outline: 1px dashed var(--warning);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.flow-node.is-current[data-execution-mode="real"] {
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent-line),
+    inset 4px 0 0 color-mix(in srgb, var(--on-accent) 45%, transparent);
+}
+
+.flow-node.is-current[data-execution-mode="real"] .flow-node__kind,
+.flow-node.is-current[data-execution-mode="real"] .flow-node__status {
+  color: var(--on-accent);
+}
+
+.flow-node.is-current[data-execution-mode="simulation"] {
+  border-style: dashed;
+  outline: 2px dashed var(--warning);
+  outline-offset: 2px;
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.flow-node__kind,
+.flow-node__status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-subtle);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.flow-node__label {
+  overflow: hidden;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-node__port {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  transform: translateX(-50%) scale(var(--flow-port-screen-scale, 1));
+  transform-origin: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: crosshair;
+}
+
+.flow-node__port::after {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--ink-secondary);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 2px var(--surface-raised);
+  content: "";
+}
+
+.flow-node__port--input {
+  top: -12px;
+  left: 50%;
+}
+
+.flow-node__port--output {
+  bottom: -12px;
+  left: 50%;
+}
+
+.flow-node__port:disabled {
+  cursor: not-allowed;
+}
+
+.flow-node__port[data-connection-affordance="fixed"] {
+  cursor: default;
+}
+
+.flow-node__port:disabled::after {
+  border-color: var(--muted-subtle);
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+
+.flow-node__port[data-connected="true"]::after {
+  border-color: var(--ink-secondary);
+  background: var(--ink-secondary);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 3px var(--ink-secondary);
+}
+
+.flow-node__port[data-selected-cable-end="true"]::after {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px var(--accent-line);
+}
+
+.flow-node__port[data-wire-pressed="true"]::after {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.flow-node__port[data-selected-cable-end="true"][data-cable-label]::before,
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="detached"][data-wire-label]::before {
+  position: absolute;
+  top: -16px;
+  z-index: 4;
+  width: max-content;
+  padding: 0 2px;
+  color: var(--ink-secondary);
+  background: var(--input-surface);
+  font-size: 8px;
+  font-weight: 650;
+  line-height: 12px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.flow-node__port--input[data-selected-cable-end="true"][data-cable-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--input[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--input[data-wire-target="detached"][data-wire-label]::before {
+  left: 12px;
+}
+
+.flow-node__port--output[data-selected-cable-end="true"][data-cable-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="detached"][data-wire-label]::before {
+  right: 12px;
+}
+
+.flow-node__port--output[data-selected-cable-end="true"][data-cable-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="detached"][data-wire-label]::before {
+  top: 22px;
+}
+
+.flow-node__port[data-selected-cable-end="true"][data-cable-label]::before {
+  content: attr(data-cable-label);
+}
+
+.flow-node__port[data-cable-role="reconnect-input"]::before,
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="compatible"][data-wire-label]::before {
+  color: var(--accent);
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="detached"][data-wire-label]::before {
+  content: attr(data-wire-label);
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="detached"][data-wire-label]::before {
+  color: var(--warning);
+}
+
+.flow-node__port:not(:disabled):not([data-connection-affordance="fixed"]):hover::after,
+.flow-node__port:focus-visible::after {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 3px var(--accent);
+}
+
+.flow-canvas__wire-status {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 19;
+  max-width: min(560px, calc(100% - 220px));
+  padding: 4px 7px;
+  color: var(--ink-secondary);
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  font-size: 9px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.flow-canvas__wire-status:empty {
+  display: none;
+}
+
+.flow-canvas__wire-status[data-state="warning"] {
+  color: var(--warning);
+}
+
+.flow-canvas__wire-status[data-state="error"] {
+  color: var(--danger);
+}
+
+.flow-node__port:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="invalid"]::after {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.3;
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="compatible"]::after {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 4px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-nearest="true"]::after {
+  box-shadow:
+    0 0 0 2px var(--surface-raised),
+    0 0 0 5px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="source"]::after {
+  background: var(--surface-raised);
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    0 0 0 2px var(--surface-raised),
+    0 0 0 3px var(--accent);
+}
+
+.flow-canvas.is-wiring .flow-node__port[data-wire-target="detached"]::after {
+  border: 2px solid var(--accent);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-canvas__draft-wire[data-status="validating"] {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+
+.flow-canvas__marquee {
+  position: absolute;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.flow-canvas__empty {
+  position: absolute;
+  top: 42%;
+  width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.flow-canvas__draft-node {
+  position: absolute;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 150px;
+  height: 32px;
+  padding: 7px 9px;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-raised);
+  font-size: 9px;
+  pointer-events: auto;
+}
+
+.flow-canvas__draft-node[data-status="detached"] {
+  border-color: var(--muted-subtle);
+  border-style: dashed;
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+
+.flow-canvas__draft-node[data-node-role="runtime-marker"] {
+  border-color: var(--muted-subtle);
+  border-style: dashed;
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.flow-canvas__draft-node[data-status="valid"] {
+  border-color: var(--success);
+  border-style: solid;
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.flow-canvas__draft-node.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.flow-canvas__draft-node[data-status="invalid"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.flow-canvas__draft-node.is-active-path[data-execution-mode="real"] {
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--accent-soft));
+  box-shadow:
+    0 0 0 1px var(--accent-line),
+    inset 4px 0 0 var(--accent);
+}
+
+.flow-canvas__draft-node.is-active-path[data-execution-mode="simulation"] {
+  border-color: var(--warning);
+  border-style: dashed;
+  color: var(--ink);
+  background: var(--surface-raised);
+  outline: 1px dashed var(--warning);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.flow-canvas__draft-node.is-current[data-execution-mode="real"] {
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent-line),
+    inset 4px 0 0 color-mix(in srgb, var(--on-accent) 45%, transparent);
+}
+
+.flow-canvas__draft-node.is-current[data-execution-mode="real"] .flow-node__status {
+  color: var(--on-accent);
+}
+
+.flow-canvas__draft-node.is-current[data-execution-mode="simulation"] {
+  outline: 2px dashed var(--warning);
+  outline-offset: 2px;
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.flow-minimap {
+  position: absolute;
+  z-index: 18;
+  inset: auto 12px 12px auto;
+  display: grid;
+  width: 176px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  grid-template-rows: 24px 112px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  pointer-events: none;
+  transform: none;
+}
+
+/* Layout invariant: Short canvases collapse the map body but keep its control anchored. */
+@container flow-canvas-host (max-height: 190px) {
+  .flow-minimap {
+    width: auto;
+    grid-template-rows: 24px;
+  }
+
+  .flow-minimap__map {
+    display: none !important;
+  }
+}
+
+.flow-minimap[data-collapsed="true"] {
+  width: auto;
+  grid-template-rows: 24px;
+}
+
+.flow-minimap__toggle {
+  width: 100%;
+  padding: 0 7px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+  font-size: 9px;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.flow-minimap[data-collapsed="true"] .flow-minimap__toggle {
+  border-bottom: 0;
+}
+
+.flow-minimap__toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.flow-minimap__map {
+  display: block;
+  width: 100%;
+  height: 112px;
+  background: color-mix(in srgb, var(--input-surface) 96%, transparent);
+  pointer-events: none;
+}
+
+.flow-minimap__node {
+  fill: var(--muted-subtle);
+  opacity: 0.62;
+  vector-effect: non-scaling-stroke;
+}
+
+.flow-minimap__node--draft {
+  fill: none;
+  stroke: var(--muted-subtle);
+  stroke-dasharray: 2 2;
+  stroke-width: 1;
+}
+
+.flow-minimap__node.is-active-path[data-execution-mode="real"] {
+  fill: var(--accent);
+  opacity: 1;
+}
+
+.flow-minimap__node.is-active-path[data-execution-mode="simulation"] {
+  fill: var(--warning);
+  opacity: 1;
+}
+
+.flow-minimap__path {
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.flow-minimap__path[data-execution-mode="simulation"] {
+  stroke: var(--warning);
+  stroke-dasharray: 3 2;
+}
+
+.flow-minimap__viewport {
+  fill: color-mix(in srgb, var(--accent) 7%, transparent);
+  stroke: var(--accent-line);
+  stroke-width: 1;
+  cursor: move;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.flow-minimap__viewport-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  cursor: move;
+  pointer-events: stroke;
+  vector-effect: non-scaling-stroke;
+}

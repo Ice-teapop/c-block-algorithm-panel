@@ -6,12 +6,12 @@ automatically generated **Source code** archives are not application installers.
 
 ## Available cross-platform preview
 
-`v0.0.3-preview.1` is an **unsigned prerelease** built from one source revision:
+`v0.1.1-preview.1` is an **unsigned prerelease** built from one source revision:
 
-- [Download the macOS Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/AlgoLatch-0.0.3-preview.1-unsigned-universal.dmg)
-- [Download the Windows x64 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/AlgoLatch-Setup-0.0.3-preview.1-unsigned-x64.exe)
-- [Download the shared SHA-256 checksum](https://github.com/Ice-teapop/algolatch/releases/download/v0.0.3-preview.1/SHA256SUMS.txt)
-- [Read the preview release notes](https://github.com/Ice-teapop/algolatch/releases/tag/v0.0.3-preview.1)
+- [Download the macOS Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/AlgoLatch-0.1.1-preview.1-unsigned-universal.dmg)
+- [Download the Windows x64 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/AlgoLatch-Setup-0.1.1-preview.1-unsigned-x64.exe)
+- [Download the shared SHA-256 checksum](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.1/SHA256SUMS.txt)
+- [Read the preview release notes](https://github.com/Ice-teapop/algolatch/releases/tag/v0.1.1-preview.1)
 
 The macOS application is ad-hoc signed but has no Developer ID signature or
 Apple notarization. Gatekeeper can require Control-click → Open or approval in
@@ -19,6 +19,16 @@ System Settings → Privacy & Security. The Windows installer has no
 Authenticode signature, so Windows can display an unknown-publisher or
 SmartScreen warning. Verify the checksum and install only if you accept these
 boundaries.
+
+## Tutorial testing notice
+
+This preview substantially expands the course system, semantic animation and
+runtime-state visualization. Some courses may still contain interaction,
+layout, localization or result bugs. If you find one, open a
+[GitHub issue](https://github.com/Ice-teapop/algolatch/issues/new/choose) with
+the course number, operating system and display scale, reproduction steps and
+a screenshot. Do not include private source code, API keys or exploitable
+security details in a public issue.
 
 The Windows installer is one-click, per-user and includes its locked C
 toolchain. The macOS DMG is Universal for Apple Silicon and Intel. Uninstalling

@@ -13,6 +13,7 @@ import type {
 } from "./contracts.js";
 import { ENGLISH_LIBRARY_ENTRY_LOCALIZATIONS } from "./english-localizations.js";
 import { DSA_LIBRARY_ENTRIES } from "./entries-dsa.js";
+import { FOA_LIBRARY_ENTRIES } from "./entries-foa.js";
 import { LANGUAGE_LIBRARY_ENTRIES } from "./entries-language.js";
 import { PLATFORM_LIBRARY_ENTRIES } from "./entries-platform.js";
 import { TUTORIAL_LIBRARY_ENTRIES } from "./entries-tutorials.js";
@@ -32,6 +33,7 @@ const RAW_ENTRIES: readonly LibraryEntryInput[] = [
   ...LANGUAGE_LIBRARY_ENTRIES,
   ...DSA_LIBRARY_ENTRIES,
   ...TUTORIAL_LIBRARY_ENTRIES,
+  ...FOA_LIBRARY_ENTRIES,
 ];
 
 export const LIBRARY_ENTRIES: readonly LibraryEntry[] = normalizeCatalog(RAW_ENTRIES);
@@ -293,6 +295,16 @@ function normalizeTutorial(input: LibraryEntryInput): LibraryTutorial | null {
   if (guidedLessonId !== undefined && !ENTRY_ID_PATTERN.test(guidedLessonId)) {
     throw new TypeError(`Library 教程 ${input.id} 的 guidedLessonId 非法：${guidedLessonId}`);
   }
+  const taskLessonId =
+    tutorial.taskLessonId === undefined
+      ? undefined
+      : requireText(tutorial.taskLessonId, `${input.id}.tutorial.taskLessonId`);
+  if (taskLessonId !== undefined && !ENTRY_ID_PATTERN.test(taskLessonId)) {
+    throw new TypeError(`Library 教程 ${input.id} 的 taskLessonId 非法：${taskLessonId}`);
+  }
+  if (guidedLessonId !== undefined && taskLessonId !== undefined) {
+    throw new TypeError(`Library 教程 ${input.id} 不能同时绑定 guidedLessonId 与 taskLessonId`);
+  }
   assertIntegerInRange(tutorial.order, 1, 1000, `${input.id}.tutorial.order`);
   assertIntegerInRange(tutorial.estimatedMinutes, 1, 180, `${input.id}.tutorial.estimatedMinutes`);
   if (!TUTORIAL_LEVELS.has(tutorial.level)) {
@@ -373,6 +385,7 @@ function normalizeTutorial(input: LibraryEntryInput): LibraryTutorial | null {
   );
   return Object.freeze({
     ...(guidedLessonId === undefined ? {} : { guidedLessonId }),
+    ...(taskLessonId === undefined ? {} : { taskLessonId }),
     pathId,
     order: tutorial.order,
     level: tutorial.level,

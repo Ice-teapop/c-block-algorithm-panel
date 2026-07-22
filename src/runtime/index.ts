@@ -37,3 +37,21 @@ export {
   type RunHistoryEvidenceAnalytics,
   type ScenarioReferenceWorkload,
 } from "./evidence-analytics.js";
+export {
+  createRuntimeDataFlowVerifier,
+  type RuntimeArrayCellSnapshot,
+  type RuntimeDataFlowBinding,
+  type RuntimeDataFlowIssue,
+  type RuntimeDataFlowSnapshot,
+  type RuntimeDataFlowStatus,
+  type RuntimeDataFlowVerifier,
+  type RuntimeDataProvenance,
+  type RuntimeDataRelationBinding,
+  type RuntimeDataSymbolBinding,
+  type RuntimeEventEnvelope,
+  type RuntimeObjectLinkSnapshot,
+  type RuntimeObservedValue,
+  type RuntimeStackFrameSnapshot,
+  type RuntimeStateEvent,
+  type RuntimeSymbolAnchor,
+} from "./data-flow-verifier.js";

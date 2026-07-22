@@ -5,6 +5,7 @@ import type {
   LibraryTutorialArtifact,
   LibraryTutorialStep,
 } from "./contracts.js";
+import { INSERTION_SORT_LAB_SOURCE } from "../tutorials/insertion-sort-lab.js";
 
 const MAXIMUM_SOURCE = `#include <stdio.h>
 
@@ -616,10 +617,120 @@ export const TUTORIAL_LIBRARY_ENTRIES: readonly LibraryEntryInput[] = [
       pitfalls: ["同时修改多处会让你无法判断真正根因，也可能引入新的错误。"],
     },
   ),
+  tutorialEntry(
+    "tutorial.insertion-sort-lab",
+    "插入排序实验",
+    "先操作教材的相邻交换版本，再对照 key+右移优化，并用分布明确的场景完成运行、Trace 和 Benchmark。",
+    [
+      "教材主路径让当前元素通过相邻交换逐步向左，直到已排序前缀恢复有序；它更直观地呈现每次比较和交换。",
+      "key+右移版本是完成教材路径后的优化对照：先保存当前值，再右移较大前驱，最后写回空位，减少部分写入。",
+      "Trace 只证明循环和分支实际经过的路径，不显示数组每一步的值。数组结果由真实输出核对，增长趋势由多规模 Benchmark 观察。",
+    ],
+    {
+      taskLessonId: "lesson.task.insertion-sort",
+      order: 9,
+      level: "intermediate",
+      estimatedMinutes: 15,
+      prerequisites: ["c.arrays", "c.loops", "algorithms.sorting", "tutorial.complexity-growth"],
+      goals: [
+        "把已排序前缀对应到教材相邻交换的每次比较与交换",
+        "区分教材主路径与 key+右移优化对照",
+        "用普通、逆序和重复值输入核对排序结果",
+        "区分真实路径、操作增长和墙钟时间三类证据",
+      ],
+      steps: [
+        step(
+          "compare-insertion-block",
+          "先交换，再看优化",
+          "先运行教材相邻交换源码并观察当前元素逐格左移；理解后再搜索“右移较大元素”，对照 key 暂存、批量右移和最后写回。两者排序语义相同，但具体写入路径不同。",
+          [
+            artifact("source", c("教材相邻交换主路径", INSERTION_SORT_LAB_SOURCE)),
+            artifact(
+              "snippet",
+              c(
+                "优化对照 · key+右移",
+                "while (j > 0 && values[j - 1] > key) {\n  values[j] = values[j - 1];\n  j--;\n}\nvalues[j] = key;",
+              ),
+            ),
+          ],
+          link("打开预设块", "build", "preset-blocks"),
+          "能指出教材版每次交换的两个位置，并说明优化版为什么必须先保存 key。",
+        ),
+        step(
+          "run-input-families",
+          "运行三类输入",
+          "先写下预期结果，再依次运行普通、完全逆序和包含重复值的输入；每次都检查正常退出和完整升序输出。",
+          [
+            artifact(
+              "snippet",
+              text("普通案例", "stdin:\n5\n5 2 4 6 1\nexpected stdout:\n1 2 4 5 6\n"),
+            ),
+            artifact(
+              "snippet",
+              text("逆序案例", "stdin:\n5\n5 4 3 2 1\nexpected stdout:\n1 2 3 4 5\n"),
+            ),
+            artifact(
+              "snippet",
+              text("重复值案例", "stdin:\n6\n3 1 3 2 1 2\nexpected stdout:\n1 1 2 2 3 3\n"),
+            ),
+          ],
+          link("打开运行面板", "run", "runtime-flow"),
+          "三次运行均正常结束，实际输出逐字符匹配对应预期。",
+        ),
+        step(
+          "trace-reverse-path",
+          "追踪逆序路径",
+          "再次使用逆序输入启动真实 Trace，观察内层 while 的执行和退出路径；不要把路径高亮解释为数组值采样。",
+          [artifact("stdin", text("Trace 输入", "5\n5 4 3 2 1\n"))],
+          link("启动真实 Trace", "run", "runtime-flow"),
+          "Trace 映射到当前源码并经过右移循环；结论只描述实际路径，不声称看到了每次数组内容。",
+        ),
+        step(
+          "benchmark-insertion-growth",
+          "比较规模增长",
+          "分别选择“插入排序 · 已排序”“插入排序 · 逆序”和“插入排序 · 重复值”场景，对 8、32、128 三个规模各重复至少 3 次。不同输入分布保持为独立 cohort，再分别阅读操作增长与墙钟时间。",
+          [
+            artifact(
+              "snippet",
+              text(
+                "Benchmark 设置",
+                "scenarios: 插入排序 · 已排序 / 逆序 / 重复值\nsizes: 8, 32, 128\nrepetitions: 3",
+              ),
+            ),
+          ],
+          link("打开分析", "analysis", "analysis"),
+          "三档结果来自同一源码和场景；解释中不把一次耗时或一条曲线写成复杂度证明。",
+        ),
+      ],
+      checks: [
+        "我能用相邻交换解释 values[0..i) 为什么在每轮结束后恢复有序。",
+        "我能说明 key+右移是优化对照，而不是另一种排序结论。",
+        "普通、逆序和重复值输入都得到完整升序输出。",
+        "我能区分 Trace 路径、操作增长和实际耗时各自能证明什么。",
+      ],
+    },
+    {
+      aliases: ["insertion sort", "插入法排序", "相邻交换", "已排序前缀"],
+      keywords: ["交换", "右移", "key", "逆序", "重复值", "Benchmark"],
+      example: c("教材相邻交换插入排序", INSERTION_SORT_LAB_SOURCE),
+      related: [
+        "algorithms.sorting",
+        "examples.sort-benchmark",
+        "examples.test-matrix",
+        "tutorial.complexity-growth",
+      ],
+      featureLink: link("打开代码面板", "build", "code-pane"),
+      complexity: "最坏和平均时间 O(n²)，已排序输入最好 O(n)；使用 O(1) 额外空间。",
+      pitfalls: [
+        "教材版交换时漏掉任一写回会复制并丢失元素；优化版若忘记把 key 写回 values[j] 也会破坏排列。",
+      ],
+    },
+  ),
 ];
 
 interface TutorialOptions {
   readonly guidedLessonId?: string;
+  readonly taskLessonId?: string;
   readonly order: number;
   readonly level?: "beginner" | "intermediate";
   readonly estimatedMinutes: number;
@@ -663,6 +774,7 @@ function tutorialEntry(
     pitfalls: options.pitfalls,
     tutorial: {
       ...(tutorial.guidedLessonId === undefined ? {} : { guidedLessonId: tutorial.guidedLessonId }),
+      ...(tutorial.taskLessonId === undefined ? {} : { taskLessonId: tutorial.taskLessonId }),
       pathId: "beginner-core",
       order: tutorial.order,
       level: tutorial.level ?? "beginner",
