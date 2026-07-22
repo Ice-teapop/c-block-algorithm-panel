@@ -1481,8 +1481,10 @@ function visualNode(host: HTMLElement, id: string, label: string): HTMLElement {
   node.dataset.teachingTokenId = id;
   node.dataset.active = "false";
   const title = documentFor(host).createElement("span");
+  title.className = "foa-transition-prototype__node-label";
   title.textContent = label;
   const value = documentFor(host).createElement("output");
+  value.className = "foa-transition-prototype__node-value";
   value.textContent = "—";
   node.append(title, value);
   return node;
