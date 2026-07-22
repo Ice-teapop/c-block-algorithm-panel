@@ -302,11 +302,12 @@ async function waitForTerminal(
 }
 
 async function waitForChild(host: FakeProcessHost): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
     if (host.children[0] !== undefined) return;
     await flushAsyncWork();
   }
-  throw new Error("Trace child did not spawn");
+  throw new Error("Trace child did not spawn within the test deadline");
 }
 
 async function retryAfterRunnerBusy<

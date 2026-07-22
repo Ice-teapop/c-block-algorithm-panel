@@ -4,6 +4,13 @@ import type { LibraryEntry, LibrarySearchOptions, LibrarySearchResult } from "./
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
+type SearchField = LibrarySearchResult["matchedFields"][number];
+type SearchFields = Readonly<Record<SearchField, string>>;
+
+const BRANCH_LABEL_BY_ID: ReadonlyMap<string, string> = new Map(
+  LIBRARY_BRANCHES.map((branch) => [branch.id, branch.label]),
+);
+const SEARCH_FIELDS_BY_ENTRY = new WeakMap<LibraryEntry, SearchFields>();
 
 export function searchLibrary(
   query: string,
@@ -47,10 +54,45 @@ export function searchLibrary(
 }
 
 function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySearchResult | null {
-  const branch = LIBRARY_BRANCHES.find((candidate) => candidate.id === entry.branchId);
+  const fields = searchFields(entry);
+  const matched = new Set<SearchField>();
+  let score = 0;
+  for (const token of tokens) {
+    let tokenScore = 0;
+    if (fields.title === token) tokenScore = 100;
+    else if (fields.title.includes(token)) tokenScore = 45;
+    if (fields.alias.includes(token)) tokenScore = Math.max(tokenScore, 38);
+    if (fields.keyword.includes(token)) tokenScore = Math.max(tokenScore, 32);
+    if (fields.summary.includes(token)) tokenScore = Math.max(tokenScore, 20);
+    if (fields.detail.includes(token)) tokenScore = Math.max(tokenScore, 12);
+    if (fields.code.includes(token)) tokenScore = Math.max(tokenScore, 8);
+    if (fields.syntax.includes(token)) tokenScore = Math.max(tokenScore, 18);
+    if (fields.complexity.includes(token)) tokenScore = Math.max(tokenScore, 22);
+    if (fields.pitfall.includes(token)) tokenScore = Math.max(tokenScore, 24);
+    if (fields.tutorial.includes(token)) tokenScore = Math.max(tokenScore, 18);
+    if (fields.related.includes(token)) tokenScore = Math.max(tokenScore, 10);
+    if (tokenScore === 0) return null;
+    score += tokenScore;
+    for (const [field, value] of Object.entries(fields)) {
+      if (value.includes(token)) matched.add(field as SearchField);
+    }
+  }
+  return Object.freeze({
+    entry,
+    score,
+    matchedFields: Object.freeze([...matched]),
+  });
+}
+
+function searchFields(entry: LibraryEntry): SearchFields {
+  const cached = SEARCH_FIELDS_BY_ENTRY.get(entry);
+  if (cached !== undefined) return cached;
+
   const english = entry.localizations?.en;
-  const fields = {
-    title: normalize(`${entry.id} ${entry.title} ${english?.title ?? ""} ${branch?.label ?? ""}`),
+  const fields: SearchFields = Object.freeze({
+    title: normalize(
+      `${entry.id} ${entry.title} ${english?.title ?? ""} ${BRANCH_LABEL_BY_ID.get(entry.branchId) ?? ""}`,
+    ),
     alias: normalize(`${entry.aliases.join(" ")} ${english?.aliases?.join(" ") ?? ""}`),
     summary: normalize(`${entry.summary} ${english?.summary ?? ""}`),
     detail: normalize(`${entry.details.join(" ")} ${english?.details?.join(" ") ?? ""}`),
@@ -70,34 +112,9 @@ function scoreEntry(entry: LibraryEntry, tokens: readonly string[]): LibrarySear
         })
         .join(" "),
     ),
-  } as const;
-  const matched = new Set<LibrarySearchResult["matchedFields"][number]>();
-  let score = 0;
-  for (const token of tokens) {
-    let tokenScore = 0;
-    if (fields.title === token) tokenScore = 100;
-    else if (fields.title.includes(token)) tokenScore = 45;
-    if (fields.alias.includes(token)) tokenScore = Math.max(tokenScore, 38);
-    if (fields.keyword.includes(token)) tokenScore = Math.max(tokenScore, 32);
-    if (fields.summary.includes(token)) tokenScore = Math.max(tokenScore, 20);
-    if (fields.detail.includes(token)) tokenScore = Math.max(tokenScore, 12);
-    if (fields.code.includes(token)) tokenScore = Math.max(tokenScore, 8);
-    if (fields.syntax.includes(token)) tokenScore = Math.max(tokenScore, 18);
-    if (fields.complexity.includes(token)) tokenScore = Math.max(tokenScore, 22);
-    if (fields.pitfall.includes(token)) tokenScore = Math.max(tokenScore, 24);
-    if (fields.tutorial.includes(token)) tokenScore = Math.max(tokenScore, 18);
-    if (fields.related.includes(token)) tokenScore = Math.max(tokenScore, 10);
-    if (tokenScore === 0) return null;
-    score += tokenScore;
-    for (const [field, value] of Object.entries(fields)) {
-      if (value.includes(token)) matched.add(field as LibrarySearchResult["matchedFields"][number]);
-    }
-  }
-  return Object.freeze({
-    entry,
-    score,
-    matchedFields: Object.freeze([...matched]),
   });
+  SEARCH_FIELDS_BY_ENTRY.set(entry, fields);
+  return fields;
 }
 
 function localizedTutorialSearchText(entry: LibraryEntry): string {
