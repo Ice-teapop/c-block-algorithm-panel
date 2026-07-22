@@ -348,7 +348,7 @@
 
 .foa-transition-prototype__canvas[data-order="70"] .foa-transition-prototype__array {
   width: 100%;
-  grid-auto-columns: max(44px, calc((100% - 20px) / 6));
+  grid-auto-columns: max(52px, calc((100% - 20px) / 6));
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   scroll-snap-type: inline proximity;
@@ -358,6 +358,15 @@
 .foa-transition-prototype__canvas[data-order="70"] .foa-transition-prototype__array-cell {
   overflow: hidden;
   scroll-snap-align: start;
+}
+
+.foa-transition-prototype__canvas[data-order="70"] .foa-transition-prototype__array-cell > span {
+  display: flex;
+  min-height: 3.6em;
+  align-items: end;
+  justify-content: center;
+  line-height: 1.2;
+  white-space: pre-line;
 }
 
 .foa-transition-prototype__bounds {
@@ -740,7 +749,7 @@
   }
 
   .foa-transition-prototype__canvas[data-order="70"] .foa-transition-prototype__array {
-    grid-auto-columns: max(48px, calc((100% - 8px) / 3));
+    grid-auto-columns: max(52px, calc((100% - 8px) / 3));
   }
 
   .foa-transition-prototype__canvas[data-order="70"] .foa-transition-prototype__visual {

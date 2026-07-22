@@ -1253,7 +1253,7 @@ function createSearchRenderer(
             index === high - 1 ? "high−1" : "",
           ].filter(Boolean);
           cell.querySelector("span")!.textContent =
-            markers.length > 0 ? markers.join(" · ") : String(index);
+            markers.length > 0 ? markers.join("\n") : String(index);
         }
       }
       if (mid !== null) keepChildVisible(row, cells[mid]!);
